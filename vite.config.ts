@@ -19,6 +19,10 @@ export default defineConfig(({ mode }) => {
     },
     plugins: [tailwindcss(), react()],
     define: {
+      ...(mode === 'hub' ? {
+        'import.meta.env.VITE_DATA_API_BASE_URL': JSON.stringify('/api'),
+        'import.meta.env.VITE_DATA_API_FALLBACK': JSON.stringify('false'),
+      } : {}),
       'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
       'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
       // Support both VITE_ prefixed (local) and non-prefixed (Vercel) env vars

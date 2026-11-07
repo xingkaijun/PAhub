@@ -8,6 +8,7 @@ PAhub = D1-PAPC（图纸审批进度）+ PG PCF v1.9（每张图一份意见记�
 3. 每张图一个 PCF 文件；意见往来通过邮件发送/接收 PCF 文件。
 4. 发给船厂的 PCF **锁定 Owner 栏**，船厂只能填写 Builder 回复（及回复日期/编号）。
 5. 在线编辑为**匿名**（不需要登录）。
+7. **在线编辑与发送都使用 HTML 文件**（用户 2026-11-07 确认）：服务器上每张图存的就是一个完整的 PCF .html，发给船厂的也是 .html。
 6. 服务器：Ubuntu，局域网 http 访问。浏览器的 File System Access API 在非 HTTPS 下不可用，因此在线模式由服务器负责保存。
 
 ## 架构
@@ -15,8 +16,9 @@ PAhub = D1-PAPC（图纸审批进度）+ PG PCF v1.9（每张图一份意见记�
   - 托管 PAPC 前端（vite build 产物）。
   - 在 `/api/*` 提供 PAPC 原有 API：直接复用 `worker/src/index.ts` 的 fetch 处理函数，`env.PAPC_DB` 由一个基于 `node:sqlite` 的 D1 兼容适配器提供（prepare/bind/first/all/run/raw/batch/exec）。这样 Worker 业务逻辑不改。
   - SQLite 数据库文件：`data/papc.db`。
-  - PCF 文件：`data/pcf/<projectId>/<drawingId>.json`（权威数据，只有 pcf-data JSON），历史版本 `data/pcf/<projectId>/<drawingId>/history/<rev>.json`。
-  - PCF 页面：`/pcf/<projectId>/<drawingId>` 时由服务器把 `pcf/template/` 里的最新模板与该 JSON 拼成 HTML 返回。
+  - PCF 文件：`data/pcf/<projectId>/<图号>.html`，完整的 PCF HTML 文件即权威数据（内嵌 pcf-data JSON），历史版本 `data/pcf/<projectId>/.history/<图号>/<rev>.html`。
+  - PCF 页面：`/pcf/<projectId>/<drawingId>` 直接返回该 HTML 文件（托管模式下保存走服务器）。服务器保存时解析并更新内嵌 JSON 再写回 HTML；模板升级时可批量把各文件的数据迁入新模板。
+  - 导出发给船厂的就是同一份 HTML 的副本（Owner 栏锁定）。
 - 部署：systemd 服务（或 Docker），一个端口，定时备份 `data/`。
 
 ## 在线编辑与多人冲突处理（匿名）

@@ -10,7 +10,9 @@ export class CloudflareApiRepository implements DataRepository {
   constructor(private readonly baseUrl: string, private readonly authToken?: string) { }
 
   private async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-    const url = new URL(path, this.baseUrl.endsWith('/') ? this.baseUrl : `${this.baseUrl}/`);
+    // Support both same-origin /api and existing absolute Worker URLs.
+    const base = this.baseUrl.endsWith('/') ? this.baseUrl : `${this.baseUrl}/`;
+    const url = new URL(path, new URL(base, globalThis.location?.origin));
     const res = await fetch(url.toString(), {
       method: options.method || 'GET',
       headers: {
@@ -128,6 +130,6 @@ export class CloudflareApiRepository implements DataRepository {
 
   async testConnection(_settings: AppSettings): Promise<{ success: boolean; message: string }> {
     await this.request('health');
-    return { success: true, message: 'Connected to Cloudflare API' };
+    return { success: true, message: 'Connected to PAPC API' };
   }
 }

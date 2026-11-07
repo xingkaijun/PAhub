@@ -31,3 +31,6 @@ dist-ssr
 # D1 dumps / backups — contain live project data, never commit
 backup-*.sql
 *.dump.sql
+
+# PAhub database, WAL/SHM and local imports
+/data/
