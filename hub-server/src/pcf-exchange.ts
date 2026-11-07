@@ -4,7 +4,7 @@ import path from 'node:path';
 import { PcfStorage, parseHTML, atomicWrite } from './pcf-storage.ts';
 import { createZip } from './zip.ts';
 import { renderTemplate } from './pcf-template.ts';
-import { cleanContent, entity, applyOps, fail, safeId, type Actor, type PcfData, type Op } from './pcf-model.ts';
+import { cleanContent, entity, applyOps, fail, safeId, cleanupLegacyImport, type Actor, type PcfData, type Op } from './pcf-model.ts';
 
 function canonical(v: any): string {
   return JSON.stringify(v, (_k, x) => x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.keys(x).sort().map(k => [k, x[k]])) : x);
@@ -17,7 +17,7 @@ export function externalData(source: PcfData): PcfData {
   // Explicit allowlist: no hub clocks, receipts, clients, IPs, paths or internal audit history.
   const pick = (v: any, keys: string[]) => Object.fromEntries(keys.map(k => [k, structuredClone(v[k] ?? '')]));
   return {
-    schemaVersion: source.schemaVersion, documentId: source.documentId, updatedAt: source.updatedAt,
+    schemaVersion: source.schemaVersion, appVersion: '2.6', documentId: source.documentId, updatedAt: source.updatedAt,
     project: { ...pick(source.project, ['name','planTitle','planNo','revision','approval','currentRound']), folder: '' },
     comments: source.comments.map((c: any) => ({ ...pick(c, ['id','number','page','tags','status','createdAt','updatedAt']),
       rounds: c.rounds.map((r: any) => ({ ...pick(r, ['id','number','initiator','responder','minHeight','createdAt','updatedAt']), owner: cleanContent(r.owner), reply: cleanContent(r.reply) })) })),
@@ -25,6 +25,11 @@ export function externalData(source: PcfData): PcfData {
     roundRegister: source.roundRegister.map((r: any) => pick(r, ['id','round','revision','ownerRef','ownerDate','replyRef','replyDate'])),
     approvalControl: pick(source.approvalControl, ['lastOpen','source','reason']), settings: pick(source.settings, ['fontSize','autoSaveSeconds']),
   };
+}
+export function standaloneHTML(data: PcfData) {
+  const html = renderTemplate(data).replace(/\/\/ PAhub adapter:[\s\S]*?(?=^const TEXT_COLORS=)/m, 'const hubMode=false,hubBase=null;function hubMark(){}\n');
+  const start = html.indexOf('if(hubMode){data=hubExternal(data);'), end = html.indexOf("root.querySelector('#pcf-data')", start);
+  return start < 0 ? html : html.slice(0,start) + html.slice(end);
 }
 function readonlyPart(data: PcfData, round: number) {
   const copy = structuredClone(data); delete copy.updatedAt;
@@ -66,7 +71,7 @@ export class PcfExchange {
     external.export = { exportId, documentId: data.documentId, baseRev: rev, round, exportedAt, mode: 'builder' };
     external.export.ownerHmac = this.mac(readonlyPart(external, round));
     // Remove the complete hosted adapter, not merely its live credential injection.
-    const html = renderTemplate(external).replace(/\/\/ PAhub adapter:[\s\S]*?(?=const TEXT_COLORS=)/, 'const hubMode=false,hubBase=null;function hubMark(){}\n').replace(/root\.querySelectorAll\('#pahub-context[^']*'\)\.forEach\(el=>el\.remove\(\)\);/, '');
+    const html = standaloneHTML(external);
     const filename = String(data.project.planNo || d).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_') + '_R' + String(round).padStart(2, '0') + '_PCF_' + exportedAt.slice(0, 10) + '.html';
     const file = path.join(this.dir(p, d), exportId + '.html'); atomicWrite(file, html);
     this.storage.db.prepare('INSERT INTO pcf_exports VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').run(exportId, p, d, data.documentId, rev, round, exportedAt, actor.clientName, actor.ip, 'exported', filename, path.relative(this.storage.dataDir, file).split(path.sep).join('/'));
@@ -132,6 +137,8 @@ export class PcfExchange {
   }  preview(p: string, d: string, body: any) {
     if (typeof body.html !== 'string') fail('Expected returned HTML');
     const returned = parseHTML(body.html), live = this.storage.load(p, d);
+    // Legacy trash is not part of the reply exchange; do not change signed read-only round history.
+    const cleaned = structuredClone(returned); cleaned.deleted ??= []; cleaned.roundRegister ??= []; cleaned.circulation ??= []; cleaned.approvalHistory ??= []; cleanupLegacyImport(cleaned); returned.deleted = cleaned.deleted;
     if (returned.documentId !== live.data.documentId) fail('documentId does not match this drawing', 409);
     if (!returned.export || returned.export.documentId !== live.data.documentId || returned.export.mode !== 'builder') fail('Missing or mismatched builder export metadata', 409);
     const record = this.record(p, d, returned.export.exportId);

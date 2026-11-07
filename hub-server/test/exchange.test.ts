@@ -65,7 +65,7 @@ test('Builder export/offline save and authenticated three-way import through ops
       // Exercise the v1.9 Save-as picker and actual HTML stream write, not a fabricated return JSON.
       const fileState={size:0,lastModified:0};(browser.w as any).showOpenFilePicker=async()=>[];
       (browser.w as any).showSaveFilePicker=async()=>({name:record.filename,queryPermission:async()=>'granted',getFile:async()=>fileState,createWritable:async()=>({write:async(blob:Blob)=>{returnedHTML=await blob.text();},close:async()=>{fileState.size=returnedHTML.length;fileState.lastModified++;}})});
-      await browser.w.eval('saveNew()');assert.ok(returnedHTML);assert.deepEqual(browser.errors,[]);
+      (browser.w as any).showOpenFilePicker=async()=>[];await new Promise(r=>setTimeout(r,0));await browser.w.eval('saveNew()');assert.ok(returnedHTML);assert.deepEqual(browser.errors,[]);
       assert.equal(parseHTML(returnedHTML).comments[0].rounds[0].reply.text,'Builder first reply');
       assert.equal(parseHTML(returnedHTML).export.ownerHmac,data.export.ownerHmac);
     }finally{browser.dom.window.close();}
@@ -77,17 +77,18 @@ test('Builder export/offline save and authenticated three-way import through ops
     const preview=(await api('imports',{step:'preview',html:returnedHTML})).value;
     assert.equal(preview.ownerTampered,true);assert.ok(preview.ignored.some((x:any)=>x.path.includes('owner.text')));
     assert.deepEqual(preview.automatic.map((x:any)=>x.id),['r1:body']);assert.deepEqual(preview.conflicts.map((x:any)=>x.id),['r2:body','r3:deleted']);
-    const beforeApply=live.rev,body={step:'apply',html:returnedHTML,previewToken:preview.previewToken,batchId:randomUUID(),choices:{'r2:body':{choice:'builder'},'r3:deleted':{choice:'builder'}},ignoreOwner:true,adminPassword:'phase4-admin'};
+    const beforeApply=live.rev,body={step:'apply',html:returnedHTML,previewToken:preview.previewToken,batchId:randomUUID(),choices:{'r2:body':{choice:'builder'},'r3:deleted':{choice:'server'}},ignoreOwner:true,adminPassword:'phase4-admin'};
     assert.equal((await api('imports',{...body,ignoreOwner:false})).status,409);assert.equal((await api('imports',{...body,adminPassword:'wrong'})).status,403);
     const eventResponse=await fetch(origin+endpoint+'events?clientId=observer',{headers:{Authorization:'Bearer phase4-secret'},signal:abort.signal});assert.equal(eventResponse.status,200);
     const reader=eventResponse.body!.getReader(), decoder=new TextDecoder();let events='';
+    assert.equal((await api('imports',{...body,batchId:randomUUID(),choices:{...body.choices,'r3:deleted':{choice:'builder'}}})).status,409);
     const applied=await api('imports',body);assert.equal(applied.status,200);assert.equal(applied.value.rev,beforeApply+1);assert.deepEqual(applied.value.conflicts,[]);
     const timeout=setTimeout(()=>abort.abort(),4000);try{while(!events.includes('event: changed')){events+=decoder.decode((await reader.read()).value);}}finally{clearTimeout(timeout);abort.abort();}
     assert.match(events,/船厂导入/);assert.ok(events.includes(record.exportId));assert.match(events,/round:r1:reply/);
-    live=applied.value;assert.equal(live.data.comments.length,4);assert.ok(live.data.comments.some((x:any)=>x.id==='c5'));assert.ok(live.data.comments.some((x:any)=>x.id==='c3'));assert.ok(!live.data.comments.some((x:any)=>x.id==='c4'));
+    live=applied.value;assert.equal(live.data.comments.length,3);assert.ok(live.data.comments.some((x:any)=>x.id==='c5'));assert.ok(!live.data.comments.some((x:any)=>x.id==='c3'));assert.ok(!live.data.comments.some((x:any)=>x.id==='c4'));
     assert.equal(live.data.comments[0].rounds[0].owner.text,'OWNER_SENTINEL_1');assert.equal(live.data.comments[0].rounds[0].reply.text,'Builder first reply');
     const sql=hub.db.sqlite.prepare('SELECT manual_comments_count,manual_open_comments_count,current_round FROM drawings WHERE id=?').get('dwg-005')!;
-    assert.equal(sql.manual_comments_count,4);assert.equal(sql.manual_open_comments_count,4);assert.equal(sql.current_round,'B');
+    assert.equal(sql.manual_comments_count,3);assert.equal(sql.manual_open_comments_count,3);assert.equal(sql.current_round,'B');
     assert.equal((await api('exports')).value[0].status,'imported');
     const history=(await api('history')).value;assert.ok(history.some((x:any)=>x.rev===beforeApply));
     const replay=await api('imports',body);assert.deepEqual(replay,applied);assert.equal((await api('data')).value.rev,live.rev);
@@ -95,7 +96,7 @@ test('Builder export/offline save and authenticated three-way import through ops
     assert.equal((await api('imports',{...body,batchId:randomUUID(),previewToken:repeated.previewToken,choices:{}})).status,409);
     const mismatched=structuredClone(returned);mismatched.documentId=randomUUID();assert.equal((await api('imports',{step:'preview',html:replaceData(returnedHTML,mismatched)})).status,409);
     mismatched.documentId=returned.documentId;mismatched.export.exportId=randomUUID();assert.equal((await api('imports',{step:'preview',html:replaceData(returnedHTML,mismatched)})).status,409);
-    const overwritten=await api('imports',{...body,batchId:randomUUID(),previewToken:repeated.previewToken,choices:{},overwrite:true});assert.equal(overwritten.status,200);assert.equal(overwritten.value.rev,live.rev);assert.deepEqual(overwritten.value.applied,[]);
+    const overwritten=await api('imports',{...body,batchId:randomUUID(),previewToken:repeated.previewToken,choices:{'r3:deleted':{choice:'server'}},overwrite:true});assert.equal(overwritten.status,200);assert.equal(overwritten.value.rev,live.rev);assert.deepEqual(overwritten.value.applied,[]);
     const restored=await api('history/'+beforeApply+'/restore',{baseRev:live.rev});assert.equal(restored.status,200);assert.equal(restored.value.data.comments.find((x:any)=>x.id==='c1').rounds[0].reply.text,'');
     // Bodies and attachments must never enter SQLite, including the new exports table.
     for(const row of hub.db.sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table'").all())for(const value of hub.db.sqlite.prepare('SELECT * FROM "'+row.name+'"').all())assert.doesNotMatch(JSON.stringify(value),/OWNER_SENTINEL|Builder first reply|Builder second reply|TAMPERED_OWNER/);
@@ -113,11 +114,11 @@ test('upgrade CLI: dry-run untouched; backup+atomic replacement; deep JSON equal
   const { mkdir }=await import('node:fs/promises');await mkdir(dir,{recursive:true});
   const template=await readFile(path.join(ROOT_DIR,'pcf/template/PG-PCF-hub.html'),'utf8'), data=parseHTML(template);
   data.hub={rev:9,entities:{example:{rev:8}},receipts:[{id:'keep-me',result:{rev:9}}],custom:'keep-hub'};data.custom={preserve:['all','data']};
-  const original=replaceData(template.replace('<meta name="pahub-template-version" content="4">',''),data), file=path.join(dir,'drawing-y.html');await writeFile(file,original,'utf8');
+  const original=replaceData(template.replace('<meta name="pahub-template-version" content="5">',''),data), file=path.join(dir,'drawing-y.html');await writeFile(file,original,'utf8');
   const run=(flags:string[])=>execFileSync(process.execPath,['hub-server/scripts/upgrade-pcf.mjs',...flags],{cwd:ROOT_DIR,env:{...process.env,PAHUB_DATA_DIR:temp},encoding:'utf8'});
   const report=JSON.parse(run(['--dry-run','--project','project-x','--drawing','drawing-y']));assert.equal(report.report[0].status,'would-upgrade');assert.equal(await readFile(file,'utf8'),original);assert.deepEqual(await readdir(dir),['drawing-y.html']);
   const upgraded=JSON.parse(run(['--project','project-x','--drawing','drawing-y']));assert.equal(upgraded.report[0].status,'upgraded');assert.equal(await readFile(upgraded.report[0].backup,'utf8'),original);
-  const final=await readFile(file,'utf8');assert.deepEqual(parseHTML(final),data);assert.match(final,/pahub-template-version" content="4/);assert.ok(!(await readdir(dir)).some(x=>x.endsWith('.tmp')));
+  const final=await readFile(file,'utf8');data.hub.tombstones=[];assert.deepEqual(parseHTML(final),data);assert.match(final,/pahub-template-version" content="5/);assert.ok(!(await readdir(dir)).some(x=>x.endsWith('.tmp')));
   const browser=offline(final);try{assert.deepEqual(browser.errors,[]);assert.equal(browser.w.document.querySelector('#save-btn')!.textContent,'Save');}finally{browser.dom.window.close();}
   assert.equal(JSON.parse(run([])).report[0].status,'current');
   console.log('Upgrade CLI: dry-run byte-identical/no backup; real backup byte-identical; JSON deep-equal (documentId/hub/receipts/custom); atomic temp cleared; jsdom page loaded; rerun=current');

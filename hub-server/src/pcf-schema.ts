@@ -1,4 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
+export { validateJSON } from './pcf-v26.ts';
+export const PCF_SCHEMA_VERSION = '1.0';
+export const PCF_APP_VERSION = '2.6';
 
 export function initializePcfSchema(db: DatabaseSync) {
   db.exec(`

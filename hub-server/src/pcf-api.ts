@@ -2,7 +2,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { PcfStorage, scriptJSON } from './pcf-storage.ts';
 import { safeId, fail, type Actor } from './pcf-model.ts';
 import { PcfRealtime } from './pcf-realtime.ts';
-import { PcfExchange } from './pcf-exchange.ts';
+import { PcfExchange, externalData, standaloneHTML } from './pcf-exchange.ts';
 import { templateVersion, TEMPLATE_VERSION } from './pcf-template.ts';
 
 export class PcfApi {
@@ -108,6 +108,7 @@ export class PcfApi {
         case 'GET meta': return json(this.storage.meta(p, d));
         case 'POST create': return json(this.storage.create(p, d, this.actor(body, ip)));
         case 'GET data': { const { rev, data } = this.storage.load(p, d); return json({ rev, data: this.storage.publicData(data) }); }
+        case 'GET presence': { this.storage.load(p, d); return json({ online: this.realtime.list(p + '/' + d) }); }
         case 'POST presence': {
           const { data } = this.storage.load(p, d), actor = this.actor(body, ip);
           if (body.entity != null && (typeof body.entity !== 'string' || !data.comments.some((c: any) => c.rounds.some((r: any) => ['round:' + r.id + ':owner', 'round:' + r.id + ':reply'].includes(body.entity))))) fail('Invalid presence entity');
@@ -120,7 +121,9 @@ export class PcfApi {
           return json(outcome.result);
         }
         case 'PUT document': {
-          const actor = this.actor(body, ip), result = this.storage.replace(p, d, body, actor);
+          const actor = this.actor(body, ip);
+          if (body.importJSON && this.realtime.list(p + '/' + d).some(x => x.clientId !== actor.clientId && x.entity)) fail('JSON import blocked: another editor is editing', 409);
+          const result = this.storage.replace(p, d, body, actor);
           this.realtime.changed(p + '/' + d, result, actor, true); return json(result);
         }
         case 'GET exports': return json(this.exchange.list(p, d));
@@ -133,7 +136,7 @@ export class PcfApi {
           return json(outcome.result);
         }
         case 'GET history': return json(this.storage.history(p, d));
-        case 'GET download': return new Response(this.storage.load(p, d).html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Content-Disposition': 'attachment; filename="' + d + '.html"', 'Cache-Control': 'no-store' } });
+        case 'GET download': return new Response(standaloneHTML(externalData(this.storage.load(p, d).data)), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Content-Disposition': 'attachment; filename="' + d + '.html"', 'Cache-Control': 'no-store' } });
         default: {
           const exportMatch = tail.match(/^exports\/([a-f0-9-]+)\/(download|void)$/i);
           if (exportMatch?.[2] === 'void' && request.method === 'POST') return json(this.exchange.void(p, d, exportMatch[1]));

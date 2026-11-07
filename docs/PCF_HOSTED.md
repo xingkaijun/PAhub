@@ -83,9 +83,13 @@ Worker 的 api_project_details 视图直接读取这些列，POST /api/projects/
 
 ## 模板行为和验证
 
-托管模式 touch 标记脏实体，保存将成功基线和当前数据的差异转为 ops；文件保存/自动保存不弹 picker，另存/下载得到独立副本。响应包含最新 data，用三方合并保留 fetch 期间继续输入的本地修改，下一次再保存；成功分配号立即确认。底栏显示服务器 rev、昵称。第 3 期提供逐项富文本/文本差异/图片整体对比以及三种解决路径，详见下文；保留“载入服务器版本”（明确丢弃本地未保存修改）。
+托管模板现为 PCF v2.6（meta v5），业务 UI 与独立保存流程以用户原件为基础。没有 PAHUB 时，Connect file、句柄记忆、自动保存、JSON 导入导出、Excel、Print 与原件保持一致；有 PAHUB 时，touch 标记脏实体，保存将基线与当前数据差异转为 ops，文件保存/自动保存不弹 picker，Connect file / restoreConnection / 句柄记忆隐藏或禁用。另存、JSON、Excel、Print 保留为副本输出，应用第四期白名单，不外发托管上下文、凭据、hub 元数据或内部 tombstone。响应包含最新 data，用三方合并保留 fetch 期间继续输入的本地修改，下一次再保存；成功分配号立即确认。底栏显示服务器 rev、昵称。第 3 期提供逐项富文本/文本差异/图片整体对比以及三种解决路径，详见下文；保留“载入服务器版本”（明确丢弃本地未保存修改）。
 
-实际验证命令：npm run hub:build、npm run hub:test。自动测试覆盖创建预填/页面 JSON、不同意见并发、同一 owner 冲突并不影响 reply、并发编号、PAPC POST 读回/全部 SQL 表和 DB/WAL 正文哨兵零匹配、历史恢复/整份替换 409、鉴权及崩溃修复、jsdom 离线 picker/保存和托管新增/编辑/登记/设置/轮次/删除/恢复/保存期间输入/冲突载入/独立副本。
+托管 Import JSON 先执行 validateJSON + cleanupLegacyImport，再显示整文档替换、当前 rev、在线人数和旧版 history 备份提示。他人 presence 处于编辑状态时默认阻止；确认提交携 baseRev，服务器在每图写队列内再次检查 presence 和 rev，变化则拒绝并要求刷新。保留 documentId；不经过独立版的暂停自动保存/断开连接路径。
+
+v2.6 删除为永久删除并级联 pruneRounds，不提供恢复 UI，不向 data.deleted 写入墓碑。hub.tombstones 只存 ID/type/parentId/删除 clock/时间；删除 op 携 currentRound 与 roundRegister/circulation/approvalHistory 裁剪 ID，服务器重新计算并比对，不一致或受影响字段已更新即冲突。rounds.addAll 原子创建一组轮次；roundRegister.set 使用整行 clock，history.set 对 circulation/approvalHistory 分别使用字段 clock，禁止并发重复轮次和静默覆盖。
+
+实际验证命令：npm run hub:build、npm run hub:test。原有 24 项全部保留，新增 6 项综合测试覆盖 C1–C7、业务函数 jsdom/服务器对照、新字体保存、实际独立 JSON 导出及两个历史字段并发。Chrome 临时服务验证双上下文协同、删除/离线冲突、并发加轮、JSON、船厂锁定与 Send All 解包；截图位于 hub-server/test/artifacts/v26-*.png。自动测试覆盖创建预填/页面 JSON、不同意见并发、同一 owner 冲突并不影响 reply、并发编号、PAPC POST 读回/全部 SQL 表和 DB/WAL 正文哨兵零匹配、历史恢复/整份替换 409、鉴权及崩溃修复、jsdom 离线 picker/保存和托管新增/编辑/登记/设置/轮次/永久删除及内部墓碑/保存期间输入/冲突载入/独立副本。
 
 ## 第 3 期：实时协同协议（2026-11-07）
 
@@ -161,15 +165,15 @@ PAPC 图纸行与托管 PCF 均有 **Export to Builder**。托管 PCF 提供 **I
 
 基线：data/pcf/<project>/<drawing>/exports/<exportId>.html；外发文件名：<图号>_R<两位轮次>_PCF_<YYYY-MM-DD>.html。baseline 是外发白名单快照，Builder 部分及 Owner 部分都在该完整 HTML 中。
 
-保留 schemaVersion/documentId、项目/图名/图号/版本/状态/当前轮次、全部现存意见和活动轮次的业务 ID/编号/属性/开闭/参与人姓名/Owner 与 Builder 正文及嵌入图片、业务创建/更新时间、登记编号/日期、两项显示/保存设置、审批状态来源/原因，以及 export={exportId,documentId,baseRev,round,exportedAt,mode:'builder',ownerHmac}。
+保留 schemaVersion/documentId、项目/图名/图号/版本/状态/当前轮次、全部现存意见和活动轮次的业务 ID/编号/属性/开闭/参与人姓名/Owner 与 Builder 正文及嵌入图片、业务创建/更新时间、登记编号/日期、白名单显示/保存设置、审批状态来源/原因，以及 export={exportId,documentId,baseRev,round,exportedAt,mode:'builder',ownerHmac}。
 
-剥离 hub（rev、entity clocks、clientId/IP/编辑历史、幂等 receipts）、Owner/Builder rev、内部 folder 路径、删除回收站、发文历史、审批历史、自定义/未知字段；正文和图片也按现有 cleanContent 白名单输出。完整托管 adapter、会话注入和按钮都不外发。PCF 业务中用户手写的昵称、正文、图片或超链接不是秘密过滤器的识别范围，发送前仍须审阅；本工具不自动删除业务正文中的敏感信息。
+剥离 hub（rev、entity clocks、clientId/IP/编辑历史、幂等 receipts）、Owner/Builder rev、内部 folder 路径、旧 data.deleted 和内部 tombstone、发文历史、审批历史、自定义/未知字段；正文和图片也按现有 cleanContent 白名单输出。完整托管 adapter、会话注入和按钮都不外发。PCF 业务中用户手写的昵称、正文、图片或超链接不是秘密过滤器的识别范围，发送前仍须审阅；本工具不自动删除业务正文中的敏感信息。
 
 ### 只读与完整性
 
 船厂页面为英文，顶部说明填写 Builder 回复、保存 HTML、邮件回传。仅导出时当前轮次、未关闭意见的 reply（text/html/fill/images）可写。Owner、意见属性/人员、开闭/结构、新增删除、过去轮次 Builder、登记（包括 replyDate/replyRef）、图纸控制、全局设置均只读。
 
-UI 禁用/contenteditable=false，同时编辑/附件函数校验 scope；内存 state 的所有非可写属性 non-writable/non-configurable，数组索引和 length 锁定、对象禁止扩展，不能用普通控制台赋值/push/splice/defineProperty 绕过。updatedAt 保留为保存流程更新时间，不视为 Owner 改动。可浏览/筛选/打印；保存沿用 v1.9 File System Access API 或 Save as 下载副本流程，普通独立文件行为不变。
+UI 禁用/contenteditable=false，同时编辑/附件函数校验 scope；内存 state 的所有非可写属性 non-writable/non-configurable，数组索引和 length 锁定、对象禁止扩展，不能用普通控制台赋值/push/splice/defineProperty 绕过。updatedAt 保留为保存流程更新时间，不视为 Owner 改动。v2.6 新入口同样受保护：Import JSON、addRoundToAllOpen、round 登记、删除 Owner 内容禁用；roundRegister/approvalHistory 以及新增设置均受数据层锁定。字体工具栏只允许作用于当前开放 Builder reply；Excel、打印工作簿及 Print/PDF 可用。保存沿用 v2.6 File System Access API 或 Save as 下载副本流程，普通独立文件行为不变。
 
 首次启动生成 data/.pcf-export-key（独立于 API_TOKEN，32 字节随机密钥的 hex）；HMAC-SHA256 签名规范化排序 JSON 的全部只读部分，并绑定导出标记。允许的 reply 与更新时间不计入签名。基线签名失败视为服务器文件损坏并拒绝；返回签名/只读内容变更列入 Integrity warning 与 Ignored changes。**Owner 永不导入**：管理员选 Ignore read-only changes 且以现有 ADMIN_PASSWORD 确认，才允许继续 Builder 合并。API_TOKEN 不等于管理员密码。
 
@@ -213,6 +217,36 @@ npm run hub:upgrade-pcf -- --project X --drawing Y
 升级不是一次业务 ops，不改 rev、SQLite 摘要或审计。无跨进程维护锁，务必停服；失败保留已做的备份并报错，恢复时也需停服。未对用户生产目录执行正式升级。
 
 ### 语言和边界
+
+### v2.6 移植映射
+
+基线：pahub-main / 2faf98a；逐处比较 v1.9-source 与 hosted v4。以下为完整托管钩子清单，按函数名定位。v2.6 原件 SHA256：4b195e7adfedcf7fb699a77ba389f8d65fa2d8d222d8cbdf8a66009b05d994be。
+
+| 完成 | 位置 / 钩子 | 目的 | v1.9 依赖 → v2.6 移植 |
+| --- | --- | --- | --- |
+| [x] | head/meta、state/uid | 版本与非 HTTPS UUID | state/crypto；v5，独立路径保留原件 |
+| [x] | builderMode / builderWritable / builderProtect / builderUI | 船厂 UI 与数据防写 | getComment/getRound/render；登记/审批/导入/批量轮次全部锁定 |
+| [x] | hubInit / hubHeaders / hubURL / hubMark | 会话、昵称、凭据、脏实体 | state/touch/save-state；原模块复用 |
+| [x] | hubOps / hubClock / hubKey / hubMerge | entity clock、差异 op、保存期间输入 | deleted/restore/makeRound；永久删除级联与新字段 |
+| [x] | hubSave / hubReload / hubConflicts / hubResolve / hubComparison | 批次保存与逐项冲突 | openModal/syncEditor/render；保留三种解决路径 |
+| [x] | hubExchangeRequest / hubExportDownload / hubExport / hubExchangePanel / hubImportPreview / hubImportApply / hubExchangeInit | 第四期船厂往来 | snapshotHTML/writeFile/modal；永久删除不恢复；JSON 整体导入单独实现 |
+| [x] | hubDB / hubPersist / hubQueue / hubDrain / hubRecovery / hubRebase / hubRetarget | 离线队列与幂等恢复 | dirty/editRevision/hubOps；原协议保留 |
+| [x] | hubConnect / hubRemote / hubApplyRemote / hubFocus / hubPresence / hubCollaborationInit | SSE、presence、焦点 | getComment/getRound/render；就地刷新 |
+| [x] | touch / updateSaveStatus | 脏标记、持久化、保存提示 | reconcileApproval/dirty；托管隐藏本地连接 |
+| [x] | reconcileApproval / editable / autoHeightAll / setCommentStatus / addComment / restore | 船厂业务防写 | 同名函数；restore 已移除；永久删除受 editable 保护 |
+| [x] | render | 重绘防写与软锁 | updateOverview/adjustAll；每次重施加 |
+| [x] | syncEditor / restoreSelection / attach / click dispatch / paste | 字体、正文、附件范围 | editable/activeEditor；仅当前开放 Builder reply |
+| [x] | snapshotHTML / suggestedName / hubDownload | 白名单副本与凭据剥离 | document.cloneNode/state；HTML/JSON/Excel/Print 一致 |
+| [x] | writeFile / connectExisting / saveNew / downloadCopy / fileOptions | 保存接管与禁止本地写权限 | fileHandle/rememberHandle；Connect/restoreConnection/记忆增加 gate |
+| [x] | restartAutoSave / beforeunload / init | 自动保存、退出提醒、禁止句柄回忆 | recallHandle 变 restoreConnection；独立路径原样 |
+
+#### v5 收尾验证（2026-11-07）
+
+- 移植映射 15/15 完成；沿用已完成的 hub:build、Chrome 冒烟及托管/船厂 Excel 与 Print 验证，下载副本不含托管凭据。
+- hub:test：原有 24 项与新增 v2.6 6 项，共 30/30 通过，0 失败、0 跳过，正常退出（约 22 秒）。
+- 挂起根因：Send All 浏览器打包测试中 React 异步 act() 创建的 Node MessageChannel 留下 4 个被引用 MessagePort；测试现在追踪自有 Channel，并在组件卸载后关闭两端端口。修复后 Send All 5/5 正常退出，诊断未见残留 MessagePort；未用 process.exit() 或延长超时掩盖。
+- data/ 只读 upgrade-pcf --dry-run：扫描 5 个权威文件，均为 v4 → v5；将清理 deleted 0 条、将裁剪空轮次 0 条。未执行实际升级，未修改 data/、logs/，未停止 8080 服务。
+
 
 沿 v1.9 英文 UI：托管保存/下载/presence/冲突/离线恢复、船厂 banner、往来与导入提示统一英文；匿名默认昵称 Editor-xxxx。用户正文/既有昵称不翻译，审计中上述中文提交者标识按需求保留。原 PG-PCF-v1.9-source.html 未修改。
 

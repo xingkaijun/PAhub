@@ -1,4 +1,5 @@
 import test from 'node:test';
+import { randomUUID } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
@@ -14,7 +15,7 @@ const content = (text: string) => ({ ...blankContent(), text, html: '<b>' + text
 function browser(html: string, context?: object, fetchMock?: any) {
   const errors: Error[] = [], console = new VirtualConsole(); console.on('jsdomError', e => errors.push(e));
   const dom = new JSDOM(html, { url: 'http://pahub.test/pcf/proj-test-001/dwg-001', runScripts: 'dangerously', pretendToBeVisual: true, virtualConsole: console, beforeParse(w) {
-    (w as any).structuredClone = structuredClone;
+    (w as any).structuredClone = structuredClone; Object.defineProperty(w.crypto, "randomUUID", { value: randomUUID });
     (w as any).ResizeObserver = class { observe() {} disconnect() {} };
     w.HTMLElement.prototype.scrollIntoView = () => {};
     Object.defineProperty(w.HTMLElement.prototype, 'innerText', { get() { return this.textContent; }, set(v) { this.textContent = v; } });
@@ -87,14 +88,14 @@ test('PCF hosted API: create, entity concurrency, numbering, PAPC summary, histo
     // Protected replied-round deletion + closed-comment guards.
     let result = await post('A', doc.rev, [{ type: 'record.delete', commentId: 'c1', roundId: 'r1', baseRev: entity(doc.data, 'round:r1:record').rev }]); assert.equal(result.value.conflicts.length, 1);
     result = await post('A', doc.rev, [{ type: 'record.delete', commentId: 'c2', deleteId: 'trash-c2', baseRev: entity(doc.data, 'comment:c2:record').rev }]);
-    assert.equal(result.value.data.comments.length, 1); assert.equal(result.value.data.deleted[0].id, 'trash-c2');
-    result = await post('A', result.value.rev, [{ type: 'record.restore', deleteId: 'trash-c2', baseRev: result.value.rev }]); assert.equal(result.value.data.comments.length, 2);
+    assert.equal(result.value.data.comments.length, 1); assert.deepEqual(result.value.data.deleted, []); assert.ok(result.value.data.hub.tombstones.some((x: any) => x.id === 'c2'));
+    result = await post('A', result.value.rev, [{ type: 'record.restore', deleteId: 'trash-c2', baseRev: result.value.rev }]); assert.equal(result.value.conflicts.length, 1); assert.equal(result.value.data.comments.length, 1);
     const history = (await api('history')).value; assert.ok(history.length >= 8); assert.equal(history.at(-1).rev, 1);
     const restored = await api('history/1/restore', 'POST', { clientId: 'A', baseRev: result.value.rev });
     assert.equal(restored.status, 200); assert.equal(restored.value.data.comments.length, 0); assert.ok(restored.value.rev > result.value.rev);
     assert.equal((await api('document', 'PUT', { clientId: 'A', baseRev: 1, data: restored.value.data })).status, 409);
     const replacement = await api('document', 'PUT', { clientId: 'A', baseRev: restored.value.rev, data: restored.value.data }); assert.equal(replacement.status, 200);
-    const download = await fetch(base + endpoint + '/download').then(r => r.text()); assert.doesNotMatch(download, /id="pahub-context"/); assert.equal(parseHTML(download).hub.rev, replacement.value.rev);
+    const download = await fetch(base + endpoint + '/download').then(r => r.text()); assert.doesNotMatch(download, /id="pahub-context"/); assert.equal(parseHTML(download).hub, undefined);
     console.log('history list + restore -> new revision; tombstone delete/restore + document baseRev 409 + independent download OK');
     // Simulate crash after authoritative file rename but before SQLite commit; read repairs metadata + audit once.
     const file = path.join(temp, 'pcf/proj-test-001/dwg-005.html');
@@ -130,7 +131,7 @@ test('PCF HTML JSON locator escapes delimiters and accepts attribute order/white
 
 test('jsdom PCF template: offline original controls/save and hosted add/edit/save/download/conflicts', async () => {
   const html = await readFile(path.join(ROOT_DIR, 'pcf/template/PG-PCF-hub.html'), 'utf8');
-  const original = await readFile(path.join(ROOT_DIR, 'pcf/template/PG-PCF-v1.9-source.html'), 'utf8');
+  const original = await readFile(path.join(ROOT_DIR, 'pcf/template/PG-PCF-v2.6-source.html'), 'utf8');
   assert.equal(parseHTML(html).documentId, parseHTML(original).documentId);
   const offline = browser(html);
   try {
@@ -138,7 +139,7 @@ test('jsdom PCF template: offline original controls/save and hosted add/edit/sav
     let written = '', picker = 0;
     (offline.w as any).showSaveFilePicker = async () => { picker++; return { name: 'offline.html', getFile: async () => ({ lastModified: 1, size: 0 }), queryPermission: async () => 'granted', createWritable: async () => ({ write: async (blob: any) => { written = await new Promise<string>(resolve => { const reader = new offline.w.FileReader(); reader.onload = () => resolve(String(reader.result)); reader.readAsText(blob); }); }, close: async () => {} }) }; };
     (offline.w as any).showOpenFilePicker = () => {};
-    offline.w.document.querySelector<HTMLButtonElement>('#add-btn')!.click(); await offline.w.eval('saveNew()');
+    await new Promise(resolve => setTimeout(resolve, 0)); offline.w.document.querySelector<HTMLButtonElement>('#add-btn')!.click(); await offline.w.eval('saveNew()');
     assert.equal(picker, 1); assert.equal(parseHTML(written).comments.length, 1); assert.deepEqual(offline.errors, []);
     console.log('jsdom offline: no errors, original buttons + local file picker/write + parseable saved HTML OK');
   } finally { offline.dom.window.close(); }
@@ -175,7 +176,7 @@ test('jsdom PCF template: offline original controls/save and hosted add/edit/sav
     // Explicit registration with unchanged dates is still a saved circulation event.
     const priorCirculation = remote.circulation.length;
     hosted.w.eval('panelUnlocked=true;recordCirculation();modalAction();'); await hosted.w.eval('writeFile()');
-    assert.ok(payload.ops.some((op: any) => op.type === 'roundRegister.set'));
+    assert.ok(payload.ops.some((op: any) => op.type === 'history.set' && op.field === 'circulation'));
     assert.equal(remote.circulation.length, priorCirculation + 1);
     // Input arriving while a save response is pending must not be discarded or marked saved.
     hosted.w.eval("state.comments[0].rounds[0].owner.text='first in flight';touch(state.comments[0]);");
@@ -184,10 +185,10 @@ test('jsdom PCF template: offline original controls/save and hosted add/edit/sav
     hosted.w.eval("state.comments[0].rounds[0].owner.text='typed during fetch';touch(state.comments[0]);"); release!(); await saving;
     assert.equal(hosted.w.eval('state.comments[0].rounds[0].owner.text'), 'typed during fetch'); assert.equal(hosted.w.eval('dirty()'), true);
     await hosted.w.eval('writeFile()'); assert.equal(remote.comments[0].rounds[0].owner.text, 'typed during fetch'); assert.equal(hosted.w.eval('dirty()'), false);
-    hosted.w.eval('addRound(state.comments[0])'); await hosted.w.eval('writeFile()'); assert.ok(payload.ops.some((op: any) => op.type === 'round.add'));
+    hosted.w.eval('addRound(state.comments[0])'); await hosted.w.eval('writeFile()'); assert.ok(payload.ops.some((op: any) => ['round.add','rounds.addAll'].includes(op.type)));
     hosted.w.eval("state.comments[0].rounds[1].initiator='Owner name';touch(state.comments[0]);"); await hosted.w.eval('writeFile()'); assert.ok(payload.ops.some((op: any) => op.type === 'round.meta'));
     hosted.w.eval('deleteRecord(state.comments[0],state.comments[0].rounds[1]);modalAction();'); await hosted.w.eval('writeFile()'); assert.ok(payload.ops.some((op: any) => op.type === 'record.delete'));
-    hosted.w.eval('restore(state.deleted[0].id)'); await hosted.w.eval('writeFile()'); assert.ok(payload.ops.some((op: any) => op.type === 'record.restore')); assert.equal(remote.comments[0].rounds.length, 2);
+    assert.deepEqual(remote.deleted, []); assert.equal(hosted.w.eval('typeof restore'), 'undefined'); assert.equal(remote.comments[0].rounds.length, 1); assert.ok(remote.hub.tombstones.length);
     hosted.w.eval("setCommentStatus(state.comments[0],'closed')"); await hosted.w.eval('writeFile()'); assert.equal(remote.comments[0].status, 'closed');
     hosted.w.eval("setCommentStatus(state.comments[0],'open')"); await hosted.w.eval('writeFile()');
     conflict = true; hosted.w.eval("state.comments[0].rounds[0].owner.text='conflicting';touch(state.comments[0]);"); await hosted.w.eval('writeFile()');

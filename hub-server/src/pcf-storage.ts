@@ -3,6 +3,8 @@ import { randomUUID, createHash } from 'node:crypto';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { ROOT_DIR } from './config.ts';
+import * as modelV26 from './pcf-v26.ts';
+import { validateJSON } from './pcf-schema.ts';
 import { initData, reconcile, roundNumber, roundLabel, registerFields, fail, type PcfData, type Actor, type Op, applyOps } from './pcf-model.ts';
 
 // Locate exactly one JSON script by attributes; independent of whitespace/attribute order.
@@ -128,7 +130,9 @@ export class PcfStorage {
     else if (body.html) data = parseHTML(body.html);
     // Imported/migrated HTML must not retain a live page's capability.
     html = html.replace(/<script\b[^>]*\bid\s*=\s*(['"])pahub-context\1[^>]*>[\s\S]*?<\/script\s*>/gi, '');
-    if (!data) fail('Expected data or html'); data = initData(data);
+    if (!data) fail('Expected data or html');
+    if (body.importJSON) { validateJSON(data); const { cleanupLegacyImport } = modelV26; cleanupLegacyImport(data); }
+    data = initData(data);
     if (data.documentId !== latest.data.documentId) fail('documentId mismatch', 409);
     // Full replacement invalidates ALL editable entity clocks, including tombstones.
     data.hub = structuredClone(latest.data.hub);
@@ -136,6 +140,12 @@ export class PcfStorage {
     for (const field of Object.keys(data.project)) keys.add('project:' + field);
     for (const field of Object.keys(data.settings)) keys.add('settings:' + field);
     for (const row of data.roundRegister) keys.add('register:' + row.round);
+    keys.add('history:circulation'); keys.add('history:approvalHistory');
+    data.hub.tombstones ??= [];
+    for (const c of latest.data.comments) {
+      const live = data.comments.find((x: any) => x.id === c.id);
+      for (const record of [c, ...c.rounds]) if (record === c ? !live : !live?.rounds.some((r: any) => r.id === record.id)) data.hub.tombstones.push({ id: record.id, type: record === c ? 'comment' : 'round', parentId: record === c ? null : c.id, clock: latest.rev + 1, at: new Date().toISOString() });
+    }
     for (const t of data.deleted) keys.add('deleted:' + t.id);
     for (const c of data.comments) {
       for (const field of ['status', 'meta', 'record']) keys.add('comment:' + c.id + ':' + field);

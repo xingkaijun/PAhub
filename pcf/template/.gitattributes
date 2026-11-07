@@ -1,0 +1,2 @@
+# Preserve the immutable user source bytes and its SHA256 on every checkout.
+/PG-PCF-v2.6-source.html -text

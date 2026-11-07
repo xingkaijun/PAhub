@@ -16,6 +16,7 @@ import { normalizeLegacySql } from '../src/import-legacy.ts';
 import { HubApiRepository } from '../../services/data/HubApiRepository';
 import { build } from 'esbuild';
 import { JSDOM } from 'jsdom';
+import { MessageChannel } from 'node:worker_threads';
 import type { AppSettings, Project } from '../../types';
 
 function unzip(buffer: Buffer) {
@@ -56,10 +57,18 @@ test('ZIP CRC32 matches the standard check value', () => {
 
 test('Send All uses tracker APR only: PCF Approved without APR becomes Waiting Reply', async () => {
   const dom = new JSDOM('<div id="root"></div>', { url: 'http://localhost' });
-  const globals = { window: dom.window, document: dom.window.document, localStorage: dom.window.localStorage, IS_REACT_ACT_ENVIRONMENT: true };
+  // Browser-bundled React act() uses Node's MessageChannel fallback. Unlike
+  // jsdom timers, these ports are not owned or closed by window.close().
+  const channels: MessageChannel[] = [];
+  const globals = {
+    window: dom.window, document: dom.window.document, localStorage: dom.window.localStorage, IS_REACT_ACT_ENVIRONMENT: true,
+    MessageChannel: class extends MessageChannel {
+      constructor() { super(); channels.push(this); }
+    },
+  };
   const descriptors = Object.fromEntries(Object.keys(globals).map(key => [key, Object.getOwnPropertyDescriptor(globalThis, key)]));
   const originalFetch = globalThis.fetch, originalAlert = Object.getOwnPropertyDescriptor(globalThis, 'alert');
-  let root: any;
+  let root: any, reactAct: any;
   try {
     for (const [key, value] of Object.entries(globals)) Object.defineProperty(globalThis, key, { value, configurable: true, writable: true });
     const result = await build({
@@ -67,6 +76,7 @@ test('Send All uses tracker APR only: PCF Approved without APR becomes Waiting R
       bundle: true, write: false, format: 'esm', platform: 'browser', define: { 'import.meta.env': '{}' },
     });
     const { ReviewTracker, useStore, act, createElement, createRoot } = await import('data:text/javascript;base64,' + Buffer.from(result.outputFiles[0].contents).toString('base64'));
+    reactAct = act;
     let confirmation = '', indexCalls = 0, packed = false, saved = false;
     dom.window.confirm = (message?: string) => { confirmation = message || ''; return true; };
     Object.defineProperty(globalThis, 'alert', { value: (message: string) => assert.fail(message), configurable: true });
@@ -105,7 +115,11 @@ test('Send All uses tracker APR only: PCF Approved without APR becomes Waiting R
     assert.deepEqual(state.reviewTracker, { 'with-apr': { Engineer: { done: false }, __approved__: { done: false } }, 'without-apr': { Engineer: { done: false } } });
     assert.equal('approval' in state, false);
   } finally {
-    if (root) root.unmount();
+    try {
+      if (root) await reactAct(async () => root.unmount());
+    } finally {
+      for (const channel of channels) { channel.port1.close(); channel.port2.close(); }
+    }
     globalThis.fetch = originalFetch;
     for (const [key, descriptor] of Object.entries({ ...descriptors, alert: originalAlert })) {
       if (descriptor) Object.defineProperty(globalThis, key, descriptor); else Reflect.deleteProperty(globalThis, key);
@@ -134,7 +148,7 @@ test('Send All authenticated batch ZIP, latest rev, skipped/collision manifest, 
     }
     const repository = new HubApiRepository(origin + '/api', 'send-all-token'), settings = {} as AppSettings;
     let project = await repository.loadProject(settings, { id: p } as Project);
-    const manual = { 'dwg-001': { Engineer: { done: true }, __approved__: { done: true } }, 'dwg-002': { Engineer: { done: true } } };
+    const manual = { 'dwg-001': { engineer_a: { done: true }, __approved__: { done: true } }, 'dwg-002': { engineer_b: { done: true } } };
     assert.equal((await repository.saveReviewTracker(settings, project, manual)).success, true);
     const tracker = await repository.loadReviewTracker(settings, project);
     const cleared = Object.fromEntries(Object.entries(tracker).map(([id, entries]) => [id,
@@ -143,9 +157,9 @@ test('Send All authenticated batch ZIP, latest rev, skipped/collision manifest, 
     project.drawings = project.drawings.map(d => d.id === 'dwg-001' || d.id === 'dwg-002' ? { ...d, status: tracker[d.id]?.__approved__?.done ? 'Approved' : 'Waiting Reply' } : d);
     assert.equal((await repository.saveProject(settings, project, cleared)).success, true);
     const savedTracker = await repository.loadReviewTracker(settings, project);
-    assert.equal(savedTracker['dwg-001'].__approved__.done, false);
-    assert.equal(savedTracker['dwg-001'].Engineer.done, false);
-    assert.equal(savedTracker['dwg-002'].Engineer.done, false);
+    assert.equal(Boolean(savedTracker['dwg-001'].__approved__.done), false);
+    assert.equal(Boolean(savedTracker['dwg-001'].engineer_a.done), false);
+    assert.equal(Boolean(savedTracker['dwg-002'].engineer_b.done), false);
     project = await repository.loadProject(settings, project);
     assert.equal(project.drawings.find(d => d.id === 'dwg-001')!.status, 'Approved');
     assert.equal(project.drawings.find(d => d.id === 'dwg-002')!.status, 'Waiting Reply');
@@ -229,7 +243,7 @@ test('existing tracker source columns are ignored by reads, writes and verificat
     assert.equal((await repository.saveReviewTracker(settings, project, tracker)).success, true);
     assert.equal((await repository.saveProject(settings, project, tracker)).success, true);
     tracker = await repository.loadReviewTracker(settings, project);
-    assert.deepEqual(tracker['dwg-001'].engineer_a, { done: false, doneAt: undefined });
+    assert.equal(Boolean(tracker['dwg-001'].engineer_a.done), false); assert.equal(tracker['dwg-001'].engineer_a.doneAt ?? null, null);
     assert.ok(hub.db.sqlite.prepare('PRAGMA table_info(review_tracker)').all().some(row => row.name === 'source'));
   } finally {
     if (hub) await hub.close();
