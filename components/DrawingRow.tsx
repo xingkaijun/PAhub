@@ -128,6 +128,7 @@ export const DrawingRow = memo(({
     derivedDisciplines
 }: DrawingRowProps) => {
     const { isEditMode } = useStore();
+    const pcfOnline = useStore(s => s.pcfPresence[drawing.id] || 0);
     const liveRemarkCount = drawing.remarks?.length || 0;
     const liveOpenRemarkCount = drawing.remarks?.filter(r => !r.resolved).length || 0;
     const reviewDeadline = toValidDate(drawing.reviewDeadline);
@@ -201,7 +202,7 @@ export const DrawingRow = memo(({
                                 if (tab) { tab.opener = null; tab.location.href = href; } else window.location.href = href;
                             } catch (error) { tab?.close(); alert(String(error)); }
                         }}
-                    >{drawing.title || drawing.drawingNo}</a> : drawing.title}
+                    >{drawing.title || drawing.drawingNo}{pcfOnline > 0 && <span className="ml-1 rounded bg-teal-100 px-1 text-teal-700" title={pcfOnline + ' 人正在 PCF 在线编辑'}>● {pcfOnline}</span>}</a> : drawing.title}
                 </td>
                 <td className="px-2 py-2 text-[9px] text-slate-500 text-center" title={(() => {
                     const statusChanges = (drawing.statusHistory || []).filter(h => h.content.includes('Status:'));

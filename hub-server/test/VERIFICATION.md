@@ -108,3 +108,57 @@ Imported wrangler-export.sql -> C:\Users\Administrator\AgentDock\PAhub\data\from
 - npm install 报告 22 个漏洞（1 low、3 moderate、18 high），按要求未处理。
 - 没有 Ubuntu 实机，Ubuntu 启动方法见 README，未宣称在 Ubuntu 实际验收。
 - 第 1 期核心数据 API 已脱离 Cloudflare；原有可选报表 CDN 资源未替换。
+
+# 第 3 期实际验收记录
+
+执行日期：2026-11-07。Windows，本机 Chrome，pahub-main；服务和数据库均使用隔离临时目录。
+
+## 最终命令及关键输出
+
+~~~powershell
+npm run hub:test
+npm run hub:build
+node hub-server/test/browser-smoke.mjs
+git diff --check
+~~~
+
+以上最终执行退出码均为 0。测试包含前两期全部回归。
+
+~~~text
+Concurrent duplicate batch applies once; conflict-only receipt exact replay at unchanged rev; body sentinel absent from every SQLite table
+SSE A->B: rev=2 round:r1:owner clock=2; scoped credential 401 cross-drawing; presence focus+disconnect; Last-Event-ID rev=3 resync=true; same batch exact reply before/after restart, comment count=1
+Remote delete #1: surviving UUID c2 renumbered #1; index C-0001; same focused reply DOM node
+SSE heartbeat: none at 24,999ms; ping at 25,000ms; shutdown closes stream
+IndexedDB dirty-only refresh -> latest server conflict; explicit discard removes document record
+presence TTL: 59,999ms retained; 60,000ms released
+jsdom changed: clean sibling patched in place, focused node unchanged, dirty value+clock retained, own event ignored, self presence hidden, add/delete index synchronized
+jsdom conflicts: rich previews + text diff + image filenames; all-mine -> server clock retry; all-server -> discard; manual merge -> merged final saved
+IndexedDB: unconfirmed UUID batch + base clocks + dirty local persisted; refreshed page recovery prompt; original batch replay saved once; beforeunload prevented
+tests 16
+pass 16
+fail 0
+duration_ms 9641.8835
+
+✓ 2658 modules transformed.
+✓ built in 8.06s
+PAhub build complete: frontend dist/ + hub-server/dist/ (same-origin /api)
+
+PAhub listening on http://0.0.0.0:51092
+Browser initial: Save + Add comment
+Chrome two isolated contexts: A input+save -> B auto displays; second owner update preserves B reply node+caret; pageerrors=0
+Screenshots: hub-server/test/artifacts/realtime-A.png; hub-server/test/artifacts/realtime-B.png
+Smoke data: C:\Users\ADMINI~1\AppData\Local\Temp\pahub-browser-95RYmG
+~~~
+
+已实际查看最终 B 截图：A 最新 Owner 内容显示正确，B 回复框保持聚焦；截图目录被 .gitignore 排除，不提交。自动测试临时目录包括 pahub-test-ku7cf8、pahub-pcf-XRZRTQ、pahub-realtime-yjs6Bc；测试服务与浏览器均已关闭。原 PG-PCF-v1.9-source.html 的 git diff 为空。
+
+新增焦点重排测试最初发现：insertBefore 移动含焦点的祖先会使编辑框失焦。已改为移动其前置兄弟节点，保留活动子树；修复后完整回归和浏览器冒烟均通过。没有持续重试失败问题。
+
+## 设计和交付边界
+
+- 完整 PCF HTML 仍为唯一正文权威；SQLite 无正文哨兵命中。幂等回执放 HTML，窗口为最近 1000 批且 24 小时，依赖保留该窗口历史；目前无历史清理。
+- SSE 只发实体标识/clock/操作摘要，随后读取快照，避免 SSE 重复搬运内嵌图片；未来可换按实体读取。限图签名在查询参数，代理须禁用缓冲并脱敏查询日志；HTTP 明文限制仍在。
+- 60 秒无活动释放 presence，定时清理最多延迟 5 秒。广播有接口，但多进程仍需共享 presence 和写入互斥。
+- 已有第二期权威 HTML 不会自动换脚本，需要另行备份并授权模板迁移；本期不改生产文件。PAPC 在线数量遵循原轮询节奏，自动同步关闭后只初始拉取。
+- IndexedDB 失败提示下载副本；强杀/断电前未完成的写入事务无法保证。文本差异采用公共前后缀，不做像素或复杂文档 diff。
+- 构建仍报告既有 Recharts Bar 分块循环依赖警告；依赖安装报告 22 个漏洞（1 low、3 moderate、18 high），没有进行范围外升级。

@@ -1,8 +1,10 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { PcfStorage, scriptJSON } from './pcf-storage.ts';
 import { safeId, fail, type Actor } from './pcf-model.ts';
+import { PcfRealtime } from './pcf-realtime.ts';
 
 export class PcfApi {
+  readonly realtime = new PcfRealtime();
   private secret: string;
   constructor(readonly storage: PcfStorage, private token?: string) { this.secret = token || randomBytes(32).toString('hex'); }
   private grant(p: string, d: string) {
@@ -37,9 +39,9 @@ export class PcfApi {
     const page = parts[0] === 'pcf';
     const p = safeId(parts[page ? 1 : 2]), d = parts[page ? 2 : 3], tail = parts.slice(page ? 3 : 4).join('/');
     const json = (value: unknown, status = 200, headers = {}) => Response.json(value, { status, headers: { 'Cache-Control': 'no-store', ...headers } });
-    if (!page && d === 'index' && !tail && request.method === 'GET') {
+    if (!page && ['index', 'presence'].includes(d) && !tail && request.method === 'GET') {
       if (!this.bearer(request)) return json({ error: 'Unauthorized' }, 401);
-      return json(this.storage.index(p));
+      return json(d === 'index' ? this.storage.index(p) : this.realtime.project(p));
     }
     safeId(d);
     if (page) {
@@ -63,7 +65,17 @@ export class PcfApi {
       const cookie = this.cookieName(p, d) + '=' + this.grant(p, d) + '; Path=/pcf/' + p + '/' + d + '; HttpOnly; SameSite=Strict; Max-Age=43200' + (url.protocol === 'https:' ? '; Secure' : '');
       return json({ ok: true }, 200, { 'Set-Cookie': cookie });
     }
-    if (!this.bearer(request) && !this.valid(request.headers.get('X-PCF-Token'), p, d)) return json({ error: 'Unauthorized' }, 401);
+    const eventGrant = tail === 'events' ? url.searchParams.get('credential') : null;
+    if (!this.bearer(request) && !this.valid(request.headers.get('X-PCF-Token'), p, d) && !this.valid(eventGrant, p, d)) return json({ error: 'Unauthorized' }, 401);
+    if (tail === 'events' && request.method === 'GET') {
+      return this.storage.serial(p, d, () => {
+        const { rev } = this.storage.load(p, d);
+        const actor = this.actor({ clientId: url.searchParams.get('clientId'), clientName: url.searchParams.get('clientName') }, ip);
+        const from = Number(request.headers.get('Last-Event-ID') || url.searchParams.get('rev') || 0);
+        const expires = eventGrant && this.valid(eventGrant, p, d) ? JSON.parse(Buffer.from(eventGrant.split('.')[0], 'base64url').toString()).expires : Infinity;
+        return this.realtime.stream(p + '/' + d, actor, rev, from, request.signal, expires);
+      });
+    }
     let body: any = null;
     if (['POST', 'PUT'].includes(request.method)) {
       const text = await request.text();
@@ -75,14 +87,27 @@ export class PcfApi {
       switch (request.method + ' ' + tail) {
         case 'GET meta': return json(this.storage.meta(p, d));
         case 'POST create': return json(this.storage.create(p, d, this.actor(body, ip)));
-        case 'GET data': { const { rev, data } = this.storage.load(p, d); return json({ rev, data }); }
-        case 'POST ops': return json(this.storage.ops(p, d, body, this.actor(body, ip)));
-        case 'PUT document': return json(this.storage.replace(p, d, body, this.actor(body, ip)));
+        case 'GET data': { const { rev, data } = this.storage.load(p, d); return json({ rev, data: this.storage.publicData(data) }); }
+        case 'POST presence': {
+          const { data } = this.storage.load(p, d), actor = this.actor(body, ip);
+          if (body.entity != null && (typeof body.entity !== 'string' || !data.comments.some((c: any) => c.rounds.some((r: any) => ['round:' + r.id + ':owner', 'round:' + r.id + ':reply'].includes(body.entity))))) fail('Invalid presence entity');
+          this.realtime.update(p + '/' + d, actor, body.entity || null, body.leave === true);
+          return json({ online: this.realtime.list(p + '/' + d) });
+        }
+        case 'POST ops': {
+          const actor = this.actor(body, ip), outcome = this.storage.opsBatch(p, d, body, actor);
+          if (!outcome.replayed && outcome.result.applied.length) this.realtime.changed(p + '/' + d, outcome.result, actor);
+          return json(outcome.result);
+        }
+        case 'PUT document': {
+          const actor = this.actor(body, ip), result = this.storage.replace(p, d, body, actor);
+          this.realtime.changed(p + '/' + d, result, actor, true); return json(result);
+        }
         case 'GET history': return json(this.storage.history(p, d));
         case 'GET download': return new Response(this.storage.load(p, d).html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Content-Disposition': 'attachment; filename="' + d + '.html"', 'Cache-Control': 'no-store' } });
         default: {
           const match = tail.match(/^history\/(\d+)\/restore$/);
-          if (request.method === 'POST' && match) return json(this.storage.replace(p, d, body, this.actor(body, ip), Number(match[1])));
+          if (request.method === 'POST' && match) { const actor = this.actor(body, ip), result = this.storage.replace(p, d, body, actor, Number(match[1])); this.realtime.changed(p + '/' + d, result, actor, true); return json(result); }
           fail('Not found', 404);
         }
       }

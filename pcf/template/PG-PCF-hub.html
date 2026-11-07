@@ -608,8 +608,8 @@ function hubInit(){
   hubBase=structuredClone(state);
   try{hubClient=localStorage.getItem('pahub.clientId')||uid();localStorage.setItem('pahub.clientId',hubClient);hubName=localStorage.getItem('pahub.clientName')||'';}catch{hubClient=uid();}
   $('#save-as-btn').textContent='下载 HTML 副本';
-  const entry=document.createElement('button');entry.id='pahub-name';entry.className='small';entry.textContent=hubName||'设置昵称';entry.onclick=()=>{const value=prompt('可选昵称（匿名编辑仍记录 clientId、IP 和时间）',hubName);if(value===null)return;hubName=value.slice(0,100);try{localStorage.setItem('pahub.clientName',hubName);}catch{}entry.textContent=hubName||'设置昵称';};$('#save-state').after(entry);
-  updateSaveStatus();
+  const entry=document.createElement('button');entry.id='pahub-name';entry.className='small';entry.textContent=hubName||'设置昵称';entry.onclick=()=>{const value=prompt('可选昵称（匿名编辑仍记录 clientId、IP 和时间）',hubName);if(value===null)return;hubName=value.slice(0,100);try{localStorage.setItem('pahub.clientName',hubName);}catch{}entry.textContent=hubName||'设置昵称';hubConnect();};$('#save-state').after(entry);
+  updateSaveStatus();hubCollaborationInit();
 }
 function hubHeaders(){return {'Content-Type':'application/json',...(window.PAHUB.credential?{'X-PCF-Token':window.PAHUB.credential}:{})};}
 function hubURL(tail){return window.PAHUB.apiBase+'/pcf/'+encodeURIComponent(window.PAHUB.projectId)+'/'+encodeURIComponent(window.PAHUB.drawingId)+'/'+tail;}
@@ -669,34 +669,224 @@ function hubMerge(sent,local,remote){
   return structuredClone(local);
 }
 async function hubReload(){
-  try{const response=await fetch(hubURL('data'),{headers:hubHeaders()});if(!response.ok)throw Error('载入失败：'+response.status);const result=await response.json();Object.assign(state,result.data);hubBase=structuredClone(result.data);hubRev=result.rev;hubDirty.clear();hubBlocked=false;savedRevision=editRevision;searchCache.clear();closeModal();render();restartAutoSave();updateSaveStatus();}catch(e){toast(e.message);}
+  try{const response=await fetch(hubURL('data'),{headers:hubHeaders()});if(!response.ok)throw Error('载入失败：'+response.status);const result=await response.json();Object.assign(state,result.data);hubBase=structuredClone(result.data);hubRev=result.rev;hubDirty.clear();hubQueue=[];hubConflictItems=[];hubRemoteMarks.clear();hubBlocked=false;savedRevision=editRevision;hubPersist();searchCache.clear();closeModal();render();restartAutoSave();updateSaveStatus();}catch(e){toast(e.message);}
 }
-function hubConflicts(conflicts){
-  hubBlocked=true;
-  const labels=conflicts.map(x=>(x.commentNumber?'意见 #'+x.commentNumber:x.entity||x.op.type)+' · '+(x.updatedBy?.clientName||x.updatedBy?.clientId||'其他编辑者'));
-  openModal('保存冲突','<p>以下实体已被更新，本地版本未覆盖服务器：</p><ul>'+labels.map(x=>'<li>'+esc(x)+'</li>').join('')+'</ul><p>其它操作已保存。可先下载本地 HTML 副本留存；载入服务器版本会放弃尚未保存的本地内容。</p>','<button data-action="close-modal">保留本地修改</button><button id="hub-download-conflict">下载本地副本</button><button class="primary" id="hub-reload">载入服务器版本</button>');
-  $('#hub-reload').onclick=hubReload;$('#hub-download-conflict').onclick=hubDownload;
+function hubConflicts(conflicts,ops=[]){
+  hubBlocked=true;hubConflictItems=conflicts.map(x=>({...x,localOp:hubConflictOp(ops,x)||x.localOp||x.op}));
+  const preview=v=>v&&typeof v==='object'&&'html'in v?sanitize(v.html||esc(v.text).replace(/\n/g,'<br>')):'<pre>'+esc(typeof v==='string'?v:JSON.stringify(v,null,2))+'</pre>';
+  const text=v=>v&&typeof v==='object'&&'text'in v?v.text:typeof v==='string'?v:JSON.stringify(v,null,2)||'';
+  const images=v=>(v?.images||[]).map(x=>x.name).join('、')||'无';
+  openModal('保存冲突 · 对比与合并',hubConflictItems.map((x,i)=>{
+    const mine=x.localOp.value??x.localOp,server=x.server;
+    return '<section class="hub-conflict" data-conflict="'+i+'"><h3>意见 #'+esc(x.commentNumber||'—')+' · '+esc(x.localOp.side||x.localOp.field||x.entity)+'</h3><p>'+esc(x.reason)+' · '+esc(x.updatedBy?.clientName||x.updatedBy?.clientId||'其他编辑者')+' · '+esc(x.updatedBy?.at||'')+'</p><div class="hub-compare"><div><h4>我的版本</h4><div class="hub-preview">'+preview(mine)+'</div><p>图片：'+esc(images(mine))+'</p></div><div><h4>服务器版本</h4><div class="hub-preview">'+preview(server)+'</div><p>图片：'+esc(images(server))+'</p></div></div><p>纯文本差异（红色删除 / 绿色新增）</p><div class="hub-diff">'+hubDiff(text(server),text(mine))+'</div><label>处理方式 <select class="hub-choice"><option value="mine">用我的</option><option value="server">用服务器的</option><option value="merge">手动合并</option></select></label><div class="hub-manual" hidden><p>编辑合并版本；图片作为整体选择保留我的或服务器的。</p>'+(x.localOp.type==='content.set'?'<div class="hub-merge-editor" contenteditable="true" role="textbox">'+preview(mine)+'</div><select class="hub-images"><option value="mine">我的图片</option><option value="server">服务器图片</option></select>':'<textarea class="hub-merge-json">'+esc(JSON.stringify(mine,null,2))+'</textarea>')+'</div></section>';
+  }).join(''),'<button data-action="close-modal">稍后处理</button><button id="hub-all-mine">全部用我的</button><button id="hub-all-server">全部用服务器的</button><button id="hub-reload">载入服务器版本</button><button class="primary" id="hub-resolve">应用选择并保存</button>');
+  $$('.hub-choice').forEach(s=>s.onchange=()=>s.closest('.hub-conflict').querySelector('.hub-manual').hidden=s.value!=='merge');
+  $('#hub-all-mine').onclick=()=>$$('.hub-choice').forEach(s=>{s.value='mine';s.onchange();});
+  $('#hub-all-server').onclick=()=>$$('.hub-choice').forEach(s=>{s.value='server';s.onchange();});
+  $('#hub-reload').onclick=hubReload;$('#hub-resolve').onclick=hubResolve;
+}
+async function hubResolve(){
+  try{
+    // Validate every manual value before touching any local entity.
+    const decisions=hubConflictItems.map((x,i)=>{
+      const section=$('[data-conflict="'+i+'"]'),choice=section.querySelector('.hub-choice').value;
+      let value=x.localOp.value;
+      if(choice==='server')value=x.server;
+      if(choice==='merge'){
+        if(x.localOp.type==='content.set'){
+          const ed=section.querySelector('.hub-merge-editor');value={...x.localOp.value,text:ed.innerText,html:sanitize(ed.innerHTML),images:structuredClone(section.querySelector('.hub-images').value==='mine'?x.localOp.value.images:x.server?.images||[])};
+        }else value=JSON.parse(section.querySelector('.hub-merge-json').value);
+      }
+      return {x,choice,value};
+    });
+    for(const {x,choice,value}of decisions){
+      if(choice==='server')hubUseServer(state,hubBase,x.localOp);
+      else if(x.localOp.type==='content.set'&&(!x.server||typeof x.server!=='object'||!('text'in x.server)))throw Error('该栏已被删除；请用服务器的，保留副本后在新意见中恢复内容。');
+      else if('value'in x.localOp)hubSetValue(state,x.localOp,value);
+    }
+    hubBlocked=false;hubConflictItems=[];hubDirty.add('*');editRevision++;closeModal();hubRenderLive();await hubPersist();await hubSave();
+  }catch(e){toast(e.message);}
 }
 async function hubSave(auto=false){
   if(writeBusy||pendingImages)return;
-  if(hubBlocked){if(!auto)toast('请先处理冲突：下载本地副本并载入服务器版本。');return;}
+  if(hubBlocked){if(!auto)hubConflicts(hubConflictItems);return;}
   const snapshot=structuredClone(state),sentRevision=editRevision,ops=hubOps(hubBase,snapshot);
-  if(!ops.length){savedRevision=editRevision;hubDirty.clear();updateSaveStatus();return;}
-  writeBusy=true;updateSaveStatus();
+  if(!ops.length&&!hubQueue.length){savedRevision=editRevision;hubDirty.clear();await hubPersist();updateSaveStatus();return;}
+  if(!hubQueue.length)hubQueue.push({body:{batchId:uid(),clientId:hubClient,clientName:hubName,baseRev:hubRev,ops},snapshot,sentRevision});
+  const pending=hubQueue[0];writeBusy=true;updateSaveStatus();
   try{
-    const response=await fetch(hubURL('ops'),{method:'POST',headers:hubHeaders(),body:JSON.stringify({clientId:hubClient,clientName:hubName,baseRev:hubRev,ops})});
+    await hubPersist();
+    const response=await fetch(hubURL('ops'),{method:'POST',headers:hubHeaders(),body:JSON.stringify(pending.body)});
     const result=await response.json();if(!response.ok)throw Error(result.error||'保存失败：'+response.status);
     if(!result.data)throw Error('服务器未返回确认数据');
-    const local=structuredClone(state);hubRev=result.rev;
-    // For conflicted cells, use pre-save baseline during merge to retain our local text for download.
-    const mergeBase=result.conflicts?.length?hubBase:snapshot;
-    Object.assign(state,hubMerge(mergeBase,local,result.data));state.hub=structuredClone(result.data.hub);hubBase=structuredClone(result.data);
-    for(const [id,value]of Object.entries(result.assigned||{})){const c=state.comments.find(x=>x.id===id);if(c){c.number=value.number;if(c.rounds[0]&&value.roundNumber)c.rounds[0].number=value.roundNumber;}for(const c of state.comments){const r=c.rounds.find(x=>x.id===id);if(r)r.number=value.number;}}
-    if(result.conflicts?.length){hubConflicts(result.conflicts);}else{savedRevision=sentRevision;if(editRevision===sentRevision)hubDirty.clear();else hubDirty.add('*');}
-    searchCache.clear();if(editRevision===sentRevision&&!result.conflicts?.length)render();
-    saveFeedback('已保存到服务器 · rev '+hubRev);
-  }catch(e){toast(e.message+'；本地修改仍保留，可重试或下载 HTML 副本。');}
+    hubQueue.shift();hubRemoteMarks.clear();
+    const local=structuredClone(state),mergeBase=structuredClone(pending.snapshot);
+    for(const conflict of result.conflicts||[]){const op=hubConflictOp(pending.body.ops,conflict);if(op)hubUseServer(mergeBase,hubBase,op);}
+    Object.assign(state,hubMerge(mergeBase,local,result.data));state.hub=structuredClone(result.data.hub);hubBase=structuredClone(result.data);hubRev=result.rev;
+    hubDirty.add('*');
+    if(result.conflicts?.length)hubConflicts(result.conflicts,pending.body.ops);
+    else{savedRevision=hubOps(hubBase,state).length?Math.min(savedRevision,editRevision-1):editRevision;if(!hubOps(hubBase,state).length)hubDirty.clear();}
+    searchCache.clear();hubRenderLive();saveFeedback('已保存到服务器 · rev '+hubRev);await hubPersist();
+    // An idempotent reply may be older than events received while offline.
+    if(window.EventSource)await hubFetchLatest();
+  }catch(e){toast(e.message+'；未确认修改已保留，保存可重试同一批次。');await hubPersist();}
   finally{writeBusy=false;updateSaveStatus();}
+  if(hubDeferredRev&&!hubQueue.length){hubDeferredRev=0;await hubFetchLatest().catch(e=>toast(e.message));}
+}
+// Phase 3 hosted collaboration. All hooks are gated by hubMode.
+let hubQueue=[],hubConflictItems=[],hubOnline=[],hubRemoteMarks=new Set(),hubEventSource=null,hubPresenceEntity=null,hubLastActivity=Date.now(),hubDBPromise=null,hubPersistChain=Promise.resolve(),hubIncoming=Promise.resolve(),hubRecovery=Promise.resolve(),hubStorageWarned=false;
+function hubConflictOp(ops,x){return ops.find(op=>x.entity?hubKey(op)===x.entity:Object.entries(x.op||{}).every(([key,value])=>hubEqual(op[key],value)));}
+function hubKey(op){switch(op.type){case 'content.set':return 'round:'+op.roundId+':'+op.side;case 'round.meta':return 'round:'+op.roundId+':'+op.field;case 'comment.meta':return 'comment:'+op.commentId+':meta';case 'comment.status':return 'comment:'+op.commentId+':status';case 'project.set':return 'project:'+op.field;case 'settings.set':return 'settings:'+op.field;case 'roundRegister.set':return 'register:'+op.round;case 'record.delete':return (op.roundId?'round:'+op.roundId:'comment:'+op.commentId)+':record';case 'record.restore':return 'deleted:'+op.deleteId;default:return '';}}
+function hubSetValue(target,op,value){
+  const c=target.comments.find(c=>c.id===op.commentId),r=c?.rounds.find(r=>r.id===op.roundId);
+  switch(op.type){case 'content.set':if(r)r[op.side]=structuredClone(value);break;case 'round.meta':if(r)r[op.field]=value;break;case 'comment.status':if(c)c.status=value;break;case 'comment.meta':if(c)Object.assign(c,structuredClone(value));break;case 'project.set':target.project[op.field]=value;break;case 'settings.set':target.settings[op.field]=value;break;case 'roundRegister.set':{let row=target.roundRegister.find(r=>r.round===op.round);if(!row){row={round:op.round,id:uid()};target.roundRegister.push(row);}Object.assign(row,structuredClone(value));break;}}
+}
+function hubUseServer(target,server,op){
+  const c=server.comments.find(c=>c.id===op.commentId),r=c?.rounds.find(r=>r.id===op.roundId);
+  if(['content.set','round.meta'].includes(op.type)&&!r){const local=target.comments.find(x=>x.id===op.commentId);if(local)local.rounds=local.rounds.filter(x=>x.id!==op.roundId);if(!c)target.comments=target.comments.filter(x=>x.id!==op.commentId);return;}
+  if(['comment.status','comment.meta'].includes(op.type)&&!c){target.comments=target.comments.filter(x=>x.id!==op.commentId);return;}
+  const values={'content.set':r?.[op.side],'round.meta':r?.[op.field],'comment.status':c?.status,'comment.meta':c?{page:c.page,tags:c.tags}:null,'project.set':server.project[op.field],'settings.set':server.settings[op.field],'roundRegister.set':server.roundRegister.find(r=>r.round===op.round)};
+  if(op.type in values)hubSetValue(target,op,values[op.type]);
+  else if(op.type==='record.delete'||op.type==='record.restore'){
+    const tombstone=server.deleted.find(t=>t.id===op.deleteId)||target.deleted.find(t=>t.id===op.deleteId);
+    const id=op.commentId||(tombstone?.type==='comment'?tombstone.data.id:tombstone?.parentId);
+    target.deleted=target.deleted.filter(t=>t.id!==op.deleteId);const serverDeleted=server.deleted.find(t=>t.id===op.deleteId);if(serverDeleted)target.deleted.push(structuredClone(serverDeleted));
+    const remote=server.comments.find(x=>x.id===id);target.comments=target.comments.filter(x=>x.id!==id);if(remote)target.comments.push(structuredClone(remote));
+  }
+}
+function hubApplyRemote(result){
+  if(result.rev<hubRev)return;
+  const previous=structuredClone(hubBase),local=structuredClone(state),ops=hubOps(previous,local);
+  const remote=result.data,baseline=structuredClone(remote),merged=hubMerge(previous,local,remote);
+  const focused=document.activeElement?.closest?.('.editor');
+  if(focused){const op={type:'content.set',commentId:focused.dataset.cid,roundId:focused.dataset.rid,side:focused.dataset.side},key=hubKey(op);
+    if((hubClock(previous,key)!==hubClock(remote,key)||!remote.comments.find(x=>x.id===op.commentId)?.rounds.some(x=>x.id===op.roundId))&&!ops.some(x=>hubKey(x)===key)){
+      ops.push(op);hubBlurSync=true;
+      const c=local.comments.find(x=>x.id===op.commentId),r=c?.rounds.find(x=>x.id===op.roundId);
+      if(c&&!merged.comments.some(x=>x.id===c.id))merged.comments.push(structuredClone(c));
+      const mc=merged.comments.find(x=>x.id===op.commentId);if(r&&mc&&!mc.rounds.some(x=>x.id===r.id))mc.rounds.push(structuredClone(r));
+      if(r)hubSetValue(merged,op,r[op.side]);
+    }
+  }
+  for(const op of ops){const key=hubKey(op);if(!key)continue;
+    if(hubClock(previous,key)!==hubClock(remote,key)||(op.roundId&&!remote.comments.find(x=>x.id===op.commentId)?.rounds.some(x=>x.id===op.roundId))||(op.commentId&&!remote.comments.some(x=>x.id===op.commentId)))hubRemoteMarks.add(key);
+    // Preserve each dirty value AND its old clock. Clean siblings receive new clocks.
+    if(op.commentId&&!baseline.comments.some(x=>x.id===op.commentId)){
+      const original=previous.comments.find(x=>x.id===op.commentId);if(original)baseline.comments.push(structuredClone(original));
+    }
+    if(op.roundId){const bc=baseline.comments.find(x=>x.id===op.commentId),original=previous.comments.find(x=>x.id===op.commentId)?.rounds.find(x=>x.id===op.roundId);if(bc&&original&&!bc.rounds.some(x=>x.id===op.roundId))bc.rounds.push(structuredClone(original));}
+    hubUseServer(baseline,previous,op);baseline.hub.entities[key]=structuredClone(previous.hub?.entities?.[key]||{rev:0});
+  }
+  // Do not renumber a retained unsaved comment to collide with server additions.
+  merged.comments.sort((a,b)=>a.number-b.number);merged.comments.forEach((c,i)=>c.number=i+1);merged.nextCommentNumber=merged.comments.length+1;
+  Object.assign(state,merged);state.hub=structuredClone(remote.hub);hubBase=baseline;hubRev=result.rev;
+  searchCache.clear();hubRenderLive();hubPersist();
+}
+async function hubFetchLatest(){const response=await fetch(hubURL('data'),{headers:hubHeaders()});if(!response.ok)throw Error('同步失败：'+response.status);hubApplyRemote(await response.json());}
+function hubChanged(event){
+  if(event.clientId===hubClient)return Promise.resolve(false);
+  hubIncoming=hubIncoming.catch(()=>{}).then(()=>hubRecovery).then(async()=>{if(event.rev<=hubRev)return false;if(writeBusy){hubDeferredRev=Math.max(hubDeferredRev,event.rev);return false;}await hubFetchLatest();return true;}).catch(e=>toast(e.message));return hubIncoming;
+}
+let hubDeferredRev=0,hubBlurSync=false;
+function hubNodeKey(node){if(node.nodeType!==1)return '';const d=node.dataset;if(node.matches('.comment'))return 'comment:'+d.cid;if(node.matches('.round'))return 'round:'+d.rid;return node.tagName+':'+(node.id||((d.cid||'')+'|'+(d.rid||'')+'|'+(d.side||'')+'|'+(d.action||'')+'|'+(d.cfield||'')+'|'+(d.nameField||'')));}
+function hubMorph(old,fresh){
+  if(old.nodeType!==fresh.nodeType||old.nodeName!==fresh.nodeName){old.replaceWith(fresh);return;}
+  if(old.nodeType===3){if(old.nodeValue!==fresh.nodeValue)old.nodeValue=fresh.nodeValue;return;}
+  if(old.nodeType!==1)return;
+  if(old===document.activeElement&&(old.matches('.editor,input,textarea,[contenteditable="true"]')))return;
+  for(const attr of [...old.attributes])if(!fresh.hasAttribute(attr.name))old.removeAttribute(attr.name);
+  for(const attr of [...fresh.attributes])if(old.getAttribute(attr.name)!==attr.value)old.setAttribute(attr.name,attr.value);
+  if(old.matches('input,select,textarea')){if(old.value!==fresh.value)old.value=fresh.value;return;}
+  const prior=[...old.childNodes],used=new Set();let cursor=old.firstChild;
+  for(const next of [...fresh.childNodes]){
+    const key=hubNodeKey(next);let candidate=key?prior.find(n=>!used.has(n)&&hubNodeKey(n)===key):prior.find(n=>!used.has(n)&&n.nodeType===next.nodeType&&n.nodeName===next.nodeName);
+    if(candidate){used.add(candidate);if(candidate!==cursor){
+      // insertBefore on a focused ancestor blurs its editor, even when identity is retained.
+      // Move the preceding siblings instead, keeping the active subtree connected.
+      if(candidate.nodeType===1&&candidate.contains(document.activeElement)){const before=[];for(let n=cursor;n&&n!==candidate;n=n.nextSibling)before.push(n);const after=candidate.nextSibling;for(const n of before)old.insertBefore(n,after);}
+      else old.insertBefore(candidate,cursor);
+    }hubMorph(candidate,next);cursor=candidate.nextSibling;}
+    else{old.insertBefore(next,cursor);used.add(next);}
+  }
+  for(const node of prior)if(!used.has(node)){
+    if(node.nodeType===1&&node.contains(document.activeElement)){node.dataset.remoteDeleted='true';continue;}
+    node.remove();
+  }
+}
+function hubRenderLive(){
+  const list=matched(),pages=Math.max(1,Math.ceil(list.length/pageSize));page=Math.max(1,Math.min(page,pages));const visible=list.slice((page-1)*pageSize,page*pageSize);
+  const fresh=document.createElement('div');fresh.innerHTML=visible.map(commentHTML).join('');
+  hubMorph($('#comments'),Object.assign(fresh,{id:'comments'}));
+  // Overview writes only chrome; preserve focused header/register inputs as well.
+  const focused=document.activeElement,held=focused?.matches('input,textarea,select')?{value:focused.value,start:focused.selectionStart,end:focused.selectionEnd}:null;
+  if(!focused?.closest('#pcf-history-rows'))updateOverview();
+  if(held&&document.contains(focused)){focused.value=held.value;try{focused.setSelectionRange(held.start,held.end);}catch{}}
+  renderIndex(list);$('#result-summary').textContent=list.length+' matching / '+state.comments.length+' comments';$('#page-label').textContent=' · Page '+page+' of '+pages;$('#prev-page').disabled=page<=1;$('#next-page').disabled=page>=pages;
+  hubShowPresence();updateSaveStatus();
+}
+function hubShowPresence(){
+  const others=hubOnline.filter(x=>x.clientId!==hubClient),bar=$('#pahub-online');
+  if(bar)bar.textContent='在线 '+hubOnline.length+' 人'+(others.length?' · '+others.map(x=>x.clientName).join('、'):'');
+  $$('.hub-soft-lock,.hub-remote-update').forEach(x=>x.remove());
+  $$('.editor').forEach(ed=>{const key='round:'+ed.dataset.rid+':'+ed.dataset.side,people=others.filter(x=>x.entity===key);
+    for(const [className,text]of [['hub-soft-lock',people.length?people.map(x=>x.clientName).join('、')+'正在编辑（软提示，不阻止编辑）':''],['hub-remote-update',hubRemoteMarks.has(key)?'已被他人更新；保存时对比':'' ]])if(text){const hint=document.createElement('div');hint.className=className;hint.textContent=text;ed.after(hint);}
+  });
+}
+function hubPresence(leave=false){
+  if(!hubMode||!window.EventSource)return Promise.resolve();
+  const entity=Date.now()-hubLastActivity<60000?hubPresenceEntity:null;
+  return fetch(hubURL('presence'),{method:'POST',headers:hubHeaders(),keepalive:leave,body:JSON.stringify({clientId:hubClient,clientName:hubName,entity,leave})}).catch(()=>{});
+}
+function hubConnect(){
+  if(!window.EventSource)return;
+  hubEventSource?.close();const params=new URLSearchParams({clientId:hubClient,clientName:hubName,rev:String(hubRev),credential:window.PAHUB.credential||''});
+  hubEventSource=new EventSource(hubURL('events')+'?'+params);
+  hubEventSource.addEventListener('hello',e=>{const value=JSON.parse(e.data);hubOnline=value.online;hubShowPresence();if(value.rev!==hubRev)hubChanged({...value,clientId:''});hubPresence();});
+  hubEventSource.addEventListener('presence',e=>{hubOnline=JSON.parse(e.data).online;hubShowPresence();});
+  hubEventSource.addEventListener('changed',e=>hubChanged(JSON.parse(e.data)));
+  hubEventSource.addEventListener('ping',()=>{if(Date.now()-hubLastActivity<60000)hubPresence();});
+  hubEventSource.onerror=()=>{const bar=$('#pahub-online');if(bar)bar.textContent='实时连接中断，正在重连…';};
+}
+function hubDB(){
+  if(!hubDBPromise)hubDBPromise=new Promise((resolve,reject)=>{const request=indexedDB.open('pahub-pcf-offline',1);request.onupgradeneeded=()=>request.result.createObjectStore('documents');request.onerror=()=>reject(request.error);request.onsuccess=()=>resolve(request.result);});
+  return hubDBPromise;
+}
+function hubStoredCount(record){return Math.max(record?.queue?.reduce((n,x)=>n+x.body.ops.length,0)||0,record?.ops?.length||0);}
+function hubPersist(){
+  if(!hubMode||!hubBase||!window.indexedDB)return Promise.resolve();
+  const record={documentId:state.documentId,base:structuredClone(hubBase),local:structuredClone(state),rev:hubRev,dirty:[...hubDirty],queue:structuredClone(hubQueue),ops:hubOps(hubBase,state),conflicts:structuredClone(hubConflictItems),blocked:hubBlocked};
+  hubPersistChain=hubPersistChain.catch(()=>{}).then(async()=>{const db=await hubDB();await new Promise((resolve,reject)=>{const tx=db.transaction('documents','readwrite'),store=tx.objectStore('documents');if(hubStoredCount(record)||record.blocked)store.put(record,record.documentId);else store.delete(record.documentId);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error);tx.onabort=()=>reject(tx.error);});}).catch(e=>{if(!hubStorageWarned){hubStorageWarned=true;toast('本地离线存储不可用：'+e.message+'；请下载副本留存。');}});
+  return hubPersistChain;
+}
+async function hubRestore(){
+  if(!window.indexedDB)return;
+  try{const db=await hubDB(),record=await new Promise((resolve,reject)=>{const request=db.transaction('documents').objectStore('documents').get(state.documentId);request.onsuccess=()=>resolve(request.result);request.onerror=()=>reject(request.error);});
+    if(!record||!hubStoredCount(record))return;
+    hubBlocked=true;
+    await new Promise(resolve=>{
+      openModal('有 '+hubStoredCount(record)+' 项未同步修改','<p>修改已保存在此浏览器。重新提交会使用原实体 clock，发生冲突时进入对比界面。</p>','<button id="hub-offline-discard">丢弃本地修改</button><button class="primary" id="hub-offline-retry">恢复并重新提交</button>');
+      $('#hub-offline-retry').onclick=async()=>{Object.assign(state,record.local);hubBase=record.base;hubRev=record.rev;hubQueue=record.queue;hubDirty.clear();record.dirty.forEach(x=>hubDirty.add(x));hubDirty.add('*');editRevision++;hubBlocked=false;closeModal();hubRenderLive();resolve();if(record.blocked&&record.conflicts?.length)hubConflicts(record.conflicts);else await hubSave();};
+      $('#hub-offline-discard').onclick=async()=>{hubQueue=[];hubConflictItems=[];hubBlocked=false;hubDirty.clear();savedRevision=editRevision;closeModal();await hubPersist();resolve();};
+    });
+  }catch(e){toast('无法恢复本地修改：'+e.message);}
+}
+function hubDiff(server,mine){
+  // Bounded common-prefix/suffix diff avoids quadratic work on long review text.
+  let p=0,s=0;while(p<server.length&&p<mine.length&&server[p]===mine[p])p++;
+  while(s<server.length-p&&s<mine.length-p&&server[server.length-1-s]===mine[mine.length-1-s])s++;
+  return esc(mine.slice(0,p))+(server.length-p-s?'<del>'+esc(server.slice(p,server.length-s))+'</del>':'')+(mine.length-p-s?'<ins>'+esc(mine.slice(p,mine.length-s))+'</ins>':'')+esc(s?mine.slice(-s):'');
+}
+function hubCollaborationInit(){
+  const bar=document.createElement('span');bar.id='pahub-online';bar.textContent='连接实时协同…';$('#save-state').after(bar);
+  const css=document.createElement('style');css.id='pahub-collab-style';css.textContent='#pahub-online{font-size:12px;max-width:34vw;overflow:hidden;text-overflow:ellipsis}.hub-soft-lock,.hub-remote-update{font-size:12px;padding:4px 8px;color:#8a5610;background:#fff6d7}.hub-remote-update{color:#9e3028}.hub-compare{display:grid;grid-template-columns:1fr 1fr;gap:16px}.hub-preview,.hub-merge-editor{border:1px solid #ddd;padding:10px;min-height:60px;overflow-wrap:anywhere}.hub-conflict{border-bottom:1px solid #ddd;padding:14px 0}.hub-diff{white-space:pre-wrap;padding:8px}.hub-diff del{background:#ffe0df;color:#9e3028}.hub-diff ins{background:#d8f5e1;color:#126a33}.hub-merge-json{width:100%;min-height:100px}';document.head.append(css);
+  hubRecovery=hubRestore();hubConnect();
+  document.addEventListener('focusin',e=>{hubLastActivity=Date.now();const ed=e.target.closest?.('.editor');hubPresenceEntity=ed?'round:'+ed.dataset.rid+':'+ed.dataset.side:null;hubPresence();});
+  document.addEventListener('focusout',()=>setTimeout(()=>{const ed=document.activeElement?.closest?.('.editor');hubPresenceEntity=ed?'round:'+ed.dataset.rid+':'+ed.dataset.side:null;hubPresence();if(!ed){if(hubBlurSync&&!writeBusy){hubBlurSync=false;hubFetchLatest().catch(e=>toast(e.message));}else hubRenderLive();}},0));
+  document.addEventListener('input',()=>{hubLastActivity=Date.now();hubPresence();});
+  document.addEventListener('keydown',()=>{hubLastActivity=Date.now();});
+  window.addEventListener('pagehide',()=>{hubPresence(true);hubEventSource?.close();});
+  window.addEventListener('pageshow',e=>{if(e.persisted)hubConnect();});
+  window.addEventListener('online',()=>{if(hubQueue.length)toast('网络已恢复；点击保存重新提交未确认批次。');});
 }
 function hubDownload(){if(pendingImages){toast('请等待图片处理完成。');return;}download(new Blob([snapshotHTML(state)],{type:'text/html;charset=utf-8'}),suggestedName());toast('已下载独立 HTML 副本；服务器保存状态不变。');}
 function hubFileOptions(){openModal('服务器保存选项','<p>保存与自动保存均使用服务器；不需要连接本地文件。</p><label>自动保存 <select id="autosave-setting"><option value="0">关闭</option><option value="30">30 秒</option><option value="60">60 秒</option><option value="120">120 秒</option><option value="300">300 秒</option></select></label><p><button data-action="download-copy">下载 HTML 副本</button> <button data-action="export-json">Export JSON</button> <button data-action="print">Print / PDF</button></p>');$('#autosave-setting').value=String(state.settings.autoSaveSeconds);}
@@ -705,7 +895,7 @@ const FILL_COLORS=['#fffefa','#f2eee4','#f2e2d4','#f5dfda','#f6edcc','#e6eddf','
 const ALLOWED_FONTS=['Aptos','Aptos Light','Aptos Serif','Aptos Black'];
 function toast(text){$('#toast').textContent=text;$('#toast').hidden=false;clearTimeout(toastTimer);$('#toast').classList.remove('appear');void $('#toast').offsetWidth;$('#toast').classList.add('appear');toastTimer=setTimeout(()=>$('#toast').hidden=true,4500);}
 function dirty(){return editRevision!==savedRevision;}
-function touch(c){hubMark(c);reconcileApproval();editRevision++;state.updatedAt=now();if(c){c.updatedAt=state.updatedAt;searchCache.delete(c.id);}else searchCache.clear();updateSaveStatus();}
+function touch(c){hubMark(c);reconcileApproval();editRevision++;state.updatedAt=now();if(c){c.updatedAt=state.updatedAt;searchCache.delete(c.id);}else searchCache.clear();updateSaveStatus();if(hubMode)hubPersist();}
 function updateSaveStatus(){const el=$('#save-state');if(hubMode){el.classList.toggle('dirty',dirty());el.textContent=(writeBusy?'正在保存到服务器…':hubBlocked?'有冲突 · 本地修改未保存':dirty()?'本地修改待保存':'已保存到服务器 · rev '+hubRev)+' · '+(state.settings.autoSaveSeconds?'自动保存 '+state.settings.autoSaveSeconds+'s':'自动保存关闭');return;}el.classList.toggle('dirty',dirty());let text=writeBusy?'Saving…':dirty()?'Unsaved changes':lastSave?'Saved '+lastSave:'Ready';text+=' · '+(fileHandle?'Connected: '+fileHandle.name:rememberedHandle?'Press Save (Ctrl+S) to reconnect '+rememberedHandle.name:'Not connected to a file');text+=' · '+(fileHandle&&!autoPaused&&state.settings.autoSaveSeconds?'Auto-save '+state.settings.autoSaveSeconds+'s':'Auto-save paused');if(pendingImages)text+=' · Processing images';el.textContent=text;}
 function sanitize(html){const box=document.createElement('div');box.innerHTML=html;const tags=new Set(['B','STRONG','I','EM','U','S','STRIKE','SPAN','FONT','BR','DIV','P']);const colorMap=new Map();for(const hex of TEXT_COLORS){const x=document.createElement('span');x.style.color=hex;colorMap.set(x.style.color,hex);}function clean(parent){for(const child of [...parent.childNodes]){if(child.nodeType!==1)continue;if(['SCRIPT','STYLE','IFRAME','OBJECT','SVG','MATH','IMG'].includes(child.tagName)){child.remove();continue;}if(!tags.has(child.tagName)){child.replaceWith(document.createTextNode(child.textContent));continue;}const css={};for(const k of ['font-weight','font-style','text-decoration','text-decoration-line','font-family','color']){let v=child.style.getPropertyValue(k);if(!v)continue;if(k==='font-family'){v=v.replace(/["']/g,'');if(!ALLOWED_FONTS.includes(v))continue;}if(k==='color'){if(!colorMap.has(v))continue;v=colorMap.get(v);}if(k==='font-weight'&&!/^(bold|normal|[1-9]00)$/.test(v))continue;if(k==='font-style'&&!/^(italic|normal|oblique)$/.test(v))continue;if(k.startsWith('text-decoration')&&!/^(none|underline|line-through|underline line-through|line-through underline)$/.test(v))continue;css[k]=v;}const face=child.getAttribute('face'),color=child.getAttribute('color');[...child.attributes].forEach(a=>child.removeAttribute(a.name));for(const [k,v]of Object.entries(css))child.style.setProperty(k,v);if(face&&ALLOWED_FONTS.includes(face))child.style.fontFamily=face;if(color&&TEXT_COLORS.includes(color.toLowerCase()))child.style.color=color;clean(child);}}clean(box);return box.innerHTML;}
 function validFill(color){return FILL_COLORS.includes(color)?color:'';}
@@ -749,7 +939,7 @@ function sideHTML(c,r,side){const owner=side==='owner',content=r[side],person=ow
 function roundHTML(c,r){return '<div class="round" data-rid="'+r.id+'" id="round-'+r.id+'"><div class="round-bar"><span class="round-title">Round '+num(r.number)+'</span>'+roundMatch(r)+'<span>'+esc(state.project.planNo)+' / '+c.number+' / '+r.number+'</span><button class="subtle danger delete-empty-round" '+(hasReply(r)||c.status==='closed'?'hidden disabled':'')+' data-action="delete-round" data-cid="'+c.id+'" data-rid="'+r.id+'">Delete unanswered round</button><span class="reply-protected" hidden data-replied="'+hasReply(r)+'">Reply recorded</span></div><div class="round-grid" style="min-height:'+Math.max(150,fitOverrides.has(r.id)?0:(r.minHeight||0))+'px">'+sideHTML(c,r,'owner')+sideHTML(c,r,'reply')+'<div class="resize-handle" data-cid="'+c.id+'" data-rid="'+r.id+'" role="button" tabindex="0" aria-label="Resize '+ref(c)+' round '+r.number+'; arrow keys adjust, Home resets"></div></div></div>';}
 function commentHTML(c){return '<article class="comment '+(c.status==='closed'?'closed':'')+'" data-cid="'+c.id+'" id="comment-'+c.number+'"><header class="comment-head"><div class="comment-number">'+String(c.number).padStart(3,'0')+'<span>Comment</span></div><label class="inline-label">Page / Chapter<input class="page-field" '+(c.status==='closed'?'disabled':'')+' value="'+esc(c.page)+'" data-cfield="page" aria-label="'+ref(c)+' page or chapter" placeholder="Page / chapter"></label><div class="inline-label">Properties<div class="tags">'+['SPEC','highlight','site verify'].map(t=>'<button '+(c.status==='closed'?'disabled':'')+' class="tag-toggle '+(c.tags.includes(t)?'active':'')+'" data-action="tag" data-cid="'+c.id+'" data-tag="'+t+'" aria-pressed="'+c.tags.includes(t)+'">'+t+'</button>').join('')+'</div></div>'+peopleHTML(c)+'<div class="comment-actions">'+statusCapsule(c)+'<button '+(c.status==='closed'?'disabled':'')+' data-action="add-round" data-cid="'+c.id+'">+ Round</button><button '+(c.status==='closed'?'disabled':'')+' class="subtle danger" data-action="delete-comment" data-cid="'+c.id+'">Delete</button></div></header><div class="rounds">'+(c.rounds.length?c.rounds.map(r=>roundHTML(c,r)).join(''):'<div class="empty-state" style="padding:20px">No active rounds. Add a round or restore one from Deleted items.</div>')+'</div></article>';}
 function renderIndex(list){$('#index-list').innerHTML=list.map(c=>'<button class="index-entry '+c.status+'" data-action="jump" data-cid="'+c.id+'"><span>'+ref(c)+'<br><small>'+esc(c.page||'No page reference')+'</small></span><span class="index-round">'+c.rounds.map(r=>'R'+num(r.number)).join(' / ')+'</span></button>').join('')||'<p class="muted" style="padding:10px;font-size:12px">No matching comments.</p>';}
-function render(){updateOverview();const list=matched(),pages=Math.max(1,Math.ceil(list.length/pageSize));page=Math.max(1,Math.min(page,pages));const visible=printMode?list:list.slice((page-1)*pageSize,page*pageSize);$('#comments').innerHTML=visible.map(commentHTML).join('')||'<div class="empty-state"><div class="empty-icon">+</div><h2>'+(state.comments.length?'No matching comments':'Start the drawing review')+'</h2><p>'+(state.comments.length?'Change your filters or search across all fields.':'Add the first comment. Each comment keeps its number and its complete round-by-round correspondence.')+'</p><button class="primary" data-action="'+(state.comments.length?'reset-filters':'add-comment')+'">'+(state.comments.length?'Reset filters':'Add first comment')+'</button></div>';$('#result-summary').textContent=list.length+' matching / '+state.comments.length+' comments'+(query?' · Search includes all rounds and drawing history':'');$('#page-label').textContent=' · Page '+page+' of '+pages;$('#prev-page').disabled=page<=1;$('#next-page').disabled=page>=pages;$$('.tab').forEach(b=>{b.classList.toggle('active',b.dataset.filter===filter);b.setAttribute('aria-pressed',b.dataset.filter===filter);});$('#print-scope').textContent='Printed scope: '+list.length+' matching comments, all their rounds. Drawing '+state.project.planNo+'.';if(showIndex)renderIndex(list);}
+function render(){updateOverview();const list=matched(),pages=Math.max(1,Math.ceil(list.length/pageSize));page=Math.max(1,Math.min(page,pages));const visible=printMode?list:list.slice((page-1)*pageSize,page*pageSize);$('#comments').innerHTML=visible.map(commentHTML).join('')||'<div class="empty-state"><div class="empty-icon">+</div><h2>'+(state.comments.length?'No matching comments':'Start the drawing review')+'</h2><p>'+(state.comments.length?'Change your filters or search across all fields.':'Add the first comment. Each comment keeps its number and its complete round-by-round correspondence.')+'</p><button class="primary" data-action="'+(state.comments.length?'reset-filters':'add-comment')+'">'+(state.comments.length?'Reset filters':'Add first comment')+'</button></div>';$('#result-summary').textContent=list.length+' matching / '+state.comments.length+' comments'+(query?' · Search includes all rounds and drawing history':'');$('#page-label').textContent=' · Page '+page+' of '+pages;$('#prev-page').disabled=page<=1;$('#next-page').disabled=page>=pages;$$('.tab').forEach(b=>{b.classList.toggle('active',b.dataset.filter===filter);b.setAttribute('aria-pressed',b.dataset.filter===filter);});$('#print-scope').textContent='Printed scope: '+list.length+' matching comments, all their rounds. Drawing '+state.project.planNo+'.';if(showIndex)renderIndex(list);if(hubMode&&hubBase)hubShowPresence();}
 function resetFilters(){filter='all';tagFilter='all';query='';page=1;$('#search').value='';$('#tag-filter').value='all';}
 function jump(c){const list=matched(),i=list.findIndex(x=>x.id===c.id);if(i<0){resetFilters();page=Math.floor(state.comments.indexOf(c)/pageSize)+1;}else page=Math.floor(i/pageSize)+1;render();const el=$('#comment-'+c.number);el.scrollIntoView({block:'start',behavior:'smooth'});el.classList.add('flash');}
 function openModal(title,body,footer,action){if($('#modal').open)$('#modal').close();$('#modal-title').textContent=title;$('#modal-body').innerHTML=body;$('#modal-footer').innerHTML=footer||'<button data-action="close-modal">Close</button>';modalAction=action||null;$('#modal').showModal();}
@@ -779,7 +969,7 @@ function setRoundHeight(c,r,height){if(!editable(c,true))return;fitOverrides.del
 async function imageRecord(file){if(!['image/png','image/jpeg','image/webp'].includes(file.type))throw Error('Use PNG, JPEG or WebP images.');if(file.size>15*1024*1024)throw Error('Each image must be 15 MB or smaller.');const url=URL.createObjectURL(file);try{const img=new Image();img.src=url;await img.decode();if(img.width*img.height>60000000)throw Error('Image resolution is too large. Crop it first.');const bytes=await file.arrayBuffer();let bin='';const arr=new Uint8Array(bytes);for(let i=0;i<arr.length;i+=8192)bin+=String.fromCharCode(...arr.subarray(i,i+8192));return{id:uid(),name:file.name||'clipboard-image.png',mime:file.type,data:'data:'+file.type+';base64,'+btoa(bin),width:img.width,height:img.height};}finally{URL.revokeObjectURL(url);}}
 async function attach(files,target){if(!target||!files.length||!editable(getComment(target.cid)))return;pendingImages++;updateSaveStatus();let count=0;try{for(const f of files){try{const im=await imageRecord(f),c=getComment(target.cid),r=getRound(c,target.rid);if(!r)throw Error('The target round no longer exists.');if(!editable(c,true))throw Error('Comment was closed while the image was processing. Reopen it to attach.');r[target.side].images.push(im);touch(c);count++;}catch(e){toast(e.message);}}}finally{pendingImages--;updateSaveStatus();}render();if(count)toast(count+' image(s) attached. Original quality retained.');}
 function download(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;a.click();setTimeout(()=>URL.revokeObjectURL(url),60000);}
-function snapshotHTML(data){const root=document.documentElement.cloneNode(true);root.querySelectorAll('#pahub-context,#pahub-name').forEach(el=>el.remove());root.querySelector('#save-as-btn').textContent='Save as';root.querySelector('#pcf-data').textContent=JSON.stringify(data).replace(/</g,'\\u003c').replace(/>/g,'\\u003e').replace(/&/g,'\\u0026');for(const sel of ['#comments','#index-list','#modal-body','#modal-footer'])root.querySelector(sel).innerHTML='';root.querySelectorAll('dialog').forEach(d=>d.removeAttribute('open'));root.querySelector('#large-image').removeAttribute('src');root.querySelector('#toast').hidden=true;root.querySelector('#text-palette').hidden=true;root.querySelector('#fill-palette').hidden=true;root.querySelector('#save-state').textContent='Not connected to a file · Auto-save paused';root.querySelector('#save-state').className='save-line';root.querySelector('#format-context').textContent='Select text to format';root.querySelector('#workspace').className='workspace';root.querySelector('#export-btn').disabled=false;root.querySelector('#export-btn').textContent='Export Excel';root.querySelector('#overview').classList.remove('unlocked');root.querySelectorAll('#overview [data-project]').forEach(el=>{if(el.tagName==='SELECT')el.disabled=true;else el.readOnly=true;});root.querySelector('#lock-hint').textContent='Locked';root.querySelector('#panel-lock').setAttribute('aria-pressed','false');root.querySelector('#panel-lock').setAttribute('aria-label','Unlock drawing control');root.querySelector('#circulate-btn').disabled=true;root.querySelector('#autosave-feedback').className='';root.querySelector('#autosave-feedback').textContent='';return '<!doctype html>\n'+root.outerHTML;}
+function snapshotHTML(data){const root=document.documentElement.cloneNode(true);root.querySelectorAll('#pahub-context,#pahub-name,#pahub-online,#pahub-collab-style').forEach(el=>el.remove());root.querySelector('#save-as-btn').textContent='Save as';root.querySelector('#pcf-data').textContent=JSON.stringify(data).replace(/</g,'\\u003c').replace(/>/g,'\\u003e').replace(/&/g,'\\u0026');for(const sel of ['#comments','#index-list','#modal-body','#modal-footer'])root.querySelector(sel).innerHTML='';root.querySelectorAll('dialog').forEach(d=>d.removeAttribute('open'));root.querySelector('#large-image').removeAttribute('src');root.querySelector('#toast').hidden=true;root.querySelector('#text-palette').hidden=true;root.querySelector('#fill-palette').hidden=true;root.querySelector('#save-state').textContent='Not connected to a file · Auto-save paused';root.querySelector('#save-state').className='save-line';root.querySelector('#format-context').textContent='Select text to format';root.querySelector('#workspace').className='workspace';root.querySelector('#export-btn').disabled=false;root.querySelector('#export-btn').textContent='Export Excel';root.querySelector('#overview').classList.remove('unlocked');root.querySelectorAll('#overview [data-project]').forEach(el=>{if(el.tagName==='SELECT')el.disabled=true;else el.readOnly=true;});root.querySelector('#lock-hint').textContent='Locked';root.querySelector('#panel-lock').setAttribute('aria-pressed','false');root.querySelector('#panel-lock').setAttribute('aria-label','Unlock drawing control');root.querySelector('#circulate-btn').disabled=true;root.querySelector('#autosave-feedback').className='';root.querySelector('#autosave-feedback').textContent='';return '<!doctype html>\n'+root.outerHTML;}
 function suggestedName(){return ('PCF-'+state.project.planNo+'-R'+num(state.project.currentRound)).replace(/[<>:"/\\|?*]/g,'_')+'.html';}
 async function writeFile(auto=false){if(hubMode)return hubSave(auto);if(writeBusy||pendingImages){if(!auto)toast('Wait for the current save or image processing to finish.');return;}if(!fileHandle&&!auto&&rememberedHandle)await reconnectRemembered();if(!fileHandle){if(!auto)saveOptions();return;}writeBusy=true;updateSaveStatus();const rev=editRevision,handle=fileHandle;try{let permission=await handle.queryPermission({mode:'readwrite'});if(permission!=='granted'){if(auto){autoPaused=true;throw Error('Auto-save paused: click Save to renew file permission.');}permission=await handle.requestPermission({mode:'readwrite'});if(permission!=='granted')throw Error('Write permission was not granted. Changes are still unsaved.');}const current=await handle.getFile();if(fileStamp&&(current.lastModified!==fileStamp.lastModified||current.size!==fileStamp.size)){autoPaused=true;throw Error('The file changed outside this page. Use Save as to avoid overwriting another revision.');}const snapshot=structuredClone(state);const stream=await handle.createWritable();try{await stream.write(new Blob([snapshotHTML(snapshot)],{type:'text/html;charset=utf-8'}));await stream.close();}catch(e){try{await stream.abort();}catch{}throw e;}const f=await handle.getFile();fileStamp={lastModified:f.lastModified,size:f.size};savedRevision=rev;lastSave=new Date().toLocaleTimeString([],{hour:'2-digit',minute:'2-digit',second:'2-digit'});autoPaused=false;if(auto)saveFeedback('Auto-saved '+lastSave);else{saveFeedback('Saved '+lastSave);toast('Saved to '+handle.name+'.');}}catch(e){if(e.name!=='AbortError')toast(e.message||'Save failed. Changes remain unsaved.');}finally{writeBusy=false;updateSaveStatus();}}
 const HANDLE_DB='pcf-file-handles';let rememberedHandle=null;
@@ -835,7 +1025,7 @@ $('#modal').addEventListener('change',e=>{if(e.target.id==='autosave-setting'){s
 $('#print-xlsx-btn').addEventListener('click',async()=>{if(pendingImages){toast('Wait for image processing before exporting.');return;}const b=$('#print-xlsx-btn');b.disabled=true;try{const r=PCFPrint.build(structuredClone(state));download(r.blob,r.filename);toast('Print Excel ready: '+r.comments+' comments in the PCF print layout.');}catch(e){toast('Print export failed: '+e.message);}finally{b.disabled=false;}});
 $('#export-btn').addEventListener('click',async()=>{if(pendingImages){toast('Wait for image processing before exporting.');return;}const b=$('#export-btn');b.disabled=true;b.textContent='Preparing export…';try{const result=await PCFExport.build(structuredClone(state));download(result.blob,result.filename);toast('All comments, rounds and drawing history exported.');}catch(e){toast('Export failed: '+e.message);}finally{b.disabled=false;b.textContent='Export Excel';}});
 let autoTimer;function restartAutoSave(){clearInterval(autoTimer);if(state.settings.autoSaveSeconds)autoTimer=setInterval(()=>{if(dirty()&&(hubMode||fileHandle)&&!autoPaused&&!writeBusy&&!pendingImages)writeFile(true);},state.settings.autoSaveSeconds*1000);updateSaveStatus();}
-window.addEventListener('beforeunload',e=>{if(dirty()||writeBusy||pendingImages){e.preventDefault();e.returnValue='';}});
+window.addEventListener('beforeunload',e=>{if(dirty()||writeBusy||pendingImages||(hubMode&&(hubQueue.length||hubBlocked))){e.preventDefault();e.returnValue='';}});
 window.addEventListener('afterprint',()=>{printMode=false;render();});
 document.addEventListener('keydown',e=>{if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='s'){e.preventDefault();writeFile();}if(e.key==='Escape')$$('.palette-menu').forEach(m=>m.hidden=true);});
 new ResizeObserver(entries=>{document.documentElement.style.setProperty('--sticky',Math.ceil(entries[0].contentRect.height)+2+'px');}).observe($('#sticky-tools'));

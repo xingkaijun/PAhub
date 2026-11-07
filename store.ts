@@ -138,6 +138,8 @@ interface AppState {
   _dirtyTrackerDrawingIds: Set<string>; // tracker 变更涉及的 drawing ID
 
   // 管理员在线状态
+  pcfPresence: Record<string, number>;
+  refreshPcfPresence: (projectId: string) => Promise<void>;
   adminPresence: { isOnline: boolean; lastSeen?: string };
   _heartbeatTimer: ReturnType<typeof setInterval> | null;
 }
@@ -231,6 +233,17 @@ export const useStore = create<AppState>()(
       _dirtyConf: false,
       _dirtyTracker: false,
       _dirtyTrackerDrawingIds: new Set<string>(),
+      pcfPresence: {},
+      refreshPcfPresence: async (projectId: string) => {
+        if (import.meta.env.MODE !== 'hub') return;
+        try {
+          const token = import.meta.env.VITE_DATA_API_TOKEN?.trim();
+          const response = await fetch('/api/pcf/' + encodeURIComponent(projectId) + '/presence', { headers: token ? { Authorization: 'Bearer ' + token } : {} });
+          if (!response.ok) throw Error('Presence: ' + response.status);
+          const result = await response.json();
+          if (get().activeProjectId === projectId) set({ pcfPresence: Object.fromEntries(Object.entries(result.drawings).map(([id, people]) => [id, (people as unknown[]).length])) });
+        } catch { if (get().activeProjectId === projectId) set({ pcfPresence: {} }); }
+      },
       adminPresence: { isOnline: false },
       _heartbeatTimer: null,
 

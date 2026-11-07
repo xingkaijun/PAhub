@@ -1,4 +1,4 @@
-# PCF 托管模式（第 2 期）
+# PCF 托管模式（第 2 / 3 期）
 
 每张图的完整 HTML 是权威数据；SQLite 只保存指针、意见数量、审批/轮次摘要及匿名变更元数据，不保存意见正文或图片。原始 PG-PCF-v1.9-source.html 不修改；PG-PCF-hub.html 检测 window.PAHUB 后启用托管适配，否则沿用独立文件保存、自动保存和导出。
 
@@ -83,10 +83,57 @@ Worker 的 api_project_details 视图直接读取这些列，POST /api/projects/
 
 ## 模板行为和验证
 
-托管模式 touch 标记脏实体，保存将成功基线和当前数据的差异转为 ops；文件保存/自动保存不弹 picker，另存/下载得到独立副本。响应包含最新 data，用三方合并保留 fetch 期间继续输入的本地修改，下一次再保存；成功分配号立即确认。底栏显示服务器 rev、昵称。冲突提示意见编号和对方，提供本地副本下载和“载入服务器版本”（明确丢弃本地未保存修改），完整对比留第 3 期。
+托管模式 touch 标记脏实体，保存将成功基线和当前数据的差异转为 ops；文件保存/自动保存不弹 picker，另存/下载得到独立副本。响应包含最新 data，用三方合并保留 fetch 期间继续输入的本地修改，下一次再保存；成功分配号立即确认。底栏显示服务器 rev、昵称。第 3 期提供逐项富文本/文本差异/图片整体对比以及三种解决路径，详见下文；保留“载入服务器版本”（明确丢弃本地未保存修改）。
 
 实际验证命令：npm run hub:build、npm run hub:test。自动测试覆盖创建预填/页面 JSON、不同意见并发、同一 owner 冲突并不影响 reply、并发编号、PAPC POST 读回/全部 SQL 表和 DB/WAL 正文哨兵零匹配、历史恢复/整份替换 409、鉴权及崩溃修复、jsdom 离线 picker/保存和托管新增/编辑/登记/设置/轮次/删除/恢复/保存期间输入/冲突载入/独立副本。
 
-## 本期边界
+## 第 3 期：实时协同协议（2026-11-07）
 
-单 Node 进程；不支持多实例共享文件目录。尚无 SSE、在线/软锁、完整冲突对比、持久离线 ops 队列或请求 ID 去重。网络失败保留内存本地修改，不宜直接刷新，可先下载副本；响应丢失重试的新增 UUID 不会重复创建，但会提示冲突，后续期可增加请求幂等确认。历史无自动清理，限图会话固定 12 小时。船厂 Owner 锁定、发出基线/导入三方合并、Ubuntu 运维部署另期实现。
+### SSE 与凭据
+
+新增 GET /api/pcf/:projectId/:drawingId/events。原 Bearer / X-PCF-Token 鉴权继续有效。原生 EventSource 使用查询参数 credential（页面已有的 HMAC 限图签名，12 小时有效），不使用全局 API_TOKEN；同时传 clientId、clientName、rev。查询凭据只在 events 路由接受，不能跨项目/跨图使用。页面与流均 no-store/no-referrer，流设置 X-Accel-Buffering: no；部署反向代理时仍须关闭 SSE 缓冲，并禁止记录完整查询字符串，以免访问日志保留 capability。HTTP 局域网不加密的原限制仍在。
+
+事件使用标准 event/data/id 格式，changed 和 hello 的 id 为文档 rev；presence/ping 不改变 Last-Event-ID：
+
+~~~json
+{"event":"hello","id":3,"data":{"rev":3,"online":[{"clientId":"A","clientName":"张工","entity":null,"at":1794038400000}],"resync":true}}
+{"event":"changed","id":4,"data":{"rev":4,"clientId":"A","clientName":"张工","replace":false,"entities":[{"entity":"round:r1:owner","clock":{"rev":4,"clientId":"A","clientName":"张工","at":"2026-11-07T12:00:00.000Z"}}],"ops":[{"type":"content.set","commentId":"c1","roundId":"r1","side":"owner","entity":"round:r1:owner","entityRev":4}]}}
+{"event":"presence","data":{"online":[{"clientId":"A","clientName":"张工","entity":"round:r1:owner","at":1794038400000}]}}
+{"event":"ping","data":{"at":1794038425000}}
+~~~
+
+线上没有 event 外层包装，上述 JSON 仅说明结构；具体帧为 event: changed / id: 4 / data: {...}，以空行结尾。changed 不包含富文本、正文或图片，仅发实体 clocks 和白名单操作摘要；客户端按需 GET data 获取快照并就地合并。取舍：多一次读取和完整快照流量，但避免 SSE 向每个在线用户重复发送图片，并不维护另一份实体补丁数据模型。将来可换成按实体 GET，而不改广播契约。
+
+EventSource 原生重连带 Last-Event-ID，首次连接使用 rev 查询值。每次重连 hello 都给当前 rev，不维护无限事件回放；落后时读最新快照。客户端按串行队列处理通知，忽略自己的 clientId，不重复应用已经对齐的 rev。整份替换/历史恢复也发 changed（replace=true）；签名过期最迟下个 25 秒心跳关闭流，需重新打开页面领取凭据。
+
+PcfRealtime 使用 DrawingBroadcast 接口，MemoryBroadcast 是当前单进程实现。多进程部署前必须同时替换广播、presence 存储及每图写入互斥，不能只接 Redis 广播就共享目录运行多个进程。
+
+### presence、软锁与 PAPC
+
+POST .../presence body 为 {clientId,clientName,entity:null|"round:<id>:owner/reply",leave?:true}。只能报告现存 owner/reply 栏；新建但尚未保存的实体暂不广播。页面打开即连接并上报，焦点进入/离开、输入时更新；有用户活动时随 ping 续期。客户端的无活动编辑焦点不因服务器心跳自动续期。
+
+presence 每图按 clientId 去重；同 clientId 多个 SSE 连接只在最后一个连接断开时释放。断开立即释放；60 秒无活动移除，5 秒定时扫描（读取列表时也清理，因此后台最多延迟 5 秒）。没有强制锁，任何人都可继续编辑。自己不出现在自己的软锁提示/他人昵称列表；在线人数包含自己。提示为“某某正在编辑（软提示，不阻止编辑）”。
+
+GET /api/pcf/:projectId/presence 返回 {drawings:{drawingId:[presence,...]}}，需项目级 Bearer（未配置 API_TOKEN 则匿名），限图签名不能读取整个项目。PAPC 初始拉取并在既有自动同步轮询中刷新，图名后显示 ● N；不新增 SSE、不强制更高频轮询。关闭自动同步后不持续轮询，数量可能暂时陈旧。
+
+### 就地更新与冲突处理
+
+以 UUID 而非显示编号匹配意见与轮次。快照三方合并保留未保存值；只有脏实体保留旧基线和旧 clock，干净兄弟实体接收新值/clock。对编辑中的格子保留同一个 DOM 节点和光标；没有本地修改但保持焦点的格子也暂缓更新，并保留旧 clock，离焦后读取最新值。远端删除编辑中的实体时保留本地内容用于冲突/副本留存，离焦/放弃后再移除。索引、意见数、分页、增删后的顺序和显示编号同步刷新。
+
+同一脏实体遭远端更新显示“已被他人更新；保存时对比”，不提前把旧 baseRev 更新成新值以绕过冲突。保存 response 期间新增输入继续保留。
+
+冲突对话框每项展示意见号、栏位、对方昵称/时间、双方富文本预览、纯文本差异以及双方图片文件名。差异采用线性公共前后缀比较，连续差异区红色删除/绿色新增，不做复杂文档或像素级 diff。可逐项选择用我的、用服务器的、手动编辑（内容栏为富文本，元数据为 JSON），提供全部用我的/全部用服务器的。图片作为整体选择保留我的或服务器图片。点击“应用选择并保存”执行；用我的/手动合并以已返回服务器 clock 为新 baseRev，期间若又被更新仍正常再冲突。删除或关闭导致的业务保护不会被“用我的”绕过，需采用服务器版本或先恢复/重新打开意见。
+
+### 幂等与 IndexedDB
+
+托管客户端每批生成 UUID batchId；未收到确认时重试同一 body 和 batchId。服务端兼容第二期无 batchId 的调用（不享受批次回执），验证 UUID；相同 ID 若 body 指纹不同返回 409。
+
+回执保存在权威 HTML 的 hub.receipts，最近 1000 批且 24 小时内有效。回执包含请求 SHA-256 和返回的 rev/applied/conflicts/assigned，不保存整个 data 的重复快照。重复提交从当前 HTML 或该 rev 的历史 HTML 重建原 data，移除内部 receipts 后返回与首次完全相同的结果；即使其它人继续提交、进程重启也不再应用/广播。全冲突/空批回执原子写入同一 HTML，不增加 rev、不产生审计。正文与冲突值只在 HTML 中，不进入 SQLite；原 pcf_changes 仍仅记录白名单摘要。历史需要保留至少整个去重窗口（当前不清理）。
+
+IndexedDB 数据库 pahub-pcf-offline / documents，以 documentId 为 key，保存旧基线、实体 clocks、当前脏本地数据、未确认批次 body/snapshot 和未处理冲突；不保存签名凭据。输入 touch 即持久化，发送前等待写入事务完成。网络失败保留原批次，点击保存重试；刷新/重开提示“有 N 项未同步修改”，可恢复重提或按文档丢弃。仅脏数据、尚未发请求的修改同样可恢复；恢复遇到服务器更新仍进入正常冲突处理。同步确认后清理本地记录；beforeunload 对脏值、在途/未确认批次及未处理冲突提示。存储禁用/配额不足会提示下载副本，但无法承诺浏览器被强杀/输入瞬间断电时最后一个尚未完成的 IndexedDB 事务已经持久化。
+
+### 已有文件与部署边界
+
+原 PG-PCF-v1.9-source.html 未改动，PG-PCF-hub.html 没有 PAHUB 时仍走原独立保存/自动保存/下载流程，副本移除协同 UI 和凭据。SQLite schema 不需要新增正文列。以前创建的完整 PCF HTML 仍带旧脚本，不会因仓库模板更新自动替换；升级已有图纸需要经备份/授权模板迁移保留 documentId 与数据（不在本期静默重写生产文件）。本期仍不含船厂锁 Owner、邮件三方合并、HTTPS/systemd/备份自动化。
+
+验证：npm run hub:build、npm run hub:test；真实双 Chrome 冒烟 node hub-server/test/browser-smoke.mjs（可用 PAHUB_BROWSER_CHANNEL=edge 切换本机浏览器）。截图位于 hub-server/test/artifacts/，已加入 .gitignore。

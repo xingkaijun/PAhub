@@ -79,7 +79,8 @@ export async function createHub(options: { middleware?: Middleware } = {}) {
         const headers = new Headers();
         for (const [key, value] of Object.entries(req.headers)) if (value !== undefined) headers.set(key, Array.isArray(value) ? value.join(', ') : value);
         const body = await readBody(req, config.bodyLimit);
-        await sendFetch(await pcf.handle(new Request(url, { method: req.method, headers, body }), req.socket.remoteAddress || ''), req, res);
+        const abort = new AbortController(); res.once('close', () => abort.abort());
+        await sendFetch(await pcf.handle(new Request(url, { method: req.method, headers, body, signal: abort.signal }), req.socket.remoteAddress || ''), req, res);
         return;
       }
       if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
@@ -110,6 +111,7 @@ export async function createHub(options: { middleware?: Middleware } = {}) {
         await serveStatic(req, res, config.distDir, url.pathname);
       }
     })().catch(error => {
+      if (res.destroyed && error.code === 'ERR_STREAM_PREMATURE_CLOSE') return;
       console.error('PAhub request failed:', error);
       if (res.headersSent) res.destroy();
       else { res.writeHead(error.status || 500, { 'Content-Type': 'text/plain; charset=utf-8' }); res.end(error.status ? error.message : 'Internal server error'); }
@@ -127,6 +129,7 @@ export async function createHub(options: { middleware?: Middleware } = {}) {
   return {
     server, db, port: address.port,
     close: async () => {
+      pcf.realtime.close();
       await new Promise<void>((resolve, reject) => server.close(error => error ? reject(error) : resolve()));
       db.sqlite.close();
     },

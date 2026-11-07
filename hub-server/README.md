@@ -1,8 +1,8 @@
-# PAhub 第 2 期：Node 24 + SQLite + PCF 托管
+# PAhub 第 3 期：Node 24 + SQLite + PCF 实时协同
 
 一个 Node 24 进程、一个 HTTP 端口托管原 PAPC 前端及 API，不需要 Cloudflare 账号、Worker 或 D1 服务。生产运行时无第三方服务器依赖包；数据库使用 Node 内置 node:sqlite，不使用 better-sqlite3。
 
-已支持每张图一份权威 PCF HTML、细粒度 ops 保存、实体级冲突、历史恢复及意见摘要回写 PAPC。点图名即可在新标签页编辑。原 PCF v1.9 源文件保留不动，新增 pcf/template/PG-PCF-hub.html 同时支持托管和独立离线模式。SSE、在线/软锁、完整冲突对比、邮件三方合并、systemd 和备份自动化属于后续期。原 worker/ 保留，npm run build 及原 Wrangler 部署方式仍可使用。
+已支持每张图一份权威 PCF HTML、细粒度 ops 保存、实体级冲突、历史恢复及意见摘要回写 PAPC。点图名即可在新标签页编辑。原 PCF v1.9 源文件保留不动，新增 pcf/template/PG-PCF-hub.html 同时支持托管和独立离线模式。第 3 期已增加 SSE、在线/软锁、完整冲突对比、持久离线队列与批次幂等；邮件三方合并、systemd 和备份自动化属于后续期。原 worker/ 保留，npm run build 及原 Wrangler 部署方式仍可使用。
 
 PCF 路由、ops 协议、凭据及恢复边界见 [PCF 托管协议](../docs/PCF_HOSTED.md)。
 
@@ -62,7 +62,10 @@ Ubuntu 的 systemd、Docker、定时备份和 HTTPS 属于后续期；本期只�
 - npm run hub:build：严格检查 hub TypeScript，再构建前端 dist/ 和 hub-server/dist/。esbuild 直接打包 worker/src/index.ts；.html 使用 text loader，服务器不重写 Worker 业务逻辑。
 - npm run hub:start：运行 hub-server/dist/server.mjs，仅一个 Node 进程。
 - npm run hub:dev：同一 Node 进程及同一 HTTP/HMR 端口提供 Vite 前端热更新和 Worker/宿主自动重建。修改 SQL 文件后需重新运行 hub:build 或重启 dev。
-- npm run hub:test：执行 D1、原 PAPC 端到端、PCF API 并发/回写/历史/凭据及 jsdom 模板测试。需先构建前端；测试使用系统临时目录，不修改生产 data/，临时产物路径会打印出来以供检查。
+- npm run hub:test：执行 D1、原 PAPC 端到端、PCF API 并发/回写/历史/凭据、双 SSE、presence/心跳、幂等重启、jsdom 冲突与 IndexedDB 恢复测试。需先构建前端。
+- node hub-server/test/browser-smoke.mjs：构建后启动临时服务，用本机 Chrome 两个隔离上下文验证实时更新和光标保护，截图写入被忽略的 hub-server/test/artifacts/（默认 chrome，可设置 PAHUB_BROWSER_CHANNEL=edge）。
+
+两种测试使用系统临时目录，不修改生产 data/，临时产物路径会打印出来以供检查。
 
 hub 模式强制 VITE_DATA_API_BASE_URL=/api、VITE_DATA_API_FALLBACK=false，避免 API 出错后回退到云存储；普通 npm run build 的配置不变。前端仓库类同时兼容相对 /api 和原绝对 Worker URL。
 

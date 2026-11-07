@@ -1,5 +1,5 @@
 import { readFileSync, writeFileSync, mkdirSync, renameSync, readdirSync, unlinkSync, openSync, fsyncSync, closeSync, existsSync } from 'node:fs';
-import { randomUUID } from 'node:crypto';
+import { randomUUID, createHash } from 'node:crypto';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { ROOT_DIR } from './config.ts';
@@ -99,12 +99,27 @@ export class PcfStorage {
     catch (e) { if (renamed) { if (old) atomicWrite(file, old); else unlinkSync(file); } throw e; }
     return data.hub.rev;
   }
-  ops(p: string, d: string, body: any, actor: Actor) {
+  publicData(data: PcfData) { const copy = structuredClone(data); delete copy.hub.receipts; return copy; }
+  ops(p: string, d: string, body: any, actor: Actor) { return this.opsBatch(p, d, body, actor).result; }
+  opsBatch(p: string, d: string, body: any, actor: Actor) {
     if (!Number.isSafeInteger(body.baseRev) || body.baseRev < 1 || !Array.isArray(body.ops) || body.ops.length > 10000) fail('Invalid ops request');
-    const { html, data, rev } = this.load(p, d); if (body.baseRev > rev) fail('Future document revision', 409);
+    if (body.batchId !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.batchId)) fail('batchId must be UUID');
+    const { html, data, rev } = this.load(p, d);
+    const hash = createHash('sha256').update(JSON.stringify({ clientId: actor.clientId, baseRev: body.baseRev, ops: body.ops })).digest('hex');
+    const receipts = (data.hub.receipts || []).filter((r: any) => Date.now() - r.at < 86400000);
+    const prior = body.batchId && receipts.find((r: any) => r.id === body.batchId);
+    if (prior) {
+      if (prior.hash !== hash) fail('batchId reused with different request', 409);
+      const historical = prior.result.rev === rev ? data : parseHTML(readFileSync(path.join(this.historyDir(p, d), this.history(p, d).find(x => x.rev === prior.result.rev)!.filename), 'utf8'));
+      return { replayed: true, result: { ...prior.result, data: this.publicData(historical) } };
+    }
+    if (body.baseRev > rev) fail('Future document revision', 409);
     const result = applyOps(data, body.ops as Op[], actor, rev + 1);
+    if (body.batchId) data.hub.receipts = [...receipts, { id: body.batchId, hash, at: Date.now(), result: { rev: result.applied.length ? rev + 1 : rev, ...result } }].slice(-1000);
     const nextRev = result.applied.length ? this.save(p, d, html, data, actor, result.applied.map(({ entity: _e, entityRev: _r, ...summary }: any) => summary)) : rev;
-    return { rev: nextRev, ...result, data };
+    // Receipt-only acknowledgement stays in the authoritative HTML, never in SQLite body columns.
+    if (!result.applied.length && body.batchId) atomicWrite(this.file(p, d), replaceData(html, data));
+    return { replayed: false, result: { rev: nextRev, ...result, data: this.publicData(data) } };
   }
   replace(p: string, d: string, body: any, actor: Actor, historyRev?: number) {
     const latest = this.load(p, d); if (body.baseRev !== latest.rev) fail('Document revision conflict', 409);
@@ -128,7 +143,7 @@ export class PcfStorage {
       for (const r of c.rounds) { for (const field of ['owner', 'reply', 'record', 'initiator', 'responder', 'minHeight']) keys.add('round:' + r.id + ':' + field); r.rev = r.ownerRev = r.replyRev = latest.rev + 1; }
     }
     for (const key of keys) data.hub.entities[key] = { rev: latest.rev + 1, clientId: actor.clientId, clientName: actor.clientName, at: new Date().toISOString() };
-    const rev = this.save(p, d, html, data, actor, [{ type: historyRev === undefined ? 'document.replace' : 'history.restore' }]); return { rev, data };
+    const rev = this.save(p, d, html, data, actor, [{ type: historyRev === undefined ? 'document.replace' : 'history.restore' }]); return { rev, data: this.publicData(data) };
   }
   history(p: string, d: string) {
     this.load(p, d); const dir = this.historyDir(p, d); if (!existsSync(dir)) return [];

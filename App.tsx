@@ -215,9 +215,10 @@ const App: React.FC = () => {
     const globalInterval = data.settings.autoSyncInterval;
     const intervalMinutes = configInterval ?? globalInterval ?? 3;
 
+    void useStore.getState().refreshPcfPresence(activeProjectId);
     if (intervalMinutes <= 0) return; // Disable auto-sync if set to 0
-
     const interval = setInterval(async () => {
+      void useStore.getState().refreshPcfPresence(activeProjectId);
       // 只有拥有编辑权限 (isEditMode) 时，才将本地数据推送到服务端覆写
       if (isEditMode) {
         console.log(`[Edit Mode] Auto-saving current project to server (Interval: ${intervalMinutes}m)...`);
