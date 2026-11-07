@@ -51,7 +51,7 @@ export class PcfStorage {
     if (existsSync(dir)) for (const name of readdirSync(dir)) if (/^[A-Za-z0-9_-]+\.html$/.test(name)) {
       const id = name.slice(0, -5); if (this.db.prepare('SELECT 1 FROM drawings WHERE project_id=? AND id=? AND COALESCE(_deleted,0)=0').get(p, id)) this.load(p, id);
     }
-    return this.db.prepare("SELECT i.*, (SELECT json_object('exportId',e.export_id,'round',e.round,'status',e.status,'exportedAt',e.exported_at) FROM pcf_exports e WHERE e.project_id=i.project_id AND e.drawing_id=i.drawing_id ORDER BY e.exported_at DESC,e.export_id DESC LIMIT 1) AS latest_export FROM pcf_index i WHERE project_id=? ORDER BY drawing_id").all(p);
+    return this.db.prepare("SELECT * FROM pcf_index WHERE project_id=? ORDER BY drawing_id").all(p);
   }
   load(p: string, d: string) {
     this.drawing(p, d); const file = this.file(p, d);

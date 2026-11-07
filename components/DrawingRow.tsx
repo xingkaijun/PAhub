@@ -129,7 +129,6 @@ export const DrawingRow = memo(({
 }: DrawingRowProps) => {
     const { isEditMode } = useStore();
     const pcfOnline = useStore(s => s.pcfPresence[drawing.id] || 0);
-    const pcfExport = useStore(s => s.pcfExports[drawing.id]);
     const exportBuilder = async () => {
         const base = '/api/pcf/' + encodeURIComponent(activeProjectId) + '/' + encodeURIComponent(drawing.id);
         const token = import.meta.env.VITE_DATA_API_TOKEN?.trim();
@@ -225,7 +224,6 @@ export const DrawingRow = memo(({
                     >{drawing.title || drawing.drawingNo}{pcfOnline > 0 && <span className="ml-1 rounded bg-teal-100 px-1 text-teal-700" title={pcfOnline + ' 人正在 PCF 在线编辑'}>● {pcfOnline}</span>}</a> : drawing.title}
                     {import.meta.env.MODE === 'hub' && <span className="ml-2 text-[9px] font-normal">
                         <button onClick={exportBuilder} className="text-teal-700 hover:underline" title="Download an Owner-locked offline PCF HTML">Export to Builder</button>
-                        {pcfExport && <span className="ml-2 text-slate-500">R{String(pcfExport.round).padStart(2, '0')} · {pcfExport.status === 'exported' ? 'Awaiting reply' : pcfExport.status === 'imported' ? 'Imported' : 'Voided'}</span>}
                     </span>}
                 </td>
                 <td className="px-2 py-2 text-[9px] text-slate-500 text-center" title={(() => {
