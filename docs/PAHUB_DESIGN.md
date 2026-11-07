@@ -1,0 +1,59 @@
+# PAhub 设计说明（v0.2，2026-11-07）
+
+PAhub = D1-PAPC（图纸审批进度）+ PG PCF v1.9（每张图一份意见记录表），部署在局域网 Ubuntu 服务器，供审图小组使用。
+
+## 已确定的决策
+1. 意见正文、图片、往来记录**只存在 PCF 文件里**，数据库不存正文。
+2. 数据库只存 PCF 指针和摘要：drawingId、documentId、文件路径、意见总数、未关闭数、当前轮次、PCF 版本号、最后更新时间。
+3. 每张图一个 PCF 文件；意见往来通过邮件发送/接收 PCF 文件。
+4. 发给船厂的 PCF **锁定 Owner 栏**，船厂只能填写 Builder 回复（及回复日期/编号）。
+5. 在线编辑为**匿名**（不需要登录）。
+6. 服务器：Ubuntu，局域网 http 访问。浏览器的 File System Access API 在非 HTTPS 下不可用，因此在线模式由服务器负责保存。
+
+## 架构
+- 一个 Node 24 进程（`hub-server/`）：
+  - 托管 PAPC 前端（vite build 产物）。
+  - 在 `/api/*` 提供 PAPC 原有 API：直接复用 `worker/src/index.ts` 的 fetch 处理函数，`env.PAPC_DB` 由一个基于 `node:sqlite` 的 D1 兼容适配器提供（prepare/bind/first/all/run/raw/batch/exec）。这样 Worker 业务逻辑不改。
+  - SQLite 数据库文件：`data/papc.db`。
+  - PCF 文件：`data/pcf/<projectId>/<drawingId>.json`（权威数据，只有 pcf-data JSON），历史版本 `data/pcf/<projectId>/<drawingId>/history/<rev>.json`。
+  - PCF 页面：`/pcf/<projectId>/<drawingId>` 时由服务器把 `pcf/template/` 里的最新模板与该 JSON 拼成 HTML 返回。
+- 部署：systemd 服务（或 Docker），一个端口，定时备份 `data/`。
+
+## 在线编辑与多人冲突处理（匿名）
+目标：多人同时编辑同一张图时，不丢数据、不互相覆盖，冲突粒度尽量小。
+
+1. **身份**：匿名，但每个浏览器生成一个持久的 clientId（localStorage），可选填写昵称（默认“编辑者-xxxx”）。服务器在变更日志里记录 clientId、昵称、IP、时间，便于追溯。
+2. **按操作保存，不整文件覆盖**：PCF 托管模式下，客户端发送的是细粒度操作（ops），例如：
+   - `comment.add`（编号由服务器分配，避免两人建出同号意见）
+   - `round.add`、`content.update`（某意见某轮的 owner 或 reply 内容）、`comment.status`、`comment.meta`（页码、标签）、`project.update`（图纸信息字段）、`roundRegister.update`、`delete/restore`
+   每个 op 带上它修改的那个实体（某轮的 owner/reply、某条意见的状态……）的 `baseRev`。
+3. **服务器串行化**：每张图一个内存互斥锁；按顺序把 ops 应用到最新 JSON，原子写盘（写临时文件后 rename），文档 rev +1，保存历史版本，重算摘要写回数据库。
+4. **冲突判定**：只有当同一个实体在 `baseRev` 之后被别人改过，才算冲突；不同意见、同一意见不同轮次、同一轮次 owner 与 reply 之间互不冲突，自动合并。冲突的 op 不应用，返回双方内容；客户端弹出对比，让编辑者选“用我的 / 用对方的 / 手动合并后再提交”。
+5. **实时感知**：每张图一个 SSE 通道。
+   - 推送别人已保存的变更，页面就地刷新对应意见（正在编辑的那一格不被打断，只提示“已被他人更新”）。
+   - 在线状态：显示当前有几人在看这张图；某人光标进入某条意见的编辑区时广播“某某正在编辑 #5”，其他人看到该格的软锁提示（不强制，60 秒无活动自动释放）。
+6. **离线兜底**：网络断开时 ops 暂存本地队列，恢复后按顺序重放，冲突走第 4 条。
+7. **撤销与追溯**：所有历史版本可在页面查看并恢复（恢复本身也是一个新版本）。
+
+## 邮件往来
+1. **导出发出**：图纸行“导出 PCF”→ 生成独立离线 HTML（模板 + 当前数据，`mode: "builder"`，Owner 栏只读），服务器同时把该时刻数据存为“发出基线”（记录 rev 和导出时间）。
+2. 船厂离线打开、填写 Builder 回复，另存后邮件发回。
+3. **导入回复**：在该图点“导入回复”上传文件 → 校验 documentId 一致 → 三方合并（基线 / 服务器当前 / 船厂版）：
+   - Owner 栏锁定，正常情况下船厂只改了 reply、replyDate、replyRef，直接并入；
+   - 若船厂版的 Owner 内容与基线不同（绕过锁定），不自动并入，单独列出提示；
+   - 我方在基线之后也改了同一条 reply 的，列为冲突逐条选择；
+   - 船厂新增内容按 UUID 追加；删除不自动生效。
+   - 合并前自动备份，预览确认后写入；合并本身作为一组 ops 走同一条串行通道，与在线编辑互不覆盖。
+
+## 职责划分
+- PAPC：图纸状态、负责人、期限、送审/回复日期。
+- PCF：意见内容、开闭、每条意见的轮次。
+- 意见总数、未关闭数、当前轮次：由 PCF 自动回写 PAPC，取代手工 `c:10/2`。
+- 轮次登记（roundRegister）与 PAPC logs 的同步规则：待定。
+
+## 分期
+1. Node + SQLite 替换 Worker/D1，PAPC 原功能在局域网跑通；提供从 D1 导出数据导入的脚本。
+2. PCF 托管模式：服务器存取、点图名打开、ops 保存、摘要回写。
+3. 多人协同：SSE 推送、在线/软锁、冲突对比界面。
+4. 导出/导入回复 + 三方合并界面。
+5. Ubuntu 部署：systemd、备份、（可选）HTTPS。
