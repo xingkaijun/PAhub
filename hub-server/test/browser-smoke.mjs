@@ -22,7 +22,7 @@ try {
   await Promise.all([a.goto(url),b.goto(url)]);
   // Snapshot UI before locating the actual controls.
   console.log('Browser initial:', await a.locator('#save-btn').innerText(), await a.locator('#add-btn').innerText());
-  await a.waitForFunction(() => document.querySelector('#pahub-online').textContent.includes('在线 2 人'));
+  await a.waitForFunction(() => document.querySelector('#pahub-online').textContent.includes('Online: 2 users'));
   await a.locator('#add-btn').click(); await a.locator('.editor[data-side="owner"]').fill('A realtime browser smoke 2026-11-07'); await a.locator('#save-btn').click();
   await b.waitForFunction(() => document.querySelector('.editor[data-side="owner"]')?.textContent.includes('A realtime browser smoke'));
   assert.match(await b.locator('.editor[data-side="owner"]').innerText(), /A realtime browser smoke/);

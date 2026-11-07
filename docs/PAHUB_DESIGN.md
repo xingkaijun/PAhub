@@ -1,4 +1,4 @@
-# PAhub 设计说明（v0.3，2026-11-07）
+# PAhub 设计说明（v0.4，2026-11-07）
 
 PAhub = D1-PAPC（图纸审批进度）+ PG PCF v1.9（每张图一份意见记录表），部署在局域网 Ubuntu 服务器，供审图小组使用。
 
@@ -6,7 +6,7 @@ PAhub = D1-PAPC（图纸审批进度）+ PG PCF v1.9（每张图一份意见记�
 1. 意见正文、图片、往来记录**只存在 PCF 文件里**，数据库不存正文。
 2. 数据库只存 PCF 指针和摘要：drawingId、documentId、文件路径、意见总数、未关闭数、当前轮次、PCF 版本号、最后更新时间。
 3. 每张图一个 PCF 文件；意见往来通过邮件发送/接收 PCF 文件。
-4. 发给船厂的 PCF **锁定 Owner 栏**，船厂只能填写 Builder 回复（及回复日期/编号）。
+4. 发给船厂的 PCF **锁定 Owner 栏**，船厂只能填写导出时当前轮次、未关闭意见的 Builder 回复和附图；回复日期/编号等轮次登记也只读。
 5. 在线编辑为**匿名**（不需要登录）。
 7. **在线编辑与发送都使用 HTML 文件**（用户 2026-11-07 确认）：服务器上每张图存的就是一个完整的 PCF .html，发给船厂的也是 .html。
 6. 服务器：Ubuntu，局域网 http 访问。浏览器的 File System Access API 在非 HTTPS 下不可用，因此在线模式由服务器负责保存。
@@ -18,13 +18,13 @@ PAhub = D1-PAPC（图纸审批进度）+ PG PCF v1.9（每张图一份意见记�
   - SQLite 数据库文件：`data/papc.db`。
   - PCF 文件：`data/pcf/<projectId>/<drawingId>.html`，完整 HTML 是权威数据（内嵌 pcf-data JSON）。历史版本：`data/pcf/<projectId>/.history/<drawingId>/<rev>-<时间>-<uuid>.html`。使用稳定 drawingId，不用可改名且可能含非法字符的图号；数据根目录由 PAHUB_DATA_DIR 配置。
   - PCF 页面：`/pcf/<projectId>/<drawingId>` 直接返回该 HTML 文件（托管模式下保存走服务器）。服务器保存时解析并更新内嵌 JSON 再写回 HTML；模板升级时可批量把各文件的数据迁入新模板。
-  - 导出发给船厂的就是同一份 HTML 的副本（Owner 栏锁定）。
+  - 导出发给船厂的是用当前模板和外发字段白名单重建的独立 HTML（Owner 和控制字段锁定）；不会外发托管凭据、内部路径及协同历史。
 - 部署：systemd 服务（或 Docker），一个端口，定时备份 `data/`。
 
 ## 在线编辑与多人冲突处理（匿名）
 目标：多人同时编辑同一张图时，不丢数据、不互相覆盖，冲突粒度尽量小。
 
-1. **身份**：匿名，但每个浏览器生成一个持久的 clientId（localStorage），可选填写昵称（默认“编辑者-xxxx”）。服务器在变更日志里记录 clientId、昵称、IP、时间，便于追溯。
+1. **身份**：匿名，但每个浏览器生成一个持久的 clientId（localStorage），可选填写昵称（默认“Editor-xxxx”）。服务器在变更日志里记录 clientId、昵称、IP、时间，便于追溯。
 2. **按操作保存，不整文件覆盖**：PCF 托管模式下，客户端发送的是细粒度操作（ops），例如：
    - `comment.add`（编号由服务器分配，避免两人建出同号意见）
    - `round.add`、`content.update`（某意见某轮的 owner 或 reply 内容）、`comment.status`、`comment.meta`（页码、标签）、`project.update`（图纸信息字段）、`roundRegister.update`、`delete/restore`
@@ -41,10 +41,10 @@ PAhub = D1-PAPC（图纸审批进度）+ PG PCF v1.9（每张图一份意见记�
 1. **导出发出**：图纸行“导出 PCF”→ 生成独立离线 HTML（模板 + 当前数据，`mode: "builder"`，Owner 栏只读），服务器同时把该时刻数据存为“发出基线”（记录 rev 和导出时间）。
 2. 船厂离线打开、填写 Builder 回复，另存后邮件发回。
 3. **导入回复**：在该图点“导入回复”上传文件 → 校验 documentId 一致 → 三方合并（基线 / 服务器当前 / 船厂版）：
-   - Owner 栏锁定，正常情况下船厂只改了 reply、replyDate、replyRef，直接并入；
+   - Owner 栏锁定，只合并导出当前轮次的 Builder reply（正文/格式、整体附图集）；replyDate/replyRef 也属于只读登记，不从返回文件导入；
    - 若船厂版的 Owner 内容与基线不同（绕过锁定），不自动并入，单独列出提示；
    - 我方在基线之后也改了同一条 reply 的，列为冲突逐条选择；
-   - 船厂新增内容按 UUID 追加；删除不自动生效。
+   - 船厂新增/删除意见一律不导入；服务器导出后新增意见保留，服务器删除且船厂新增回复时列为恢复冲突。
    - 合并前自动备份，预览确认后写入；合并本身作为一组 ops 走同一条串行通道，与在线编辑互不覆盖。
 
 ## 职责划分
@@ -57,5 +57,5 @@ PAhub = D1-PAPC（图纸审批进度）+ PG PCF v1.9（每张图一份意见记�
 1. 已完成（776b7fd）：Node + SQLite 替换 Worker/D1，PAPC 原功能在局域网跑通；提供从 D1 导出数据导入的脚本。
 2. 已完成：PCF HTML 服务器存取、点图名打开、ops 保存、实体级冲突、摘要回写、历史恢复 API、匿名追溯及离线副本。第二期交付时冲突仅提供提示/载入服务器版本，完整对比、实时刷新与网络重放队列由第三期补齐。下载副本尚不锁定 Owner 栏。
 3. 已完成：SSE 推送/重连 rev 对齐、在线/60 秒软锁、就地更新/脏实体旧 clock 保护、冲突富文本/差异/图片整体对比、三种处理路径、UUID 批次持久幂等、IndexedDB 离线恢复及 PAPC 在线标记；完整协议和部署边界见 PCF_HOSTED.md。第二期提交为 30c7c56。
-4. 导出/导入回复 + 三方合并界面。
+4. 已完成：船厂英文独立 HTML、只读数据保护和持久 HMAC、基线文件/导出元数据、预览/ops 三方合并、船厂往来面板/PAPC 行状态、模板升级 CLI。完整协议见 PCF_HOSTED.md；实际验收见 hub-server/test/VERIFICATION.md。
 5. Ubuntu 部署：systemd、备份、（可选）HTTPS。

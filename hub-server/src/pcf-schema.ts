@@ -15,5 +15,13 @@ export function initializePcfSchema(db: DatabaseSync) {
       ops_json TEXT NOT NULL, created_at TEXT NOT NULL, UNIQUE(project_id, drawing_id, rev)
     );
     CREATE INDEX IF NOT EXISTS pcf_changes_drawing ON pcf_changes(project_id, drawing_id, rev);
+    CREATE TABLE IF NOT EXISTS pcf_exports (
+      export_id TEXT PRIMARY KEY, project_id TEXT NOT NULL, drawing_id TEXT NOT NULL,
+      document_id TEXT NOT NULL, base_rev INTEGER NOT NULL, round INTEGER NOT NULL,
+      exported_at TEXT NOT NULL, exported_by_name TEXT NOT NULL, exported_by_ip TEXT NOT NULL,
+      status TEXT NOT NULL CHECK(status IN ('exported','imported','void')),
+      filename TEXT NOT NULL, file_path TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS pcf_exports_drawing ON pcf_exports(project_id,drawing_id,exported_at);
   `);
 }

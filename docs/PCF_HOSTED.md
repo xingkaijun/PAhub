@@ -137,3 +137,83 @@ IndexedDB 数据库 pahub-pcf-offline / documents，以 documentId 为 key，保
 原 PG-PCF-v1.9-source.html 未改动，PG-PCF-hub.html 没有 PAHUB 时仍走原独立保存/自动保存/下载流程，副本移除协同 UI 和凭据。SQLite schema 不需要新增正文列。以前创建的完整 PCF HTML 仍带旧脚本，不会因仓库模板更新自动替换；升级已有图纸需要经备份/授权模板迁移保留 documentId 与数据（不在本期静默重写生产文件）。本期仍不含船厂锁 Owner、邮件三方合并、HTTPS/systemd/备份自动化。
 
 验证：npm run hub:build、npm run hub:test；真实双 Chrome 冒烟 node hub-server/test/browser-smoke.mjs（可用 PAHUB_BROWSER_CHANNEL=edge 切换本机浏览器）。截图位于 hub-server/test/artifacts/，已加入 .gitignore。
+
+## 第 4 期：船厂往来与模板升级（2026-11-07）
+
+权威正文仍是每图一个完整 HTML。SQLite 新表 pcf_exports 仅记录 exportId、project/drawing/documentId、baseRev、导出轮次/时间、匿名 clientId/昵称/IP、文件名和 exported/imported/void 状态，不存意见或图片。
+
+### 操作入口与接口
+
+PAPC 图纸行与托管 PCF 均有 **Export to Builder**。托管 PCF 提供 **Import Builder replies** 和 **Shipyard correspondence**；PAPC 行仅显示最近 Rxx 的 Awaiting reply / Imported / Voided，沿用 presence 轮询刷新。导出按钮会先保存托管页未保存编辑；导入前必须解决本地脏编辑/队列/冲突。
+
+| 方法及尾路径（/api/pcf/:projectId/:drawingId） | 功能 |
+| --- | --- |
+| POST /exports | 建立发出基线并返回 exportId、baseRev、round、filename |
+| GET /exports | 本图导出元数据，倒序 |
+| GET /exports/:exportId/download | 下载当时的英文独立 HTML（含 filename*） |
+| POST /exports/:exportId/void | 作废；保留原文件和元数据，拒绝后续新导入 |
+| POST /imports，step=preview | 上传 HTML 字符串，返回清单与签名 previewToken |
+| POST /imports，step=apply | 携 token、同一 HTML、UUID batchId、冲突 choices 确认 |
+
+鉴权沿用 Bearer / 限图 X-PCF-Token；写操作与在线 ops 共用每图 serial。上传 HTML 只抽取唯一 pcf-data JSON，不执行来信中的脚本。documentId、exportId 必须与本图、导出记录相符，mode 必须为 builder，否则拒绝。作废拒绝；已导入会提示，需 overwrite=true，仍正常三方合并。
+
+### 基线文件、保留和剥离
+
+基线：data/pcf/<project>/<drawing>/exports/<exportId>.html；外发文件名：<图号>_R<两位轮次>_PCF_<YYYY-MM-DD>.html。baseline 是外发白名单快照，Builder 部分及 Owner 部分都在该完整 HTML 中。
+
+保留 schemaVersion/documentId、项目/图名/图号/版本/状态/当前轮次、全部现存意见和活动轮次的业务 ID/编号/属性/开闭/参与人姓名/Owner 与 Builder 正文及嵌入图片、业务创建/更新时间、登记编号/日期、两项显示/保存设置、审批状态来源/原因，以及 export={exportId,documentId,baseRev,round,exportedAt,mode:'builder',ownerHmac}。
+
+剥离 hub（rev、entity clocks、clientId/IP/编辑历史、幂等 receipts）、Owner/Builder rev、内部 folder 路径、删除回收站、发文历史、审批历史、自定义/未知字段；正文和图片也按现有 cleanContent 白名单输出。完整托管 adapter、会话注入和按钮都不外发。PCF 业务中用户手写的昵称、正文、图片或超链接不是秘密过滤器的识别范围，发送前仍须审阅；本工具不自动删除业务正文中的敏感信息。
+
+### 只读与完整性
+
+船厂页面为英文，顶部说明填写 Builder 回复、保存 HTML、邮件回传。仅导出时当前轮次、未关闭意见的 reply（text/html/fill/images）可写。Owner、意见属性/人员、开闭/结构、新增删除、过去轮次 Builder、登记（包括 replyDate/replyRef）、图纸控制、全局设置均只读。
+
+UI 禁用/contenteditable=false，同时编辑/附件函数校验 scope；内存 state 的所有非可写属性 non-writable/non-configurable，数组索引和 length 锁定、对象禁止扩展，不能用普通控制台赋值/push/splice/defineProperty 绕过。updatedAt 保留为保存流程更新时间，不视为 Owner 改动。可浏览/筛选/打印；保存沿用 v1.9 File System Access API 或 Save as 下载副本流程，普通独立文件行为不变。
+
+首次启动生成 data/.pcf-export-key（独立于 API_TOKEN，32 字节随机密钥的 hex）；HMAC-SHA256 签名规范化排序 JSON 的全部只读部分，并绑定导出标记。允许的 reply 与更新时间不计入签名。基线签名失败视为服务器文件损坏并拒绝；返回签名/只读内容变更列入 Integrity warning 与 Ignored changes。**Owner 永不导入**：管理员选 Ignore read-only changes 且以现有 ADMIN_PASSWORD 确认，才允许继续 Builder 合并。API_TOKEN 不等于管理员密码。
+
+HMAC 是篡改检测，不是加密、船厂身份签名或恶意 HTML 沙箱。直接编辑 HTML/替换脚本仍可能改来信，但不能改变服务器忽略 Owner 的合并规则。勿打开不可信来信运行脚本；直接在 Hub 上传解析。密钥需与 data/ 一起备份，保护操作系统账户/ACL；Windows 的 mode=0600 不能替代 ACL。默认管理员密码沿用旧配置，部署时必须覆盖，HTTP 明文的凭据风险仍存在。
+
+### 三方合并规则
+
+按基线意见/轮次 UUID 匹配；正文/富文本/fill 为一个栏位，附图 images 为另一个整体栏位（不逐图拼接）。
+
+| 基线→船厂 / 基线→当前服务器 | 处理 |
+| --- | --- |
+| 船厂变了、服务器该栏位没变 | 自动用船厂 |
+| 船厂没变 | 保留服务器 |
+| 双方变了但最终相同 | 保留相同值，不重复写入 |
+| 双方同栏位变了、最终不同 | 冲突，选 Builder / Server / Manual merge |
+| 服务器新增意见 | 保留；返回文件缺少不作删除 |
+| 服务器删除意见/轮次、船厂没有新回复 | 忽略 |
+| 服务器删除意见/轮次、船厂有新回复 | deleted 冲突；选 Builder 明确恢复 tombstone，再写回复；不能恢复则拒绝 |
+| 船厂 Owner/属性/登记/结构等只读内容变了 | 显示已忽略改动和完整性警告，绝不应用 |
+| 当前服务器意见已关闭 | 列冲突；用 Server 可忽略，接受 Builder 需先在服务器重新打开并重新预览 |
+
+预览复用第三期富文本对比、红删绿增文本差异与图片文件名展示；有自动/冲突/忽略三份清单，All Builder / All Server 批量选择，正文可手动编辑，图片仍二选一整体集合。删除冲突明确显示 Use Builder and restore record。重复导入需勾选允许再次合并，篡改需管理员确认。确认失败保留同一 batchId 和 body 可重试；改决策生成新 UUID。
+
+previewToken 以 HMAC 绑定项目/图纸/exportId、来信 HTML hash、serverRev、30 分钟期限；服务器在预览后改变时 409，须重预览。apply 先在副本 applyOps 校验整批，再交给 storage.opsBatch，带当前实体 clock，避免部分导入。提交者昵称为“船厂导入（exportId）”，真实 clientId/IP 仍追溯；历史可恢复、rev 有实际 ops 时递增、SSE 仅广播摘要、PAPC 同时回写意见数/未关闭数/轮次/版本。
+
+导入 intent/receipt 位于 data/pcf/<project>/<drawing>/imports/<batchId>.json，不是正文权威，不进 SQLite，不保存管理员密码。先记录意图再提交，以 ops 幂等回执恢复进程中断；保存成功响应支持跨重启精确重试。相同 batchId 换内容/提交者会 409；成功状态为 imported。没有实际变化的重复覆盖不增加 rev，不额外广播。
+
+### 模板升级
+
+当前 meta pahub-template-version=4；旧文件打开仅小字提示 **Template upgrade available**。兼容提示由服务器注入，因此旧脚本也能显示；不自动改文件。要使用新页面入口需停服升级旧权威 HTML。
+
+~~~powershell
+# 先停止 Hub；按需设置 PAHUB_DATA_DIR（默认为仓库 data/）
+npm run hub:upgrade-pcf -- --dry-run
+npm run hub:upgrade-pcf -- --dry-run --project X --drawing Y
+npm run hub:upgrade-pcf -- --project X --drawing Y
+~~~
+
+工具只扫描当前权威 pcf/<project>/<drawing>.html，排除 exports/imports/history/备份；抽取原 JSON，套当前模板，深比较不改变 documentId/数据/hub/receipts/自定义字段。正式先写 .bak-<时间> 原文件，再 fsync 临时文件、rename 原子替换；输出逐文件 JSON 报告 current/would-upgrade/upgraded 与 backup 路径。dry-run 不创建备份、不改权威文件。Node 24 通过内存 esbuild 执行 TS，启动器不生成临时脚本；不要求先 hub:build。
+
+升级不是一次业务 ops，不改 rev、SQLite 摘要或审计。无跨进程维护锁，务必停服；失败保留已做的备份并报错，恢复时也需停服。未对用户生产目录执行正式升级。
+
+### 语言和边界
+
+沿 v1.9 英文 UI：托管保存/下载/presence/冲突/离线恢复、船厂 banner、往来与导入提示统一英文；匿名默认昵称 Editor-xxxx。用户正文/既有昵称不翻译，审计中上述中文提交者标识按需求保留。原 PG-PCF-v1.9-source.html 未修改。
+
+本期仍为单 Node 进程、局域网部署；多进程写互斥、共享 presence、Ubuntu 部署及 HTTPS 运维属于后续。导出/基线/历史/导入回执尚无自动保留期清理，管理员可作废但不删除文件；备份应包含全部 data/。

@@ -139,6 +139,7 @@ interface AppState {
 
   // 管理员在线状态
   pcfPresence: Record<string, number>;
+  pcfExports: Record<string, { exportId: string; round: number; status: string }>;
   refreshPcfPresence: (projectId: string) => Promise<void>;
   adminPresence: { isOnline: boolean; lastSeen?: string };
   _heartbeatTimer: ReturnType<typeof setInterval> | null;
@@ -234,6 +235,7 @@ export const useStore = create<AppState>()(
       _dirtyTracker: false,
       _dirtyTrackerDrawingIds: new Set<string>(),
       pcfPresence: {},
+      pcfExports: {},
       refreshPcfPresence: async (projectId: string) => {
         if (import.meta.env.MODE !== 'hub') return;
         try {
@@ -241,7 +243,10 @@ export const useStore = create<AppState>()(
           const response = await fetch('/api/pcf/' + encodeURIComponent(projectId) + '/presence', { headers: token ? { Authorization: 'Bearer ' + token } : {} });
           if (!response.ok) throw Error('Presence: ' + response.status);
           const result = await response.json();
-          if (get().activeProjectId === projectId) set({ pcfPresence: Object.fromEntries(Object.entries(result.drawings).map(([id, people]) => [id, (people as unknown[]).length])) });
+          const indexResponse = await fetch('/api/pcf/' + encodeURIComponent(projectId) + '/index', { headers: token ? { Authorization: 'Bearer ' + token } : {} });
+          if (!indexResponse.ok) throw Error('PCF export status: ' + indexResponse.status);
+          const index = await indexResponse.json();
+          if (get().activeProjectId === projectId) set({ pcfPresence: Object.fromEntries(Object.entries(result.drawings).map(([id, people]) => [id, (people as unknown[]).length])), pcfExports: Object.fromEntries(index.filter((x: any) => x.latest_export).map((x: any) => [x.drawing_id, JSON.parse(x.latest_export)])) });
         } catch { if (get().activeProjectId === projectId) set({ pcfPresence: {} }); }
       },
       adminPresence: { isOnline: false },

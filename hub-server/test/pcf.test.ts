@@ -163,7 +163,7 @@ test('jsdom PCF template: offline original controls/save and hosted add/edit/sav
     await hosted.w.eval('writeFile()');
     assert.ok(payload.ops.some((op: any) => op.type === 'comment.add'));
     assert.ok(payload.ops.some((op: any) => op.type === 'content.set' && op.side === 'owner' && op.value.text === 'hosted edit' && op.baseRev === 0));
-    assert.match(hosted.w.document.querySelector('#save-state')!.textContent!, /已保存到服务器 · rev 2/);
+    assert.match(hosted.w.document.querySelector('#save-state')!.textContent!, /Saved to server · rev 2/);
     assert.equal(hosted.w.eval('state.comments[0].number'), 1); assert.equal(hosted.w.eval('state.comments[0].rounds[0].ownerRev'), 2);
     // Snapshot must remove session credentials + nickname UI and work offline after download.
     const copy = String(hosted.w.eval('snapshotHTML(state)')); assert.doesNotMatch(copy, /id="pahub-context"|id="pahub-name"/);

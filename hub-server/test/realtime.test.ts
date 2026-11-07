@@ -193,7 +193,7 @@ test('IndexedDB dirty entities + unconfirmed UUID batch survive refresh and rest
     const closing=new b.w.Event('beforeunload',{cancelable:true}); b.w.dispatchEvent(closing); assert.equal(closing.defaultPrevented,true);
     b.dom.window.close(); b.offline(false); reopened=browser(b.html,structuredClone(b.remote),b.database,b.fetchMock);
     // Wait for IndexedDB open+read, not hubRecovery (it waits for a human decision).
-    await new Promise(resolve=>setTimeout(resolve,50)); assert.match(reopened.w.document.querySelector('#modal-body')!.textContent!,/重新提交/); assert.ok(reopened.w.document.querySelector('#hub-offline-retry'));
+    await new Promise(resolve=>setTimeout(resolve,50)); assert.match(reopened.w.document.querySelector('#modal-body')!.textContent!,/Resubmission/); assert.ok(reopened.w.document.querySelector('#hub-offline-retry'));
     reopened.w.document.querySelector<HTMLButtonElement>('#hub-offline-retry')!.click(); await reopened.w.eval('hubRecovery'); await new Promise(resolve=>setTimeout(resolve,50)); await reopened.w.eval('hubPersistChain');
     assert.equal(b.remote.comments[0].rounds[0].owner.text,'offline retained'); assert.equal(reopened.w.eval('hubQueue.length'),0); assert.deepEqual(reopened.errors,[]);
     console.log('IndexedDB: unconfirmed UUID batch + base clocks + dirty local persisted; refreshed page recovery prompt; original batch replay saved once; beforeunload prevented');

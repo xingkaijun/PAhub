@@ -10,7 +10,8 @@
     "hub:build": "node hub-server/scripts/build.mjs",
     "hub:start": "node hub-server/dist/server.mjs",
     "hub:dev": "node hub-server/scripts/dev.mjs",
-    "hub:test": "node hub-server/scripts/test.mjs"
+    "hub:test": "node hub-server/scripts/test.mjs",
+    "hub:upgrade-pcf": "node hub-server/scripts/upgrade-pcf.mjs"
   },
   "dependencies": {
     "axios": "^1.13.4",

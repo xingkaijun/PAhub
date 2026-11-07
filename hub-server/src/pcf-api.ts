@@ -2,11 +2,14 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { PcfStorage, scriptJSON } from './pcf-storage.ts';
 import { safeId, fail, type Actor } from './pcf-model.ts';
 import { PcfRealtime } from './pcf-realtime.ts';
+import { PcfExchange } from './pcf-exchange.ts';
+import { templateVersion, TEMPLATE_VERSION } from './pcf-template.ts';
 
 export class PcfApi {
   readonly realtime = new PcfRealtime();
   private secret: string;
-  constructor(readonly storage: PcfStorage, private token?: string) { this.secret = token || randomBytes(32).toString('hex'); }
+  readonly exchange: PcfExchange;
+  constructor(readonly storage: PcfStorage, private token?: string) { this.secret = token || randomBytes(32).toString('hex'); this.exchange = new PcfExchange(storage); }
   private grant(p: string, d: string) {
     const payload = Buffer.from(JSON.stringify({ p, d, expires: Date.now() + 12 * 3600000 })).toString('base64url');
     return payload + '.' + createHmac('sha256', this.secret).update('pcf:' + payload).digest('base64url');
@@ -49,13 +52,15 @@ export class PcfApi {
       if (!this.bearer(request) && !this.valid(this.cookieGrant(request, p, d), p, d)) {
         // The shared installation token is entered once per drawing/session, never in URL/storage/HTML.
         const endpoint = scriptJSON('/api/pcf/' + p + '/' + d + '/session');
-        const html = '<!doctype html><html><head><meta charset="utf-8"><title>PCF access</title></head><body><h1>PCF access</h1><p>服务器已配置 API_TOKEN。请输入共享访问凭据（无需个人账号）。</p><form id="login"><input id="token" type="password" required autocomplete="off" aria-label="API token"><button>打开 PCF</button></form><p id="error"></p><script>document.getElementById("login").onsubmit=async e=>{e.preventDefault();const r=await fetch(' + endpoint + ',{method:"POST",headers:{Authorization:"Bearer "+document.getElementById("token").value}});if(r.ok)location.reload();else document.getElementById("error").textContent="凭据无效";};</script></body></html>';
+        const html = '<!doctype html><html><head><meta charset="utf-8"><title>PCF access</title></head><body><h1>PCF access</h1><p>This server requires an API token. Enter the shared credential (no personal account required).</p><form id="login"><input id="token" type="password" required autocomplete="off" aria-label="API token"><button>Open PCF</button></form><p id="error"></p><script>document.getElementById("login").onsubmit=async e=>{e.preventDefault();const r=await fetch(' + endpoint + ',{method:"POST",headers:{Authorization:"Bearer "+document.getElementById("token").value}});if(r.ok)location.reload();else document.getElementById("error").textContent="Invalid credential";};</script></body></html>';
         return new Response(html, { status: 401, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' } });
       }
       return this.storage.serial(p, d, () => {
         this.storage.create(p, d, { clientId: 'page-create', clientName: '', ip });
         const { html, rev } = this.storage.load(p, d), grant = this.grant(p, d);
-        const injection = '<script id="pahub-context">window.PAHUB=' + scriptJSON({ projectId: p, drawingId: d, rev, apiBase: '/api', credential: grant }) + '</script>';
+        const version = templateVersion(html);
+        const note = version < TEMPLATE_VERSION ? '<script id="pahub-template-note-script">document.addEventListener("DOMContentLoaded",()=>{if(document.getElementById("pahub-template-note"))return;const n=document.createElement("small");n.id="pahub-template-note";n.textContent="Template upgrade available";n.style.cssText="margin-left:8px;color:#777";document.getElementById("save-state")?.after(n);});</script>' : '';
+        const injection = '<script id="pahub-context">window.PAHUB=' + scriptJSON({ projectId: p, drawingId: d, rev, apiBase: '/api', credential: grant, templateVersion: version, currentTemplateVersion: TEMPLATE_VERSION }) + '</script>' + note;
         if (!/<\/head\s*>/i.test(html)) fail('Template missing head', 500);
         return new Response(html.replace(/<\/head\s*>/i, injection + '</head>'), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' } });
       });
@@ -103,9 +108,24 @@ export class PcfApi {
           const actor = this.actor(body, ip), result = this.storage.replace(p, d, body, actor);
           this.realtime.changed(p + '/' + d, result, actor, true); return json(result);
         }
+        case 'GET exports': return json(this.exchange.list(p, d));
+        case 'POST exports': return json(this.exchange.create(p, d, this.actor(body, ip)));
+        case 'POST imports': {
+          if (body.step === 'preview') return json(this.exchange.preview(p, d, body));
+          if (body.step !== 'apply') fail('Import step must be preview or apply');
+          const outcome = this.exchange.apply(p, d, body, this.actor(body, ip));
+          if (!outcome.replayed && outcome.result.applied.length) this.realtime.changed(p + '/' + d, outcome.result, outcome.actor);
+          return json(outcome.result);
+        }
         case 'GET history': return json(this.storage.history(p, d));
         case 'GET download': return new Response(this.storage.load(p, d).html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Content-Disposition': 'attachment; filename="' + d + '.html"', 'Cache-Control': 'no-store' } });
         default: {
+          const exportMatch = tail.match(/^exports\/([a-f0-9-]+)\/(download|void)$/i);
+          if (exportMatch?.[2] === 'void' && request.method === 'POST') return json(this.exchange.void(p, d, exportMatch[1]));
+          if (exportMatch?.[2] === 'download' && request.method === 'GET') {
+            const { html, record } = this.exchange.download(p, d, exportMatch[1]);
+            return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Content-Disposition': "attachment; filename=\"PCF.html\"; filename*=UTF-8''" + encodeURIComponent(record.filename), 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
+          }
           const match = tail.match(/^history\/(\d+)\/restore$/);
           if (request.method === 'POST' && match) { const actor = this.actor(body, ip), result = this.storage.replace(p, d, body, actor, Number(match[1])); this.realtime.changed(p + '/' + d, result, actor, true); return json(result); }
           fail('Not found', 404);

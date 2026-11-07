@@ -32,7 +32,7 @@ export class PcfRealtime {
   update(key: string, actor: Actor, entity: string | null, leave = false) {
     const people = this.people.get(key) || new Map();
     if (leave) people.delete(actor.clientId);
-    else people.set(actor.clientId, { clientId: actor.clientId, clientName: actor.clientName || '编辑者-' + actor.clientId.slice(0, 4), entity, at: this.now() });
+    else people.set(actor.clientId, { clientId: actor.clientId, clientName: actor.clientName || 'Editor-' + actor.clientId.slice(0, 4), entity, at: this.now() });
     if (people.size) this.people.set(key, people); else this.people.delete(key);
     this.announce(key);
   }

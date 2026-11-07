@@ -193,3 +193,30 @@ node hub-server/scripts/import-d1.ts worker/sql/seed-test-data.sql --db data/pap
 ## 已知范围外事项
 
 npm install 报告 22 个依赖漏洞（1 low、3 moderate、18 high），本期按要求不自动升级。前端构建有现存 Recharts 重导出/分块循环依赖警告。报表 Logo 和部分 PDF 导出脚本仍使用原第三方 CDN；核心 PAPC 数据 API 已同源，不再依赖 Cloudflare，但本期不承诺所有可选报表资源完全离线。
+
+## 第 4 期：船厂往来与模板维护
+
+图纸行/托管 PCF 点 **Export to Builder** 下载英文离线 HTML，邮件发给船厂；船厂只填写当前轮次的 Builder 回复和附图，Save / Save as 保存后回传。托管 PCF 点 **Import Builder replies** 上传 HTML，预览自动/冲突/忽略清单，再选用 Builder / Server / 手动合并确认。**Shipyard correspondence** 可下载当时基线、查看状态和作废；PAPC 行显示最近一轮的等待/已导入/作废状态。
+
+API、三方规则、只读保护、字段白名单与 HMAC 边界见 [PCF_HOSTED.md](../docs/PCF_HOSTED.md)。SQLite 只新增导出元数据，不新增意见/图片正文。
+
+部署必须备份整个 PAHUB_DATA_DIR，包括 .pcf-export-key、exports、imports、历史和权威 HTML。HMAC key 与 API_TOKEN 独立，丢失会导致旧导出无法验签。设置 ADMIN_PASSWORD 覆盖现有默认管理员密码，用于忽略被篡改只读字段的确认；Owner 无论如何都不会导入。Windows 需以目录 ACL 保护密钥；HTTP 局域网不加密，请谨慎传送访问和管理员凭据。
+
+旧 HTML 不自动升级，打开状态栏显示 Template upgrade available。**先停服**后运行：
+
+~~~powershell
+npm run hub:upgrade-pcf -- --dry-run
+npm run hub:upgrade-pcf -- --dry-run --project X --drawing Y
+npm run hub:upgrade-pcf -- --project X --drawing Y
+~~~
+
+默认 data/，可用 PAHUB_DATA_DIR 指向其它数据目录。只替换当前权威 HTML 的模板脚本和布局，保持嵌入 JSON、documentId、hub、receipts、业务 rev 完全不变；先保留 .bak-<时间> 备份，再原子替换。输出 JSON 报告；排除导出基线/导入回执/历史。启动器在内存中打包 TS，无需预先构建。无跨进程维护锁，不得在在线写入时执行正式升级。
+
+~~~powershell
+npm run hub:build
+npm run hub:test
+node hub-server/test/browser-smoke.mjs
+node hub-server/test/exchange-browser-smoke.mjs
+~~~
+
+浏览器脚本使用已安装 Chrome（或 PAHUB_BROWSER_CHANNEL 指定通道）、隔离临时数据库及 file:// 离线文件，不改生产数据。截图写 hub-server/test/artifacts/，该目录已 git 忽略；测试均主动关闭服务和浏览器。具体执行输出见 [VERIFICATION.md](test/VERIFICATION.md)。
