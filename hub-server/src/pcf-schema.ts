@@ -23,5 +23,9 @@ export function initializePcfSchema(db: DatabaseSync) {
       filename TEXT NOT NULL, file_path TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS pcf_exports_drawing ON pcf_exports(project_id,drawing_id,exported_at);
+    CREATE TABLE IF NOT EXISTS pcf_export_batches (
+      project_id TEXT NOT NULL, batch_id TEXT NOT NULL, request_hash TEXT NOT NULL,
+      filename TEXT NOT NULL, manifest_json TEXT NOT NULL, PRIMARY KEY(project_id,batch_id)
+    );
   `);
 }

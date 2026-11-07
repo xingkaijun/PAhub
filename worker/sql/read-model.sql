@@ -7,7 +7,7 @@ CREATE TABLE IF NOT EXISTS app_settings (
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  webdav_path TEXT,
+  storage_path TEXT,
   project_json TEXT NOT NULL,
   conf_json TEXT NOT NULL,
   last_updated TEXT

@@ -1,4 +1,5 @@
 import React, { memo } from 'react';
+import { pcfApprovalTone, pcfApprovalVisible } from '../lib/pcf';
 import { Drawing, DrawingStatus } from '../types';
 import {
     ChevronDown, ChevronRight, AlertTriangle, Clock,
@@ -130,6 +131,7 @@ export const DrawingRow = memo(({
     const { isEditMode } = useStore();
     const pcfOnline = useStore(s => s.pcfPresence[drawing.id] || 0);
     const pcfExport = useStore(s => s.pcfExports[drawing.id]);
+    const pcfApproval = useStore(s => s.pcfIndex[drawing.id]?.approval || 'Not submitted');
     const exportBuilder = async () => {
         const base = '/api/pcf/' + encodeURIComponent(activeProjectId) + '/' + encodeURIComponent(drawing.id);
         const token = import.meta.env.VITE_DATA_API_TOKEN?.trim();
@@ -182,6 +184,11 @@ export const DrawingRow = memo(({
                             );
                         })()}
                         <span>{drawing.customId}</span>
+                        {pcfApprovalVisible(pcfApproval) && (
+                            <span className={'ml-1 inline-flex rounded-full border px-1.5 py-0.5 text-[8px] font-black uppercase tracking-wide ' + pcfApprovalTone(pcfApproval)} title="PCF approval status">
+                                {pcfApproval}
+                            </span>
+                        )}
                     </div>
                 </td>
                 <td className="px-1 py-2 font-mono text-[10px] font-bold text-teal-600 truncate">{drawing.drawingNo}</td>

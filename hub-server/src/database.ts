@@ -4,14 +4,16 @@ import path from 'node:path';
 import { SQL_DIR } from './config.ts';
 import { D1Adapter } from './d1.ts';
 import { initializePcfSchema } from './pcf-schema.ts';
+import { migrateLegacyProjectPath } from './import-legacy.ts';
 
 function columns(db: DatabaseSync, table: string): string[] {
   return db.prepare('PRAGMA table_info("' + table + '")').all().map(row => String(row.name));
 }
 
 export function initializeSchema(db: DatabaseSync): void {
+  migrateLegacyProjectPath(db);
   const expected: Record<string, string[]> = {
-    projects: ['id', 'name', 'webdav_path', 'last_updated'],
+    projects: ['id', 'name', 'storage_path', 'last_updated'],
     drawings: ['id', 'project_id', 'custom_id', 'drawing_no', 'discipline', 'title', 'status', 'version',
       'current_round', 'review_deadline', 'manual_comments_count', 'manual_open_comments_count',
       'checked', 'checked_synced', 'received_date', 'category', 'deadline'],
@@ -29,6 +31,7 @@ export function initializeSchema(db: DatabaseSync): void {
       ['audit_log', 'project_id', 'TEXT'],
       ['drawings', '_deleted', 'INTEGER DEFAULT 0'],
       ['review_tracker', '_deleted', 'INTEGER DEFAULT 0'],
+      ['review_tracker', 'source', 'TEXT'],
     ]) {
       const found = columns(db, table);
       if (found.length && !found.includes(column)) db.exec('ALTER TABLE ' + table + ' ADD COLUMN ' + column + ' ' + type);

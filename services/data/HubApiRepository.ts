@@ -6,11 +6,12 @@ interface RequestOptions {
   body?: unknown;
 }
 
-export class CloudflareApiRepository implements DataRepository {
+// Hub persistence client.
+export class HubApiRepository implements DataRepository {
   constructor(private readonly baseUrl: string, private readonly authToken?: string) { }
 
   private async request<T>(path: string, options: RequestOptions = {}): Promise<T> {
-    // Support both same-origin /api and existing absolute Worker URLs.
+    // Resolve requests against the Hub same-origin API.
     const base = this.baseUrl.endsWith('/') ? this.baseUrl : `${this.baseUrl}/`;
     const url = new URL(path, new URL(base, globalThis.location?.origin));
     const res = await fetch(url.toString(), {

@@ -30,7 +30,8 @@ export async function typecheck() {
 export async function buildServer() {
   await copySchema();
   await esbuild({ ...bundleOptions, outdir, entryPoints: {
-    server: 'hub-server/src/server.ts', app: 'hub-server/src/app.ts', 'import-d1': 'hub-server/src/import-main.ts',
+    server: path.join(root, 'hub-server/src/server.ts'), app: path.join(root, 'hub-server/src/app.ts'),
+    'import-d1': path.join(root, 'hub-server/src/import-main.ts'),
   }, outExtension: { '.js': '.mjs' } });
 }
 

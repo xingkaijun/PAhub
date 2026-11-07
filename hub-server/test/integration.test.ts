@@ -8,7 +8,7 @@ import { createHub } from '../src/app.ts';
 import { importData } from '../src/importer.ts';
 import { initializeSchema } from '../src/database.ts';
 import { ROOT_DIR, SQL_DIR } from '../src/config.ts';
-import { CloudflareApiRepository } from '../../services/data/CloudflareApiRepository';
+import { HubApiRepository } from '../../services/data/HubApiRepository';
 import type { AppSettings, Project } from '../../types';
 
 const settings = {} as AppSettings;
@@ -26,7 +26,7 @@ test('hub end-to-end: real frontend repository, persisted PATCH/PUT, snapshots, 
     hub = await createHub();
     let base = 'http://127.0.0.1:' + hub.port;
     Object.defineProperty(globalThis, 'location', { configurable: true, value: { origin: base } });
-    let api = new CloudflareApiRepository('/api');
+    let api = new HubApiRepository('/api');
     const health = await fetch(base + '/api/health').then(r => r.json()) as { ok: boolean };
     assert.equal(health.ok, true);
     console.log('GET /api/health -> 200 ' + JSON.stringify(health));
@@ -109,7 +109,7 @@ test('hub end-to-end: real frontend repository, persisted PATCH/PUT, snapshots, 
     hub = await createHub();
     base = 'http://127.0.0.1:' + hub.port;
     Object.defineProperty(globalThis, 'location', { configurable: true, value: { origin: base } });
-    api = new CloudflareApiRepository('/api', 'smoke-token');
+    api = new HubApiRepository('/api', 'smoke-token');
     assert.equal((await fetch(base + '/api/health')).status, 401);
     assert.equal((await fetch(base + '/api/health', { headers: { Authorization: 'Bearer smoke-token' } })).status, 200);
     assert.equal((await api.loadProject(settings, stub)).drawings.find(d => d.id === drawing.id)?.status, 'Approved');

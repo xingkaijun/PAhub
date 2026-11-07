@@ -45,7 +45,7 @@ SELECT
 
 -- 2. api_projects
 CREATE VIEW api_projects AS
-SELECT id, name, webdav_path, last_updated
+SELECT id, name, storage_path, last_updated
 FROM projects;
 
 -- 3. api_project_details (核心：拼装完整 project JSON)
@@ -53,7 +53,7 @@ CREATE VIEW api_project_details AS
 SELECT
   p.id,
   p.name,
-  p.webdav_path,
+  p.storage_path,
   p.last_updated,
   -- project_json: 含 drawings[] 嵌套数组
   json_object(
@@ -174,7 +174,8 @@ FROM (
       reviewer_id,
       json_object(
         'done', CASE WHEN done THEN 1 ELSE 0 END,
-        'doneAt', done_at
+        'doneAt', done_at,
+        'source', source
       )
     ) AS assignee_payload,
     MAX(done_at) AS latest_done_at

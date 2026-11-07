@@ -1,14 +1,14 @@
 import { AppSettings, Project, ProjectSnapshot, ReviewTrackerData, DeltaPayload, SaveResult } from '../../types';
-import { CloudflareApiRepository } from './CloudflareApiRepository';
+import { HubApiRepository } from './HubApiRepository';
 import { AuditLogPage, ProjectListItem } from './types';
 
-const apiBaseUrl = import.meta.env.VITE_DATA_API_BASE_URL?.trim() || '';
+const apiBaseUrl = import.meta.env.VITE_DATA_API_BASE_URL?.trim() || '/api';
 const apiToken = import.meta.env.VITE_DATA_API_TOKEN?.trim() || '';
 
-const apiRepository = new CloudflareApiRepository(apiBaseUrl, apiToken);
+const apiRepository = new HubApiRepository(apiBaseUrl, apiToken);
 
 export const appRepository = {
-  isCloudflareApiConfigured(): boolean {
+  isHubApiConfigured(): boolean {
     return Boolean(apiBaseUrl);
   },
 

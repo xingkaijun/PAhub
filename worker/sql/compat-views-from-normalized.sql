@@ -22,7 +22,7 @@ CREATE VIEW api_projects AS
 SELECT
   id,
   COALESCE(display_name, name) AS name,
-  webdav_path,
+  storage_path,
   COALESCE(last_updated, updated_at) AS last_updated
 FROM projects;
 
@@ -30,7 +30,7 @@ CREATE VIEW api_project_details AS
 SELECT
   p.id,
   COALESCE(p.display_name, p.name) AS name,
-  p.webdav_path,
+  p.storage_path,
   COALESCE(p.last_updated, p.updated_at) AS last_updated,
   json_object(
     'id', p.id,
@@ -136,7 +136,8 @@ FROM (
       assignee,
       json_object(
         'done', CASE WHEN done THEN 1 ELSE 0 END,
-        'doneAt', done_at
+        'doneAt', done_at,
+        'source', source
       )
     ) AS assignee_payload,
     MAX(updated_at) AS updated_at

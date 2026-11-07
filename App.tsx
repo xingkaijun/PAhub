@@ -92,7 +92,7 @@ const App: React.FC = () => {
       conf: p.conf,
       drawingCount: p.drawings?.length || 0,
       approvedCount: p.drawings?.filter(d => d.status === 'Approved').length || 0,
-      webdavPath: p.webdavPath,
+      storagePath: p.storagePath,
     })),
     [data.projects]
   );
@@ -105,14 +105,6 @@ const App: React.FC = () => {
       // If we have an active project persisted, we might want to clear it or let user re-select?
       // Requirement: "Before loading project do not enter main page". So we force selection.
       // We don't wipe store, but we require selection.
-
-      if (!true) {
-        // No WebDAV, maybe go straight to Offline if we have projects? 
-        // Or show selector with local projects?
-        // Let's show selector regardless, listing local cache.
-        useStore.setState({ isLoading: false });
-        return;
-      }
 
       useStore.setState({ isLoading: true });
       try {

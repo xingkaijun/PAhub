@@ -1,7 +1,8 @@
 import { createHmac, createHash, randomBytes, randomUUID, timingSafeEqual } from 'node:crypto';
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from 'node:fs';
 import path from 'node:path';
 import { PcfStorage, parseHTML, atomicWrite } from './pcf-storage.ts';
+import { createZip } from './zip.ts';
 import { renderTemplate } from './pcf-template.ts';
 import { cleanContent, entity, applyOps, fail, safeId, type Actor, type PcfData, type Op } from './pcf-model.ts';
 
@@ -59,8 +60,8 @@ export class PcfExchange {
   private dir(p: string, d: string) { return path.join(this.storage.dataDir, 'pcf', p, d, 'exports'); }
   download(p: string, d: string, id: string) { const record = this.record(p, d, id); return { record, html: readFileSync(path.join(this.dir(p, d), id + '.html'), 'utf8') }; }
   void(p: string, d: string, id: string) { this.record(p, d, id); this.storage.db.prepare("UPDATE pcf_exports SET status='void' WHERE export_id=?").run(id); return { exportId: id, status: 'void' }; }
-  create(p: string, d: string, actor: Actor) {
-    const { data, rev } = this.storage.load(p, d), exportedAt = new Date().toISOString(), exportId = randomUUID(), round = data.project.currentRound;
+  create(p: string, d: string, actor: Actor, exportId = randomUUID()) {
+    const { data, rev } = this.storage.load(p, d), exportedAt = new Date().toISOString(), round = data.project.currentRound;
     const external = externalData(data);
     external.export = { exportId, documentId: data.documentId, baseRev: rev, round, exportedAt, mode: 'builder' };
     external.export.ownerHmac = this.mac(readonlyPart(external, round));
@@ -71,7 +72,64 @@ export class PcfExchange {
     this.storage.db.prepare('INSERT INTO pcf_exports VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').run(exportId, p, d, data.documentId, rev, round, exportedAt, actor.clientName, actor.ip, 'exported', filename, path.relative(this.storage.dataDir, file).split(path.sep).join('/'));
     return { exportId, filename, baseRev: rev, round, exportedAt, status: 'exported' };
   }
-  preview(p: string, d: string, body: any) {
+  batch(p: string, rawIds: unknown, rawBatchId: unknown, actor: Actor) {
+    const batchId = uuid(rawBatchId);
+    if (!Array.isArray(rawIds) || rawIds.length === 0 || rawIds.length > 500) fail('drawingIds must contain 1 to 500 drawings');
+    const ids = rawIds.map(value => safeId(value));
+    if (new Set(ids).size !== ids.length) fail('drawingIds must be unique');
+    const drawings = this.storage.db.prepare(
+      'SELECT d.id,d.drawing_no,d.title,d.current_round,p.name AS project_name FROM drawings d JOIN projects p ON p.id=d.project_id WHERE d.project_id=? AND COALESCE(d._deleted,0)=0'
+    ).all(p) as any[];
+    const byId = new Map(drawings.map(row => [String(row.id), row]));
+    // Validate the entire selection before creating even the first export.
+    for (const id of ids) if (!byId.has(id)) fail('Drawing does not belong to this project: ' + id, 400);
+    const requestHash = hash(ids);
+    const previous: any = this.storage.db.prepare('SELECT * FROM pcf_export_batches WHERE project_id=? AND batch_id=?').get(p, batchId);
+    if (previous && previous.request_hash !== requestHash) fail('batchId already used with different drawingIds', 409);
+    type Row = { drawingNo: string; title: string; round: number | string; approval: string; total: number | string; open: number | string; baseRev: number | string; exportId: string; file: string; status: string; reason: string; drawingId: string };
+    const safeName = (value: unknown, fallback: string) => String(value || fallback).replace(/[<>:"/\\|?*\x00-\x1f]/g, '-').replace(/[. ]+$/g, '').trim() || fallback;
+    const csvCell = (value: unknown) => { const s = String(value ?? ''); return /[",\r\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+    const stamp = new Date();
+    const date = stamp.getFullYear() + String(stamp.getMonth() + 1).padStart(2, '0') + String(stamp.getDate()).padStart(2, '0');
+    const filename = previous?.filename || safeName(drawings[0]?.project_name, p) + '_SendAll_' + date + '-' + String(stamp.getHours()).padStart(2, '0') + String(stamp.getMinutes()).padStart(2, '0') + '.zip';
+    const rows: Row[] = previous ? JSON.parse(previous.manifest_json) : [];
+    const files: string[] = [];
+    const entries: Array<{ name: string; data: string }> = [];
+    this.storage.db.exec('SAVEPOINT pcf_export_batch');
+    try {
+      if (!previous) {
+        const used = new Set<string>();
+        for (const id of ids) {
+          const drawing = byId.get(id)!;
+          if (!existsSync(this.storage.file(p, id))) {
+            rows.push({ drawingId: id, drawingNo: drawing.drawing_no, title: drawing.title, round: drawing.current_round, approval: '', total: '', open: '', baseRev: '', exportId: '', file: '', status: 'skipped', reason: 'no PCF' });
+            continue;
+          }
+          // load repairs the index from the authoritative HTML; never export a browser rev.
+          const { data } = this.storage.load(p, id);
+          const exportId = randomUUID();
+          files.push(path.join(this.dir(p, id), exportId + '.html'));
+          const record = this.create(p, id, actor, exportId);
+          const base = safeName(drawing.drawing_no, id) + '_R' + String(record.round).padStart(2, '0') + '_PCF_' + date;
+          let file = base + '.html', suffix = 2;
+          while (used.has(file.toLowerCase())) file = base + '_' + suffix++ + '.html';
+          used.add(file.toLowerCase());
+          rows.push({ drawingId: id, drawingNo: drawing.drawing_no, title: drawing.title, round: record.round, approval: data.project.approval, total: data.comments.length, open: data.comments.filter((c: any) => c.status === 'open').length, baseRev: record.baseRev, exportId, file, status: 'exported', reason: '' });
+        }
+      }
+      for (const row of rows) if (row.status === 'exported') entries.push({ name: row.file, data: this.download(p, row.drawingId, row.exportId).html });
+      const columns = ['drawingNo','title','round','approval','total','open','baseRev','exportId','file','status','reason'] as const;
+      entries.push({ name: 'manifest.csv', data: '\uFEFF' + [columns.join(','), ...rows.map(row => columns.map(key => csvCell(row[key])).join(','))].join('\r\n') + '\r\n' });
+      const buffer = createZip(entries, stamp);
+      if (!previous) this.storage.db.prepare('INSERT INTO pcf_export_batches(project_id,batch_id,request_hash,filename,manifest_json) VALUES(?,?,?,?,?)').run(p, batchId, requestHash, filename, JSON.stringify(rows));
+      this.storage.db.exec('RELEASE pcf_export_batch');
+      return { filename, buffer };
+    } catch (error) {
+      this.storage.db.exec('ROLLBACK TO pcf_export_batch; RELEASE pcf_export_batch');
+      for (const file of files) if (existsSync(file)) unlinkSync(file);
+      throw error;
+    }
+  }  preview(p: string, d: string, body: any) {
     if (typeof body.html !== 'string') fail('Expected returned HTML');
     const returned = parseHTML(body.html), live = this.storage.load(p, d);
     if (returned.documentId !== live.data.documentId) fail('documentId does not match this drawing', 409);

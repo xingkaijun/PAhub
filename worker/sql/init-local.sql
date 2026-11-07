@@ -1,13 +1,13 @@
 -- init-local.sql
 -- 完整的本地开发初始化脚本：建表 + 兼容视图
--- 用法: npx wrangler d1 execute papc-review-db-final --local --file=worker/sql/init-local.sql
+-- Hub 启动时自动初始化；测试通过临时数据库加载此脚本。
 
 -- ========== 基础表 ==========
 
 CREATE TABLE IF NOT EXISTS projects (
   id TEXT PRIMARY KEY,
   name TEXT NOT NULL,
-  webdav_path TEXT,
+  storage_path TEXT,
   last_updated TEXT
 );
 
@@ -92,6 +92,7 @@ CREATE TABLE IF NOT EXISTS review_tracker (
   reviewer_id TEXT NOT NULL,
   done INTEGER DEFAULT 0,
   done_at TEXT,
+  source TEXT,
   _deleted INTEGER DEFAULT 0,
   PRIMARY KEY (project_id, drawing_id, reviewer_id)
 );
@@ -163,7 +164,7 @@ SELECT
 
 -- api_projects: 项目列表
 CREATE VIEW api_projects AS
-SELECT id, name, webdav_path, last_updated
+SELECT id, name, storage_path, last_updated
 FROM projects;
 
 -- api_project_details: 完整项目详情（含嵌套 drawings）
@@ -171,7 +172,7 @@ CREATE VIEW api_project_details AS
 SELECT
   p.id,
   p.name,
-  p.webdav_path,
+  p.storage_path,
   p.last_updated,
   json_object(
     'id', p.id,
@@ -294,7 +295,8 @@ FROM (
       reviewer_id,
       json_object(
         'done', CASE WHEN done THEN 1 ELSE 0 END,
-        'doneAt', done_at
+        'doneAt', done_at,
+        'source', source
       )
     ) AS assignee_payload,
     MAX(done_at) AS latest_done_at

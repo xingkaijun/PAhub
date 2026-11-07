@@ -46,6 +46,21 @@ export class PcfApi {
       if (!this.bearer(request)) return json({ error: 'Unauthorized' }, 401);
       return json(d === 'index' ? this.storage.index(p) : this.realtime.project(p));
     }
+    if (!page && d === 'exports' && tail === 'batch' && request.method === 'POST') {
+      if (!this.bearer(request)) return json({ error: 'Unauthorized' }, 401);
+      const text = await request.text();
+      let body: any;
+      try { body = text ? JSON.parse(text) : {}; } catch { fail('Invalid JSON body'); }
+      if (!body || typeof body !== 'object' || Array.isArray(body)) fail('Invalid JSON body');
+      const bundle = this.exchange.batch(p, body.drawingIds, body.batchId, this.actor(body, ip));
+      const match = bundle.filename.match(/_(\d{8}-\d{4})\.zip$/);
+      if (!match) fail('Invalid batch archive name', 500);
+      const ascii = 'PAhub_SendAll_' + match[1] + '.zip';
+      return new Response(bundle.buffer, { headers: {
+        'Content-Type': 'application/zip', 'Content-Disposition': 'attachment; filename="' + ascii + '"; filename*=UTF-8\'\'' + encodeURIComponent(bundle.filename),
+        'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
+      } });
+    }
     safeId(d);
     if (page) {
       if (tail || !['GET', 'HEAD'].includes(request.method)) fail('Not found', 404);

@@ -3,7 +3,7 @@
 -- =============================================================================
 
 -- 项目
-INSERT OR IGNORE INTO projects (id, name, webdav_path, last_updated)
+INSERT OR IGNORE INTO projects (id, name, storage_path, last_updated)
 VALUES ('proj-test-001', 'PG-VLEC-H2684', NULL, datetime('now'));
 
 -- 审图人

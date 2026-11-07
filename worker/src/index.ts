@@ -30,7 +30,7 @@ interface Env {
 interface ProjectListRow extends Record<string, unknown> {
   id: string;
   name: string;
-  webdav_path: string | null;
+  storage_path: string | null;
   last_updated: string | null;
 }
 
@@ -272,7 +272,7 @@ const mapDrawing = (
 const getProjectList = async (db: D1Database) => {
   const rows = await queryAll<ProjectListRow>(
     db,
-    `SELECT id, name, webdav_path, last_updated
+    `SELECT id, name, storage_path, last_updated
      FROM api_projects
      ORDER BY name COLLATE NOCASE ASC`
   );
@@ -280,7 +280,7 @@ const getProjectList = async (db: D1Database) => {
   return rows.map(row => ({
     id: row.id,
     name: row.name,
-    webdavPath: row.webdav_path || undefined,
+    storagePath: row.storage_path || undefined,
     lastUpdated: row.last_updated || undefined,
   }));
 };
@@ -293,7 +293,7 @@ const getSettings = async (db: D1Database) => {
 const getProjectDetail = async (db: D1Database, projectId: string) => {
   const row = await queryFirst<ProjectDetailRow>(
     db,
-    `SELECT id, name, webdav_path, last_updated, project_json, conf_json
+    `SELECT id, name, storage_path, last_updated, project_json, conf_json
      FROM api_project_details
      WHERE id = ?
      LIMIT 1`,
@@ -309,7 +309,7 @@ const getProjectDetail = async (db: D1Database, projectId: string) => {
     ...project,
     id: row.id,
     name: row.name,
-    webdavPath: row.webdav_path || undefined,
+    storagePath: row.storage_path || undefined,
     conf,
     lastUpdated: row.last_updated || undefined,
   };
@@ -503,20 +503,22 @@ const readChildCounts = async (db: D1Database, projectId: string) => {
   return { assignees, statusHistory, remarks };
 };
 
-const readTrackerRows = async (db: D1Database, projectId: string): Promise<Map<string, Map<string, number>>> => {
+const normalizeTrackerSource = (value: unknown) => value === 'manual' || value === 'pcf' ? value : null;
+
+const readTrackerRows = async (db: D1Database, projectId: string): Promise<Map<string, Map<string, any>>> => {
   const rows = await queryAll(
     db,
-    `SELECT drawing_id, reviewer_id, done FROM review_tracker WHERE project_id = ?`,
+    `SELECT drawing_id, reviewer_id, done, source FROM review_tracker WHERE project_id = ?`,
     [projectId]
   );
 
-  const map = new Map<string, Map<string, number>>();
+  const map = new Map<string, Map<string, any>>();
   for (const row of rows) {
     const drawingId = toStringValue(row.drawing_id);
     const reviewerId = toStringValue(row.reviewer_id);
     if (!drawingId || !reviewerId) continue;
     if (!map.has(drawingId)) map.set(drawingId, new Map());
-    map.get(drawingId)!.set(reviewerId, toBooleanValue(row.done) ? 1 : 0);
+    map.get(drawingId)!.set(reviewerId, { done: toBooleanValue(row.done) ? 1 : 0, source: toStringValue(row.source) || undefined });
   }
   return map;
 };
@@ -702,7 +704,8 @@ const verifyWrite = async (
         const fields: string[] = [];
         for (const [reviewerId, info] of Object.entries(assignees as Record<string, any>)) {
           const expectedDone = toBooleanValue(info?.done) ? 1 : 0;
-          if ((actualRow?.get(reviewerId) ?? 0) !== expectedDone) fields.push(`tracker:${reviewerId}`);
+          const actual = actualRow?.get(reviewerId);
+          if ((actual?.done ?? 0) !== expectedDone || normalizeTrackerSource(actual?.source) !== normalizeTrackerSource(info?.source)) fields.push(`tracker:${reviewerId}`);
         }
         addFields(drawingId, undefined, fields);
       }
@@ -735,13 +738,13 @@ const saveProjectData = async (
 
   // Update/Insert projects table
   const projectName = toStringValue(project.name) || projectId;
-  const webdavPath = toStringValue(project.webdavPath) || '';
+  const storagePath = toStringValue(project.storagePath) || '';
   stmts.push(db.prepare(
-    `INSERT INTO projects (id, name, webdav_path, last_updated)
+    `INSERT INTO projects (id, name, storage_path, last_updated)
      VALUES (?, ?, ?, datetime('now'))
      ON CONFLICT(id) DO UPDATE SET 
-       name=excluded.name, webdav_path=excluded.webdav_path, last_updated=excluded.last_updated`
-  ).bind(projectId, projectName, webdavPath));
+       name=excluded.name, storage_path=excluded.storage_path, last_updated=excluded.last_updated`
+  ).bind(projectId, projectName, storagePath));
   stmts.mark();
 
   // Extract valid drawing IDs to delete removed ones
@@ -914,13 +917,14 @@ const buildReviewTrackerStatements = (db: D1Database, projectId: string, data: a
     if (!assignees || typeof assignees !== 'object') continue;
     for (const [reviewerId, info] of Object.entries(assignees as Record<string, any>)) {
       stmts.push(db.prepare(
-        `INSERT INTO review_tracker (project_id, drawing_id, raw_drawing_ref, reviewer_id, done, done_at)
-         VALUES (?, ?, ?, ?, ?, ?)
+        `INSERT INTO review_tracker (project_id, drawing_id, raw_drawing_ref, reviewer_id, done, done_at, source)
+         VALUES (?, ?, ?, ?, ?, ?, ?)
          ON CONFLICT(project_id, drawing_id, reviewer_id) DO UPDATE SET
-           done=excluded.done, done_at=excluded.done_at`
+           done=excluded.done, done_at=excluded.done_at, source=excluded.source`
       ).bind(
         projectId, drawingId, drawingId, reviewerId,
-        toBooleanValue(info.done) ? 1 : 0, toStringValue(info.doneAt) || null
+        toBooleanValue(info.done) ? 1 : 0, toStringValue(info.doneAt) || null,
+        normalizeTrackerSource(info.source)
       ));
     }
   }
@@ -1197,7 +1201,7 @@ const handleAdminRequest = async (request: Request, env: Env, url: URL): Promise
   // 整库导出：GET /admin/api/export
   if (segments.length === 3 && segments[1] === 'api' && segments[2] === 'export' && request.method === 'GET') {
     const projectRows = await queryAll<ProjectListRow>(db,
-      `SELECT id, name, webdav_path, last_updated FROM projects ORDER BY name COLLATE NOCASE ASC`
+      `SELECT id, name, storage_path, last_updated FROM projects ORDER BY name COLLATE NOCASE ASC`
     );
 
     const exportData: any[] = [];
@@ -1458,13 +1462,14 @@ export default {
               stmts.push(db.prepare(`DELETE FROM review_tracker WHERE project_id = ? AND drawing_id = ?`).bind(projectId, drawingId));
               for (const [reviewerId, info] of Object.entries(assignees as Record<string, any>)) {
                 stmts.push(db.prepare(
-                  `INSERT INTO review_tracker (project_id, drawing_id, raw_drawing_ref, reviewer_id, done, done_at)
-                   VALUES (?, ?, ?, ?, ?, ?)
+                  `INSERT INTO review_tracker (project_id, drawing_id, raw_drawing_ref, reviewer_id, done, done_at, source)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)
                    ON CONFLICT(project_id, drawing_id, reviewer_id) DO UPDATE SET
-                     done=excluded.done, done_at=excluded.done_at`
+                     done=excluded.done, done_at=excluded.done_at, source=excluded.source`
                 ).bind(
                   projectId, drawingId, drawingId, reviewerId,
-                  toBooleanValue(info.done) ? 1 : 0, toStringValue(info.doneAt) || null
+                  toBooleanValue(info.done) ? 1 : 0, toStringValue(info.doneAt) || null,
+                  normalizeTrackerSource(info.source)
                 ));
               }
               stmts.mark(); // 同一张图纸的 DELETE + INSERT 不可拆

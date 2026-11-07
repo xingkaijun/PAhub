@@ -3,7 +3,7 @@ import { AppSettings, AuditEntry, Project, ProjectSnapshot, ReviewTrackerData, D
 export interface ProjectListItem {
   id: string;
   name: string;
-  webdavPath?: string;
+  storagePath?: string;
 }
 
 export interface AuditLogPage {

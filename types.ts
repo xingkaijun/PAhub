@@ -101,7 +101,7 @@ export interface Project {
   name: string;
   drawings: Drawing[];
   snapshots?: ProjectSnapshot[];
-  webdavPath?: string;
+  storagePath?: string;
   conf: ProjectConfig;
   lastUpdated?: string;
 }
@@ -129,6 +129,7 @@ export interface AppData {
 export interface ReviewTrackerEntry {
   done: boolean;
   doneAt?: string; // ISO timestamp
+  source?: 'manual' | 'pcf'; // manual user action takes precedence over PCF-derived defaults
 }
 
 // key = drawingId, value = { assigneeName: ReviewTrackerEntry }

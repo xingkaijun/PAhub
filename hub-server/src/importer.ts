@@ -6,6 +6,7 @@ import worker from '@pahub/worker';
 import { ROOT_DIR, readConfig } from './config.ts';
 import { initializeSchema } from './database.ts';
 import { D1Adapter } from './d1.ts';
+import { normalizeLegacySql, normalizeLegacyExport } from './import-legacy.ts';
 
 type ExportEntry = { project: { id: string; drawings: { id: string }[] }; reviewTracker?: Record<string, unknown> };
 
@@ -42,6 +43,7 @@ export async function importData(source: string, destination: string) {
   try {
     if (content.trimStart().startsWith('{')) {
       const data: unknown = JSON.parse(content);
+      normalizeLegacyExport(data);
       validateExport(data);
       sqlite.exec('PRAGMA foreign_keys = ON');
       initializeSchema(sqlite);
@@ -67,7 +69,7 @@ export async function importData(source: string, destination: string) {
       if (!hasSchema) initializeSchema(sqlite);
       // Dumps can insert child rows before parent rows. Validate all foreign keys afterwards.
       sqlite.exec('PRAGMA foreign_keys = OFF');
-      sqlite.exec(content);
+      sqlite.exec(normalizeLegacySql(content));
       sqlite.exec('PRAGMA foreign_keys = ON');
       initializeSchema(sqlite);
     }

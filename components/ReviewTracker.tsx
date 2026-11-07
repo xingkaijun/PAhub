@@ -1,10 +1,11 @@
 
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store';
 import type { SentDrawingExpectation } from '../store';
-import { RefreshCw, CheckCircle2, Circle, ClipboardCheck, Search, ChevronDown, ChevronRight, Cloud, Lock, Unlock, Send, Award, Flame, FileSpreadsheet } from 'lucide-react';
+import { RefreshCw, CheckCircle2, Circle, ClipboardCheck, Search, ChevronDown, ChevronRight, Cloud, Lock, Unlock, Send, Award, Flame, FileSpreadsheet, Download } from 'lucide-react';
 import { differenceInCalendarDays, format, isAfter } from 'date-fns';
 import type { Drawing } from '../types';
+import { effectiveAprDone, isManualApr, sentStatus, pcfApprovalTone, pcfApprovalVisible } from '../lib/pcf';
 
 const REVIEW_TRACKER_LAYOUT_STORAGE_KEY = 'review-tracker-layout-single-column';
 
@@ -39,6 +40,7 @@ export const ReviewTracker: React.FC = () => {
         data,
         activeProjectId,
         reviewTracker,
+        pcfIndex,
         loadReviewTracker,
         toggleAssigneeDone,
         clearTrackerForDrawings,
@@ -58,7 +60,10 @@ export const ReviewTracker: React.FC = () => {
     const [showReady, setShowReady] = useState(true);
     const [showUrgeOnly, setShowUrgeOnly] = useState(false);
     const [isSyncing, setIsSyncing] = useState(false);
-    const [sendPhase, setSendPhase] = useState<'saving' | 'verifying' | null>(null);
+    const [sendPhase, setSendPhase] = useState<'saving' | 'verifying' | 'packing' | null>(null);
+    const [lastSendBatch, setLastSendBatch] = useState<{ projectId: string; drawingIds: string[]; batchId: string } | null>(null);
+    const sendBusy = useRef(false);
+    const [packError, setPackError] = useState<string | null>(null);
     const isSending = sendPhase !== null;
     const [isSingleColumn, setIsSingleColumn] = useState(() => {
         if (typeof window === 'undefined') return false;
@@ -66,8 +71,10 @@ export const ReviewTracker: React.FC = () => {
     });
     const drawingGridClass = isSingleColumn ? 'grid grid-cols-1 gap-2' : 'grid grid-cols-1 lg:grid-cols-2 gap-2';
     const getDeadlineDays = (deadline?: string) => deadline ? differenceInCalendarDays(new Date(deadline), new Date()) : null;
-    // approved 标记：通过 reviewTracker 持久化（使用特殊 key '__approved__'）
-    const isApprovedMark = (drawingId: string) => reviewTracker[drawingId]?.['__approved__']?.done ?? false;
+    // APR 默认值来自 PCF；一旦用户点击，reviewTracker 中的 manual 值始终优先。
+    const isApprovedMark = (drawingId: string) => effectiveAprDone(
+        reviewTracker[drawingId]?.['__approved__'], pcfIndex[drawingId]?.approval
+    );
 
     // 进入页面时自动加载追踪数据
     useEffect(() => {
@@ -232,10 +239,55 @@ export const ReviewTracker: React.FC = () => {
         URL.revokeObjectURL(link.href);
     };
 
+    const downloadBatch = async (projectId: string, drawingIds: string[], batchId: string) => {
+        const token = import.meta.env.VITE_DATA_API_TOKEN?.trim();
+        const response = await fetch('/api/pcf/' + encodeURIComponent(projectId) + '/exports/batch', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
+            body: JSON.stringify({
+                drawingIds, batchId,
+                clientId: localStorage.getItem('pahub.clientId') || 'send-all',
+                clientName: localStorage.getItem('pahub.clientName') || 'PAPC Send All',
+            }),
+        });
+        if (!response.ok) {
+            const message = await response.text().catch(() => '');
+            throw new Error(message || 'PCF batch export failed: ' + response.status);
+        }
+        const disposition = response.headers.get('Content-Disposition') || '';
+        const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
+        const fallback = disposition.match(/filename="([^"]+)"/i)?.[1];
+        const filename = encoded ? decodeURIComponent(encoded) : (fallback || 'PAhub_SendAll.zip');
+        const url = URL.createObjectURL(await response.blob());
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename;
+        document.body.appendChild(link);
+        link.click();
+        link.remove();
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+        return filename;
+    };
+
+    const retryBatchDownload = async () => {
+        if (!lastSendBatch || lastSendBatch.projectId !== activeProjectId || sendBusy.current) return;
+        sendBusy.current = true;
+        setPackError(null);
+        setSendPhase('packing');
+        try {
+            await downloadBatch(lastSendBatch.projectId, lastSendBatch.drawingIds, lastSendBatch.batchId);
+        } catch (error: any) {
+            setPackError('状态已发送，但打包下载失败：' + (error?.message || 'unknown error'));
+        } finally {
+            setSendPhase(null);
+            sendBusy.current = false;
+        }
+    };
+
     // 一键发送 Ready 图纸：本地更新状态 + 清空 check 后立即整体保存，再回读服务器确认落库。
-    // 避免 check 已推送服务端而 status 只留在本地（刷新后状态被远端覆盖回 Reviewing）
+    // 打包是保存完成后的独立动作，失败不回滚 Send All 状态。
     const handleSendReady = async () => {
-        if (!isEditMode || sendPhase || !activeProjectId) return;
+        if (!isEditMode || sendBusy.current || !activeProjectId) return;
         const count = readyDrawings.length;
         if (count === 0) return;
 
@@ -243,18 +295,24 @@ export const ReviewTracker: React.FC = () => {
         const expected: SentDrawingExpectation[] = readyDrawings.map(d => ({
             id: d.id,
             customId: d.customId,
-            status: isApprovedMark(d.id) ? 'Approved' : 'Waiting Reply',
+            status: sentStatus(reviewTracker[d.id]?.['__approved__'], pcfIndex[d.id]?.approval),
         }));
         const approvedCount = expected.filter(e => e.status === 'Approved').length;
         const waitingCount = count - approvedCount;
+        const pcfCount = readyDrawings.filter(d => Boolean(pcfIndex[d.id])).length;
 
         const msg = `将 ${count} 张 Ready 图纸状态更新：\n` +
             (approvedCount > 0 ? `• ${approvedCount} 张 → Approved\n` : '') +
             (waitingCount > 0 ? `• ${waitingCount} 张 → Waiting Reply\n` : '') +
+            `发送后将自动下载 ${pcfCount} 张图纸的船厂版 PCF 压缩包（无 PCF 的 ${count - pcfCount} 张将跳过）\n` +
             `确认继续？`;
 
         if (!window.confirm(msg)) return;
 
+        const sendIds = expected.map(e => e.id);
+        sendBusy.current = true;
+        const batch = { projectId: activeProjectId, drawingIds: sendIds, batchId: crypto.randomUUID() };
+        setPackError(null);
         setSendPhase('saving');
         try {
             expected.forEach(e => updateDrawing(e.id, { status: e.status }));
@@ -270,23 +328,32 @@ export const ReviewTracker: React.FC = () => {
             // 回读校验：确认服务器上状态已更新、check 已清空
             setSendPhase('verifying');
             const result = await verifySentDrawings(activeProjectId, expected);
-            if (result.error) {
-                alert(`已保存，但无法回读确认服务器结果（${result.error}）。\n请点击 Refresh 后核对状态。`);
-            } else if (!result.ok) {
+            if (!result.ok) {
                 const parts = [
+                    result.error ? `无法回读确认：${result.error}` : '',
                     result.mismatchedDrawings.length > 0 ? `状态未更新：${result.mismatchedDrawings.join(', ')}` : '',
                     result.mismatchedTracker.length > 0 ? `Check 未清空：${result.mismatchedTracker.join(', ')}` : '',
                 ].filter(Boolean).join('\n');
-                alert(`服务器写入校验未通过：\n${parts}\n\n这些图纸已重新标记为待保存，请点击 Sync to Cloud 重试。`);
+                alert(`已保存，但服务器写入校验未通过：\n${parts}\n\n请点击 Refresh 核对状态，必要时重新同步。`);
+                return;
+            }
+
+            setLastSendBatch(batch);
+            setSendPhase('packing');
+            try {
+                await downloadBatch(batch.projectId, batch.drawingIds, batch.batchId);
+            } catch (error: any) {
+                setPackError('状态已发送，但打包下载失败：' + (error?.message || 'unknown error'));
             }
         } finally {
             setSendPhase(null);
+            sendBusy.current = false;
         }
     };
 
     const toggleApproved = (drawingId: string) => {
         if (!isEditMode) return;
-        toggleAssigneeDone(drawingId, '__approved__');
+        toggleAssigneeDone(drawingId, '__approved__', !isApprovedMark(drawingId));
     };
 
     if (!currentProject) {
@@ -304,6 +371,8 @@ export const ReviewTracker: React.FC = () => {
         const doneCount = assignees.filter(a => trackerEntry[a]?.done).length;
         const allDone = assignees.length > 0 && doneCount === assignees.length;
         const isApproved = isApprovedMark(drawing.id);
+        const pcf = pcfIndex[drawing.id];
+        const approval = pcf?.approval || 'Not submitted';
         const isOverdue = drawing.reviewDeadline && isAfter(new Date(), new Date(drawing.reviewDeadline));
         const deadlineDays = getDeadlineDays(drawing.reviewDeadline);
 
@@ -325,6 +394,14 @@ export const ReviewTracker: React.FC = () => {
                     {drawing.discipline && (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full border border-white/80 bg-white/80 text-[9px] font-black text-slate-500 uppercase tracking-[0.16em] shadow-sm">
                             {drawing.discipline}
+                        </span>
+                    )}
+                    {pcfApprovalVisible(approval) && (
+                        <span
+                            className={'inline-flex items-center px-2 py-0.5 rounded-full border text-[9px] font-black uppercase tracking-[0.14em] shadow-sm ' + pcfApprovalTone(approval)}
+                            title={pcf ? 'PCF R' + String(pcf.currentRound).padStart(2, '0') + ' · ' + pcf.totalComments + ' comments · ' + pcf.openComments + ' open' : ''}
+                        >
+                            {approval}
                         </span>
                     )}
                 </div>
@@ -368,6 +445,7 @@ export const ReviewTracker: React.FC = () => {
                                 <button
                                     key={assignee}
                                     onClick={() => toggleAssigneeDone(drawing.id, assignee)}
+                                    disabled={!isEditMode || isSending}
                                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold transition-all active:scale-95 border shadow-sm ${isDone
                                         ? 'bg-emerald-100/90 text-emerald-700 border-emerald-200 hover:bg-emerald-50'
                                         : isOverdue
@@ -400,12 +478,12 @@ export const ReviewTracker: React.FC = () => {
                 {isReady && (
                     <button
                         onClick={() => toggleApproved(drawing.id)}
-                        disabled={!isEditMode}
+                        disabled={!isEditMode || isSending}
                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[9px] font-[1000] uppercase tracking-[0.18em] border transition-all shrink-0 shadow-sm ${isApproved
                             ? 'bg-violet-100/90 text-violet-700 border-violet-200'
                             : 'bg-white/85 text-slate-400 border-white/80 hover:border-violet-200 hover:text-violet-500'
                             } ${!isEditMode ? 'opacity-50 cursor-not-allowed' : 'active:scale-95'}`}
-                        title={isApproved ? '已标记 Approved（点击取消）' : '标记为 Approved（一键发送时生效）'}
+                        title={(isApproved ? '已标记 Approved（点击取消）' : '标记为 Approved（一键发送时生效）') + (isManualApr(reviewTracker[drawing.id]?.['__approved__']) ? ' · 手动' : ' · PCF')}
                     >
                         <Award size={11} />
                         APR
@@ -441,6 +519,17 @@ export const ReviewTracker: React.FC = () => {
                     </div>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap justify-end">
+                    {lastSendBatch?.projectId === activeProjectId && (
+                        <button
+                            onClick={retryBatchDownload}
+                            disabled={isSending}
+                            className={`${softActionClass} bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100 disabled:opacity-60`}
+                            title={packError || '重新生成并下载本次 Send All 的 PCF 压缩包'}
+                        >
+                            <Download size={14} />
+                            {sendPhase === 'packing' ? 'Packing...' : '重新下载本次打包'}
+                        </button>
+                    )}
                     {/* 同步按钮 */}
                     <button
                         onClick={async () => {
@@ -494,6 +583,13 @@ export const ReviewTracker: React.FC = () => {
                     </button>
                 </div>
             </div>
+
+            {packError && (
+                <div className="mx-6 mt-3 flex items-center justify-between gap-3 rounded-2xl border border-amber-200 bg-amber-50 px-4 py-2 text-[11px] font-bold text-amber-800">
+                    <span>{packError}</span>
+                    <button onClick={() => setPackError(null)} className="shrink-0 text-[10px] uppercase tracking-widest text-amber-600 hover:text-amber-900">Dismiss</button>
+                </div>
+            )}
 
             {/* 筛选输入框 */}
             <div className="px-6 py-3 border-b border-slate-100 shrink-0 flex flex-col gap-2 bg-white/60 backdrop-blur-sm">
