@@ -31,7 +31,6 @@ export function initializeSchema(db: DatabaseSync): void {
       ['audit_log', 'project_id', 'TEXT'],
       ['drawings', '_deleted', 'INTEGER DEFAULT 0'],
       ['review_tracker', '_deleted', 'INTEGER DEFAULT 0'],
-      ['review_tracker', 'source', 'TEXT'],
     ]) {
       const found = columns(db, table);
       if (found.length && !found.includes(column)) db.exec('ALTER TABLE ' + table + ' ADD COLUMN ' + column + ' ' + type);

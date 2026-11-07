@@ -5,7 +5,6 @@ import type { SentDrawingExpectation } from '../store';
 import { RefreshCw, CheckCircle2, Circle, ClipboardCheck, Search, ChevronDown, ChevronRight, Cloud, Lock, Unlock, Send, Award, Flame, FileSpreadsheet, Download } from 'lucide-react';
 import { differenceInCalendarDays, format, isAfter } from 'date-fns';
 import type { Drawing } from '../types';
-import { effectiveAprDone, isManualApr, sentStatus, pcfApprovalTone, pcfApprovalVisible } from '../lib/pcf';
 
 const REVIEW_TRACKER_LAYOUT_STORAGE_KEY = 'review-tracker-layout-single-column';
 
@@ -40,7 +39,6 @@ export const ReviewTracker: React.FC = () => {
         data,
         activeProjectId,
         reviewTracker,
-        pcfIndex,
         loadReviewTracker,
         toggleAssigneeDone,
         clearTrackerForDrawings,
@@ -71,10 +69,8 @@ export const ReviewTracker: React.FC = () => {
     });
     const drawingGridClass = isSingleColumn ? 'grid grid-cols-1 gap-2' : 'grid grid-cols-1 lg:grid-cols-2 gap-2';
     const getDeadlineDays = (deadline?: string) => deadline ? differenceInCalendarDays(new Date(deadline), new Date()) : null;
-    // APR 默认值来自 PCF；一旦用户点击，reviewTracker 中的 manual 值始终优先。
-    const isApprovedMark = (drawingId: string) => effectiveAprDone(
-        reviewTracker[drawingId]?.['__approved__'], pcfIndex[drawingId]?.approval
-    );
+    // approved 标记：通过 reviewTracker 持久化（使用特殊 key '__approved__'）
+    const isApprovedMark = (drawingId: string) => reviewTracker[drawingId]?.['__approved__']?.done ?? false;
 
     // 进入页面时自动加载追踪数据
     useEffect(() => {
@@ -295,11 +291,27 @@ export const ReviewTracker: React.FC = () => {
         const expected: SentDrawingExpectation[] = readyDrawings.map(d => ({
             id: d.id,
             customId: d.customId,
-            status: sentStatus(reviewTracker[d.id]?.['__approved__'], pcfIndex[d.id]?.approval),
+            status: isApprovedMark(d.id) ? 'Approved' : 'Waiting Reply',
         }));
         const approvedCount = expected.filter(e => e.status === 'Approved').length;
         const waitingCount = count - approvedCount;
-        const pcfCount = readyDrawings.filter(d => Boolean(pcfIndex[d.id])).length;
+        // 仅在本次 Send All 点击时读取打包数量，不缓存认可状态或改变原轮询。
+        sendBusy.current = true;
+        let pcfCount: number;
+        try {
+            const token = import.meta.env.VITE_DATA_API_TOKEN?.trim();
+            const response = await fetch('/api/pcf/' + encodeURIComponent(activeProjectId) + '/index', {
+                headers: token ? { Authorization: 'Bearer ' + token } : {},
+            });
+            if (!response.ok) throw new Error('PCF index: ' + response.status);
+            const index: { drawing_id: string }[] = await response.json();
+            const pcfIds = new Set(index.map(row => row.drawing_id));
+            pcfCount = expected.filter(d => pcfIds.has(d.id)).length;
+        } catch (error: any) {
+            sendBusy.current = false;
+            alert('无法读取 PCF 打包数量，请重试：' + (error?.message || 'unknown error'));
+            return;
+        }
 
         const msg = `将 ${count} 张 Ready 图纸状态更新：\n` +
             (approvedCount > 0 ? `• ${approvedCount} 张 → Approved\n` : '') +
@@ -307,7 +319,10 @@ export const ReviewTracker: React.FC = () => {
             `发送后将自动下载 ${pcfCount} 张图纸的船厂版 PCF 压缩包（无 PCF 的 ${count - pcfCount} 张将跳过）\n` +
             `确认继续？`;
 
-        if (!window.confirm(msg)) return;
+        if (!window.confirm(msg)) {
+            sendBusy.current = false;
+            return;
+        }
 
         const sendIds = expected.map(e => e.id);
         sendBusy.current = true;
@@ -353,7 +368,7 @@ export const ReviewTracker: React.FC = () => {
 
     const toggleApproved = (drawingId: string) => {
         if (!isEditMode) return;
-        toggleAssigneeDone(drawingId, '__approved__', !isApprovedMark(drawingId));
+        toggleAssigneeDone(drawingId, '__approved__');
     };
 
     if (!currentProject) {
@@ -371,8 +386,6 @@ export const ReviewTracker: React.FC = () => {
         const doneCount = assignees.filter(a => trackerEntry[a]?.done).length;
         const allDone = assignees.length > 0 && doneCount === assignees.length;
         const isApproved = isApprovedMark(drawing.id);
-        const pcf = pcfIndex[drawing.id];
-        const approval = pcf?.approval || 'Not submitted';
         const isOverdue = drawing.reviewDeadline && isAfter(new Date(), new Date(drawing.reviewDeadline));
         const deadlineDays = getDeadlineDays(drawing.reviewDeadline);
 
@@ -394,14 +407,6 @@ export const ReviewTracker: React.FC = () => {
                     {drawing.discipline && (
                         <span className="inline-flex items-center px-2 py-0.5 rounded-full border border-white/80 bg-white/80 text-[9px] font-black text-slate-500 uppercase tracking-[0.16em] shadow-sm">
                             {drawing.discipline}
-                        </span>
-                    )}
-                    {pcfApprovalVisible(approval) && (
-                        <span
-                            className={'inline-flex items-center px-2 py-0.5 rounded-full border text-[9px] font-black uppercase tracking-[0.14em] shadow-sm ' + pcfApprovalTone(approval)}
-                            title={pcf ? 'PCF R' + String(pcf.currentRound).padStart(2, '0') + ' · ' + pcf.totalComments + ' comments · ' + pcf.openComments + ' open' : ''}
-                        >
-                            {approval}
                         </span>
                     )}
                 </div>
@@ -483,7 +488,7 @@ export const ReviewTracker: React.FC = () => {
                             ? 'bg-violet-100/90 text-violet-700 border-violet-200'
                             : 'bg-white/85 text-slate-400 border-white/80 hover:border-violet-200 hover:text-violet-500'
                             } ${!isEditMode ? 'opacity-50 cursor-not-allowed' : 'active:scale-95'}`}
-                        title={(isApproved ? '已标记 Approved（点击取消）' : '标记为 Approved（一键发送时生效）') + (isManualApr(reviewTracker[drawing.id]?.['__approved__']) ? ' · 手动' : ' · PCF')}
+                        title={isApproved ? '已标记 Approved（点击取消）' : '标记为 Approved（一键发送时生效）'}
                     >
                         <Award size={11} />
                         APR

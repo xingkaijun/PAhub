@@ -92,7 +92,6 @@ CREATE TABLE IF NOT EXISTS review_tracker (
   reviewer_id TEXT NOT NULL,
   done INTEGER DEFAULT 0,
   done_at TEXT,
-  source TEXT,
   _deleted INTEGER DEFAULT 0,
   PRIMARY KEY (project_id, drawing_id, reviewer_id)
 );
@@ -295,8 +294,7 @@ FROM (
       reviewer_id,
       json_object(
         'done', CASE WHEN done THEN 1 ELSE 0 END,
-        'doneAt', done_at,
-        'source', source
+        'doneAt', done_at
       )
     ) AS assignee_payload,
     MAX(done_at) AS latest_done_at

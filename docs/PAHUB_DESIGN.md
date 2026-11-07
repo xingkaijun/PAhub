@@ -48,8 +48,8 @@ PAhub = D1-PAPC（图纸审批进度）+ PG PCF v1.9（每张图一份意见记�
    - 合并前自动备份，预览确认后写入；合并本身作为一组 ops 走同一条串行通道，与在线编辑互不覆盖。
 
 ## 职责划分
-- PAPC：图纸状态、负责人、期限、送审/回复日期。
-- PCF：意见内容、开闭、每条意见的轮次。
+- PAPC：图纸状态、负责人、期限、送审/回复日期；APR 仅为 tracker 中的手动标记，Send All 只按该标记选择 Approved / Waiting Reply。
+- PCF：意见内容、开闭、每条意见的轮次及独立的认可状态；认可状态不回写 PAPC。
 - 意见总数、未关闭数、当前轮次：由 PCF 自动回写 PAPC，取代手工 `c:10/2`。
 - 轮次登记以 PCF 为准；每次写入回写 PAPC 当前轮次（PCF 数字 1/2/3 ↔ PAPC A/B/C）及当前轮次的非空 revision，同时更新意见总数/未关闭数。轮次登记编号和日期保存在 PCF HTML 及 pcf_index.rounds_json 摘要中，本期不转换为 PAPC 送审/回复日期。审计使用现有 COMMENTS 类型，兼容现有报表；完整协议见 [PCF_HOSTED.md](PCF_HOSTED.md)。
 

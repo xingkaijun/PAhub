@@ -503,22 +503,20 @@ const readChildCounts = async (db: D1Database, projectId: string) => {
   return { assignees, statusHistory, remarks };
 };
 
-const normalizeTrackerSource = (value: unknown) => value === 'manual' || value === 'pcf' ? value : null;
-
-const readTrackerRows = async (db: D1Database, projectId: string): Promise<Map<string, Map<string, any>>> => {
+const readTrackerRows = async (db: D1Database, projectId: string): Promise<Map<string, Map<string, number>>> => {
   const rows = await queryAll(
     db,
-    `SELECT drawing_id, reviewer_id, done, source FROM review_tracker WHERE project_id = ?`,
+    `SELECT drawing_id, reviewer_id, done FROM review_tracker WHERE project_id = ?`,
     [projectId]
   );
 
-  const map = new Map<string, Map<string, any>>();
+  const map = new Map<string, Map<string, number>>();
   for (const row of rows) {
     const drawingId = toStringValue(row.drawing_id);
     const reviewerId = toStringValue(row.reviewer_id);
     if (!drawingId || !reviewerId) continue;
     if (!map.has(drawingId)) map.set(drawingId, new Map());
-    map.get(drawingId)!.set(reviewerId, { done: toBooleanValue(row.done) ? 1 : 0, source: toStringValue(row.source) || undefined });
+    map.get(drawingId)!.set(reviewerId, toBooleanValue(row.done) ? 1 : 0);
   }
   return map;
 };
@@ -704,8 +702,7 @@ const verifyWrite = async (
         const fields: string[] = [];
         for (const [reviewerId, info] of Object.entries(assignees as Record<string, any>)) {
           const expectedDone = toBooleanValue(info?.done) ? 1 : 0;
-          const actual = actualRow?.get(reviewerId);
-          if ((actual?.done ?? 0) !== expectedDone || normalizeTrackerSource(actual?.source) !== normalizeTrackerSource(info?.source)) fields.push(`tracker:${reviewerId}`);
+          if ((actualRow?.get(reviewerId) ?? 0) !== expectedDone) fields.push(`tracker:${reviewerId}`);
         }
         addFields(drawingId, undefined, fields);
       }
@@ -917,14 +914,13 @@ const buildReviewTrackerStatements = (db: D1Database, projectId: string, data: a
     if (!assignees || typeof assignees !== 'object') continue;
     for (const [reviewerId, info] of Object.entries(assignees as Record<string, any>)) {
       stmts.push(db.prepare(
-        `INSERT INTO review_tracker (project_id, drawing_id, raw_drawing_ref, reviewer_id, done, done_at, source)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
+        `INSERT INTO review_tracker (project_id, drawing_id, raw_drawing_ref, reviewer_id, done, done_at)
+         VALUES (?, ?, ?, ?, ?, ?)
          ON CONFLICT(project_id, drawing_id, reviewer_id) DO UPDATE SET
-           done=excluded.done, done_at=excluded.done_at, source=excluded.source`
+           done=excluded.done, done_at=excluded.done_at`
       ).bind(
         projectId, drawingId, drawingId, reviewerId,
-        toBooleanValue(info.done) ? 1 : 0, toStringValue(info.doneAt) || null,
-        normalizeTrackerSource(info.source)
+        toBooleanValue(info.done) ? 1 : 0, toStringValue(info.doneAt) || null
       ));
     }
   }
@@ -1462,14 +1458,13 @@ export default {
               stmts.push(db.prepare(`DELETE FROM review_tracker WHERE project_id = ? AND drawing_id = ?`).bind(projectId, drawingId));
               for (const [reviewerId, info] of Object.entries(assignees as Record<string, any>)) {
                 stmts.push(db.prepare(
-                  `INSERT INTO review_tracker (project_id, drawing_id, raw_drawing_ref, reviewer_id, done, done_at, source)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)
+                  `INSERT INTO review_tracker (project_id, drawing_id, raw_drawing_ref, reviewer_id, done, done_at)
+                   VALUES (?, ?, ?, ?, ?, ?)
                    ON CONFLICT(project_id, drawing_id, reviewer_id) DO UPDATE SET
-                     done=excluded.done, done_at=excluded.done_at, source=excluded.source`
+                     done=excluded.done, done_at=excluded.done_at`
                 ).bind(
                   projectId, drawingId, drawingId, reviewerId,
-                  toBooleanValue(info.done) ? 1 : 0, toStringValue(info.doneAt) || null,
-                  normalizeTrackerSource(info.source)
+                  toBooleanValue(info.done) ? 1 : 0, toStringValue(info.doneAt) || null
                 ));
               }
               stmts.mark(); // 同一张图纸的 DELETE + INSERT 不可拆

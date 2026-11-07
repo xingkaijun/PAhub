@@ -136,8 +136,7 @@ FROM (
       assignee,
       json_object(
         'done', CASE WHEN done THEN 1 ELSE 0 END,
-        'doneAt', done_at,
-        'source', source
+        'doneAt', done_at
       )
     ) AS assignee_payload,
     MAX(updated_at) AS updated_at

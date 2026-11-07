@@ -4,7 +4,6 @@ import { AppData, Project, Drawing, DrawingStatus, Remark, AppSettings, ProjectS
 // Fix: Removed missing isWeekend from date-fns imports
 import { addDays, format, isSameDay } from 'date-fns';
 import { appRepository } from './services/data/AppRepository';
-import { clearedTracker, normalizePcfIndex, type PcfIndexEntry } from './lib/pcf';
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
 const ensureDrawingHasId = (drawing: Drawing): Drawing => {
@@ -124,7 +123,7 @@ interface AppState {
   // 审核追踪
   reviewTracker: ReviewTrackerData;
   loadReviewTracker: (projectId: string) => Promise<void>;
-  toggleAssigneeDone: (drawingId: string, assignee: string, forceDone?: boolean) => void;
+  toggleAssigneeDone: (drawingId: string, assignee: string) => void;
   clearTrackerForDrawings: (drawingIds: string[]) => void;
   verifySentDrawings: (projectId: string, expected: SentDrawingExpectation[]) => Promise<SendVerification>;
 
@@ -141,7 +140,6 @@ interface AppState {
   // 管理员在线状态
   pcfPresence: Record<string, number>;
   pcfExports: Record<string, { exportId: string; round: number; status: string }>;
-  pcfIndex: Record<string, PcfIndexEntry>;
   refreshPcfPresence: (projectId: string) => Promise<void>;
   adminPresence: { isOnline: boolean; lastSeen?: string };
   _heartbeatTimer: ReturnType<typeof setInterval> | null;
@@ -238,7 +236,6 @@ export const useStore = create<AppState>()(
       _dirtyTrackerDrawingIds: new Set<string>(),
       pcfPresence: {},
       pcfExports: {},
-      pcfIndex: {},
       refreshPcfPresence: async (projectId: string) => {
         if (import.meta.env.MODE !== 'hub') return;
         try {
@@ -252,9 +249,8 @@ export const useStore = create<AppState>()(
           if (get().activeProjectId === projectId) set({
             pcfPresence: Object.fromEntries(Object.entries(result.drawings).map(([id, people]) => [id, (people as unknown[]).length])),
             pcfExports: Object.fromEntries(index.filter((x: any) => x.latest_export).map((x: any) => [x.drawing_id, JSON.parse(x.latest_export)])),
-            pcfIndex: normalizePcfIndex(index),
           });
-        } catch { if (get().activeProjectId === projectId) set({ pcfPresence: {}, pcfExports: {}, pcfIndex: {} }); }
+        } catch { if (get().activeProjectId === projectId) set({ pcfPresence: {} }); }
       },
       adminPresence: { isOnline: false },
       _heartbeatTimer: null,
@@ -1135,9 +1131,9 @@ export const useStore = create<AppState>()(
         } catch (e) { console.warn('loadReviewTracker failed', e); }
       },
 
-      toggleAssigneeDone: (drawingId: string, assignee: string, forceDone?: boolean) => {
+      toggleAssigneeDone: (drawingId: string, assignee: string) => {
         const current = get().reviewTracker[drawingId]?.[assignee];
-        const newDone = forceDone === undefined ? !current?.done : forceDone;
+        const newDone = !current?.done;
         const doneAt = newDone ? new Date().toISOString() : undefined;
 
         // 1. 立即更新本地状态，并标记 tracker 为脏数据
@@ -1151,7 +1147,7 @@ export const useStore = create<AppState>()(
             ...state.reviewTracker,
             [drawingId]: {
               ...(state.reviewTracker[drawingId] || {}),
-              [assignee]: { done: newDone, doneAt, source: 'manual' }
+              [assignee]: { done: newDone, doneAt }
             }
           }
         }));
@@ -1161,7 +1157,7 @@ export const useStore = create<AppState>()(
         if (activeProjectId) {
           const project = data.projects.find(p => p.id === activeProjectId);
           if (project) {
-            const singleUpdate = { [drawingId]: { [assignee]: { done: newDone, doneAt, source: 'manual' as const } } };
+            const singleUpdate = { [drawingId]: { [assignee]: { done: newDone, doneAt } } };
             appRepository.saveReviewTracker(data.settings, project, singleUpdate)
               .then(result => {
                 // 回读校验说没落库时保留脏标记，下次手动/自动保存兜底重试。
@@ -1198,9 +1194,10 @@ export const useStore = create<AppState>()(
             const entry = state.reviewTracker[id];
             if (!entry) return;
             const keys = Object.keys(entry);
-            if (keys.length === 0 || (!entry['__approved__'] && keys.every(key => !entry[key]?.done))) return;
+            if (keys.length === 0 || keys.every(key => !entry[key]?.done)) return;
 
-            const cleared = clearedTracker(entry);
+            const cleared: Record<string, ReviewTrackerEntry> = {};
+            keys.forEach(key => { cleared[key] = { done: false }; });
             nextTracker[id] = cleared;
             nextDirtyIds.add(id);
             changed = true;
@@ -1259,7 +1256,7 @@ export const useStore = create<AppState>()(
             failed = true;
           }
           const entry = remoteTracker?.[id] || {};
-          if (Object.prototype.hasOwnProperty.call(entry, '__approved__') || Object.values(entry).some(v => v?.done)) {
+          if (Object.values(entry).some(v => v?.done)) {
             mismatchedTracker.push(label);
             failed = true;
           }

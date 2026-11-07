@@ -12,13 +12,13 @@
 
 ## 图纸列表
 
-维护图号、标题、专业、责任人、版本、轮次、期限与状态；支持过滤、排序和历史记录。PCF 认可标签来自现有轮询，可能延迟数秒：Approved 绿、Approved with comments 青、Rejected 红、Under review 琥珀。Not submitted 和无 PCF 不显示标签。PCF 会同步总意见数、未关闭意见数、轮次、版本及项目更新时间，不直接覆盖图纸工作流状态。
+维护图号、标题、专业、责任人、版本、轮次、期限与状态；支持过滤、排序和历史记录。PCF 会同步总意见数、未关闭意见数、轮次、版本及项目更新时间，不直接覆盖图纸工作流状态。
 
 ## Review Tracker 与 Send All
 
-Reviewing 图纸按责任人的完成检查分成 Ready 与待审。Ready 图纸的 APR 默认从 PCF 判断：Approved / Approved with comments 为认可，其余为否。点击 APR 后该次手动选择优先，title 显示 PCF 或手动；升级前的旧 APR 记录也视为手动。
+Reviewing 图纸按责任人的完成检查分成 Ready 与待审。Ready 图纸的 APR 仅由手动点击设置，只读取 tracker 中的 `__approved__` 记录，与 PCF 认可状态无关。
 
-Send All 点击时计算图纸目标状态与打包数量：有效 APR 为真则 Approved，否则 Waiting Reply。确认框提示有 PCF 的数量及跳过数量。保存成功且回读校验通过后，才请求船厂版 ZIP；检查项与 APR 覆盖清空，下一轮重新使用 PCF 默认值。操作期间按钮禁用，打包阶段显示 Packing...。
+Send All 点击时计算图纸目标状态，并读取一次 PCF /index 计算打包数量：APR 为真则 Approved，否则 Waiting Reply。确认框提示有 PCF 的数量及跳过数量。保存成功且回读校验通过后，才请求船厂版 ZIP；所有已有 tracker 记录（含 APR）置为 false，不删除 APR。操作期间按钮禁用，打包阶段显示 Packing...。
 
 ZIP 含每张有 PCF 图纸的船厂版 HTML 和带 BOM 的 manifest.csv；无 PCF 跳过且注明 no PCF。图号非法文件名字符换成 -，同名加 _2 等后缀。导出取调用时服务器最新版本。打包失败不回滚已发送状态，顶部提示“状态已发送，但打包下载失败”，可点击“重新下载本次打包”。同一批次不会重复创建导出记录；重下载按钮仅保存在当前页面内存，刷新页面后不保留。没有自动发邮件。
 

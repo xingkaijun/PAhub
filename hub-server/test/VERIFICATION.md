@@ -54,9 +54,6 @@
 
 ## 同步与批量导出
 
-沿用回写 manual_comments_count、manual_open_comments_count、current_round、version、projects.last_updated。新增前端从原 /index 轮询读取 approval，存入 pcfIndex；不额外增加轮询请求，不直接修改其它 drawings.status 来源。
-
-APR 优先手动记录（含无 source 的旧记录），否则取 PCF Approved / Approved with comments。点击写 manual；下一轮清空时移除 APR，而不是存手动 false。
 
 POST /api/pcf/:projectId/exports/batch，body 为 {drawingIds,batchId}。保存并回读通过才调用；取服务器最新 rev，复用 Owner 锁定、HMAC、每图导出记录和基线。无 PCF 在带 BOM manifest 标记 skipped / no PCF。外项目图纸整批 400；同 batchId 返回同 exportId，跨重启不增记录；同 batchId 改图纸列表 409。任一图导出失败回滚本批记录并清理基线。打包失败不回滚已发送状态，可在当前页面内存中以同 batchId 重下载。
 
