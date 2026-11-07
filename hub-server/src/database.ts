@@ -3,6 +3,7 @@ import { mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { SQL_DIR } from './config.ts';
 import { D1Adapter } from './d1.ts';
+import { initializePcfSchema } from './pcf-schema.ts';
 
 function columns(db: DatabaseSync, table: string): string[] {
   return db.prepare('PRAGMA table_info("' + table + '")').all().map(row => String(row.name));
@@ -41,6 +42,7 @@ export function initializeSchema(db: DatabaseSync): void {
       .replace(/^ALTER TABLE audit_log ADD COLUMN project_id TEXT;\s*$/m, ''));
     db.exec(readFileSync(path.join(SQL_DIR, 'snapshot-table.sql'), 'utf8'));
     db.exec(init.slice(split));
+    initializePcfSchema(db);
     for (const view of ['api_settings', 'api_projects', 'api_project_details', 'api_review_trackers']) {
       db.prepare('SELECT * FROM ' + view + ' LIMIT 1').all();
     }

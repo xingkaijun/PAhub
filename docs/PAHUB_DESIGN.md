@@ -1,4 +1,4 @@
-# PAhub 设计说明（v0.2，2026-11-07）
+# PAhub 设计说明（v0.3，2026-11-07）
 
 PAhub = D1-PAPC（图纸审批进度）+ PG PCF v1.9（每张图一份意见记录表），部署在局域网 Ubuntu 服务器，供审图小组使用。
 
@@ -16,7 +16,7 @@ PAhub = D1-PAPC（图纸审批进度）+ PG PCF v1.9（每张图一份意见记�
   - 托管 PAPC 前端（vite build 产物）。
   - 在 `/api/*` 提供 PAPC 原有 API：直接复用 `worker/src/index.ts` 的 fetch 处理函数，`env.PAPC_DB` 由一个基于 `node:sqlite` 的 D1 兼容适配器提供（prepare/bind/first/all/run/raw/batch/exec）。这样 Worker 业务逻辑不改。
   - SQLite 数据库文件：`data/papc.db`。
-  - PCF 文件：`data/pcf/<projectId>/<图号>.html`，完整的 PCF HTML 文件即权威数据（内嵌 pcf-data JSON），历史版本 `data/pcf/<projectId>/.history/<图号>/<rev>.html`。
+  - PCF 文件：`data/pcf/<projectId>/<drawingId>.html`，完整 HTML 是权威数据（内嵌 pcf-data JSON）。历史版本：`data/pcf/<projectId>/.history/<drawingId>/<rev>-<时间>-<uuid>.html`。使用稳定 drawingId，不用可改名且可能含非法字符的图号；数据根目录由 PAHUB_DATA_DIR 配置。
   - PCF 页面：`/pcf/<projectId>/<drawingId>` 直接返回该 HTML 文件（托管模式下保存走服务器）。服务器保存时解析并更新内嵌 JSON 再写回 HTML；模板升级时可批量把各文件的数据迁入新模板。
   - 导出发给船厂的就是同一份 HTML 的副本（Owner 栏锁定）。
 - 部署：systemd 服务（或 Docker），一个端口，定时备份 `data/`。
@@ -51,11 +51,11 @@ PAhub = D1-PAPC（图纸审批进度）+ PG PCF v1.9（每张图一份意见记�
 - PAPC：图纸状态、负责人、期限、送审/回复日期。
 - PCF：意见内容、开闭、每条意见的轮次。
 - 意见总数、未关闭数、当前轮次：由 PCF 自动回写 PAPC，取代手工 `c:10/2`。
-- 轮次登记（roundRegister）与 PAPC logs 的同步规则：待定。
+- 轮次登记以 PCF 为准；每次写入回写 PAPC 当前轮次（PCF 数字 1/2/3 ↔ PAPC A/B/C）及当前轮次的非空 revision，同时更新意见总数/未关闭数。轮次登记编号和日期保存在 PCF HTML 及 pcf_index.rounds_json 摘要中，本期不转换为 PAPC 送审/回复日期。审计使用现有 COMMENTS 类型，兼容现有报表；完整协议见 [PCF_HOSTED.md](PCF_HOSTED.md)。
 
 ## 分期
-1. Node + SQLite 替换 Worker/D1，PAPC 原功能在局域网跑通；提供从 D1 导出数据导入的脚本。
-2. PCF 托管模式：服务器存取、点图名打开、ops 保存、摘要回写。
+1. 已完成（776b7fd）：Node + SQLite 替换 Worker/D1，PAPC 原功能在局域网跑通；提供从 D1 导出数据导入的脚本。
+2. 已完成：PCF HTML 服务器存取、点图名打开、ops 保存、实体级冲突、摘要回写、历史恢复 API、匿名追溯及离线副本。冲突暂提供提示/载入服务器版本，尚无完整对比或实时刷新；网络重放队列亦未实现。下载副本尚不锁定 Owner 栏。
 3. 多人协同：SSE 推送、在线/软锁、冲突对比界面。
 4. 导出/导入回复 + 三方合并界面。
 5. Ubuntu 部署：systemd、备份、（可选）HTTPS。

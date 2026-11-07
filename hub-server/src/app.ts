@@ -7,6 +7,8 @@ import { Readable } from 'node:stream';
 import worker from '@pahub/worker';
 import { readConfig } from './config.ts';
 import { openDatabase } from './database.ts';
+import { PcfStorage } from './pcf-storage.ts';
+import { PcfApi } from './pcf-api.ts';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -68,10 +70,18 @@ export async function createHub(options: { middleware?: Middleware } = {}) {
   if (!options.middleware) await stat(path.join(config.distDir, 'index.html'));
   const db = openDatabase(config.dbPath);
   const env = { ...config.env, PAPC_DB: db };
+  const pcf = new PcfApi(new PcfStorage(db.sqlite, config.dataDir), config.env.API_TOKEN);
   const server = createServer((req, res) => {
     void (async () => {
       // Host headers never control routing or API prefix rewriting.
       const url = new URL(req.url || '/', 'http://pahub.local');
+      if (url.pathname.startsWith('/api/pcf/') || url.pathname.startsWith('/pcf/')) {
+        const headers = new Headers();
+        for (const [key, value] of Object.entries(req.headers)) if (value !== undefined) headers.set(key, Array.isArray(value) ? value.join(', ') : value);
+        const body = await readBody(req, config.bodyLimit);
+        await sendFetch(await pcf.handle(new Request(url, { method: req.method, headers, body }), req.socket.remoteAddress || ''), req, res);
+        return;
+      }
       if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
         url.pathname = url.pathname.slice(4) || '/';
         const headers = new Headers();

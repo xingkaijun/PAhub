@@ -186,7 +186,23 @@ export const DrawingRow = memo(({
                         {derivedDisciplines.map(d => <option key={d} value={d}>{d}</option>)}
                     </select>
                 </td>
-                <td className="px-3 py-2 truncate text-[10px] font-bold text-slate-700 tracking-tight" title={drawing.title}>{drawing.title}</td>
+                <td className="px-3 py-2 truncate text-[10px] font-bold text-slate-700 tracking-tight" title={drawing.title}>
+                    {import.meta.env.MODE === 'hub' ? <a
+                        href={'/pcf/' + encodeURIComponent(activeProjectId) + '/' + encodeURIComponent(drawing.id)}
+                        target="_blank" rel="noopener noreferrer" className="hover:text-teal-600 hover:underline"
+                        onClick={async e => {
+                            const token = import.meta.env.VITE_DATA_API_TOKEN?.trim();
+                            if (!token) return;
+                            e.preventDefault();
+                            const href = e.currentTarget.href, tab = window.open('about:blank', '_blank');
+                            try {
+                                const response = await fetch('/api/pcf/' + encodeURIComponent(activeProjectId) + '/' + encodeURIComponent(drawing.id) + '/session', { method: 'POST', headers: { Authorization: 'Bearer ' + token } });
+                                if (!response.ok) throw Error('PCF access failed: ' + response.status);
+                                if (tab) { tab.opener = null; tab.location.href = href; } else window.location.href = href;
+                            } catch (error) { tab?.close(); alert(String(error)); }
+                        }}
+                    >{drawing.title || drawing.drawingNo}</a> : drawing.title}
+                </td>
                 <td className="px-2 py-2 text-[9px] text-slate-500 text-center" title={(() => {
                     const statusChanges = (drawing.statusHistory || []).filter(h => h.content.includes('Status:'));
                     if (statusChanges.length === 0) return '';

@@ -9,7 +9,7 @@ export const CommandBar: React.FC = () => {
   const { activeProjectId, data, addRemark, deleteRemark, updateDrawing, batchUpdateDrawings, setFilterQuery, isEditMode } = useStore();
   const activeProject = data.projects.find(p => p.id === activeProjectId);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     const trimmedInput = input.trim();
     if (!activeProjectId || !activeProject) return;
@@ -83,6 +83,17 @@ export const CommandBar: React.FC = () => {
         const commentMatch = actionPart.match(/^c[:：](\d+)\/(\d+)$/i);
         if (commentMatch) {
           if (!isEditMode) { alert("Edit Mode Required for Comments Update"); return; }
+          if (import.meta.env.MODE === 'hub') {
+            try {
+              const token = import.meta.env.VITE_DATA_API_TOKEN?.trim();
+              const response = await fetch('/api/pcf/' + encodeURIComponent(activeProjectId) + '/index', { headers: token ? { Authorization: 'Bearer ' + token } : {} });
+              if (!response.ok) throw Error('PCF 状态查询失败');
+              const index: { drawing_id: string }[] = await response.json();
+              if (validDrawings.some(d => index.some(row => row.drawing_id === d.id)) && !confirm('意见数由 PCF 自动维护。仍要手工修改吗？下次 PCF 保存会覆盖此值。')) return;
+            } catch {
+              if (!confirm('无法确认 PCF 状态；已有 PCF 的图纸会在下次保存时覆盖手工意见数。继续吗？')) return;
+            }
+          }
           const [, total, open] = commentMatch;
           validDrawings.forEach(d => updateDrawing(d.id, {
             manualCommentsCount: parseInt(total),
