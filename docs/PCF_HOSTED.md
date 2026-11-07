@@ -148,7 +148,7 @@ IndexedDB 数据库 pahub-pcf-offline / documents，以 documentId 为 key，保
 
 ### 操作入口与接口
 
-PAPC 图纸行与托管 PCF 均有 **Export to Builder**。托管 PCF 提供 **Import Builder replies** 和 **Shipyard correspondence**；PAPC 行仅显示最近 Rxx 的 Awaiting reply / Imported / Voided，沿用 presence 轮询刷新。导出按钮会先保存托管页未保存编辑；导入前必须解决本地脏编辑/队列/冲突。
+PAPC 图纸行与托管 PCF 均有 **Export to Builder**。托管 PCF 提供 **Import Builder replies** 和 **Shipyard correspondence**；PAPC 图纸行不显示 PCF 往来状态。导出按钮会先保存托管页未保存编辑；单图导入前必须解决本地脏编辑/队列/冲突。
 
 | 方法及尾路径（/api/pcf/:projectId/:drawingId） | 功能 |
 | --- | --- |
@@ -248,6 +248,22 @@ npm run hub:upgrade-pcf -- --project X --drawing Y
 - data/ 只读 upgrade-pcf --dry-run：扫描 5 个权威文件，均为 v4 → v5；将清理 deleted 0 条、将裁剪空轮次 0 条。未执行实际升级，未修改 data/、logs/，未停止 8080 服务。
 
 
-沿 v1.9 英文 UI：托管保存/下载/presence/冲突/离线恢复、船厂 banner、往来与导入提示统一英文；匿名默认昵称 Editor-xxxx。用户正文/既有昵称不翻译，审计中上述中文提交者标识按需求保留。原 PG-PCF-v1.9-source.html 未修改。
+沿 v1.9 英文 UI：托管保存/下载/presence/冲突/离线恢复、船厂 banner、往来与导入提示统一英文；匿名默认昵称 Editor-xxxx。用户正文/既有昵称不翻译。原 PG-PCF-v1.9-source.html 未修改。
+
+### 船厂回复批量导入
+
+PAPC Review Tracker 的 **Import Builder Replies** 支持一次选择或拖入一个 ZIP / 多个 `.html`。上传总量默认限 50 MiB（`MAX_BODY_BYTES` 可调）；单批文件数默认 50（`MAX_BUILDER_REPLY_FILES`），ZIP 展开总量默认 200 MiB（`MAX_BUILDER_REPLY_UNPACKED_BYTES`）。原始上传附件及各 HTML 副本保存在 `data/pcf/<project>/imports/<importSetId>/`，不进入 SQLite；项目/文件 ID 使用安全标识和随机 UUID。ZIP 子目录会展平处理，`__MACOSX` 与非 HTML 条目忽略；绝对路径、反斜杠、盘符和 `..` 路径拒绝。
+
+| 方法 | 路径 | 行为 |
+| --- | --- | --- |
+| POST | `/api/projects/:projectId/builder-replies/preview` | multipart `files`；解包/解析/按项目、documentId、exportId 匹配，持久化导入集和原始证据，返回逐文件分类及三方合并预览摘要 |
+| POST | `/api/projects/:projectId/builder-replies/:importSetId/apply` | JSON `{fileIds,batchId}`；每份独立应用，逐文件返回 applied/conflict/failed；以 PCF ops、clock、历史和 SSE 写入 |
+| GET | `/api/projects/:projectId/builder-replies/pending` | 列出仍待处理的冲突、Owner 篡改或跳过文件 |
+
+分类优先级：重复导入 → 无法匹配/拒绝 → 有冲突 → Owner 被篡改且存在回复 → 可自动应用 → 无变化。Owner 篡改仅忽略 Owner/只读字段；回复仍按原基线合并，可自动应用；有冲突时主分类仍为“有冲突”，并额外显示 Owner changed 标记。重复 exportId 默认不应用。新回复数按发生 Builder 回复差异的唯一意见/轮次计数；自动数和冲突数分别来自第 4 期三方合并 preview 的字段差异。无实际 Builder 回复变化的 Owner 篡改文件不自动应用。手动“Resolve…”打开匹配的托管图纸并把服务器暂存回复交给原有冲突预览；用户选择后仍走单图纸 PCF ops apply。Skip 保留暂存文件，Pending API 可稍后找回。
+
+Apply all clean 只处理无新冲突文件。应用前重新计算合并：若 preview 后服务器改了同一意见，新冲突会变为待处理冲突，不覆盖服务器。各文件分别处理，失败不阻断同批其他文件；`batchId` 在同一图纸范围幂等。上传/匹配失败说明写在对应行，不影响其它文件。Owner 签名仍由第 4 期规则校验，v4 模板回复兼容导入；服务器永久删除且船厂仍回复的意见保留冲突，不自动复活，原回复 HTML 作为证据保留。
+
+成功应用后对应导出记录标记为 `imported`，提交者记为 `Builder import (<exportId>)`。只有确有 Builder 回复变更被应用时，PAPC 当前状态为 `Waiting Reply` 才更新到 `Reviewing`，并写入 `Status: Waiting Reply -> Reviewing` 状态历史和 `STATUS` 日志；无变化或用户选择 Use Server 时不推进状态。不改 APR/PCF 认可，也绝不自动设为 Approved。其它当前状态保持原值并显示 `status unchanged (<状态>)`。PAPC 没有专用回复收到日期列，因此用 STATUS 日志时间作为收到时间，不增加数据库列。
 
 本期仍为单 Node 进程、局域网部署；多进程写互斥、共享 presence、Ubuntu 部署及 HTTPS 运维属于后续。导出/基线/历史/导入回执尚无自动保留期清理，管理员可作废但不删除文件；备份应包含全部 data/。

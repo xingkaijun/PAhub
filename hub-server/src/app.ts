@@ -9,6 +9,8 @@ import { readConfig } from './config.ts';
 import { openDatabase } from './database.ts';
 import { PcfStorage } from './pcf-storage.ts';
 import { PcfApi } from './pcf-api.ts';
+import { PcfBuilderReplies } from './pcf-builder-replies.ts';
+import { safeId } from './pcf-model.ts';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -71,10 +73,45 @@ export async function createHub(options: { middleware?: Middleware } = {}) {
   const db = openDatabase(config.dbPath);
   const env = { ...config.env, PAPC_DB: db };
   const pcf = new PcfApi(new PcfStorage(db.sqlite, config.dataDir), config.env.API_TOKEN);
+  const builderReplies = new PcfBuilderReplies(pcf.storage, pcf.exchange, pcf.realtime, config.env.ADMIN_PASSWORD);
   const server = createServer((req, res) => {
     void (async () => {
       // Host headers never control routing or API prefix rewriting.
       const url = new URL(req.url || '/', 'http://pahub.local');
+      const repliesMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/builder-replies(?:\/([^/]+))?(?:\/([^/]+))?(?:\/([^/]+))?$/);
+      if (repliesMatch) {
+        const headers = new Headers();
+        for (const [key, value] of Object.entries(req.headers)) if (value !== undefined) headers.set(key, Array.isArray(value) ? value.join(', ') : value);
+        const body = await readBody(req, config.bodyLimit), projectId = safeId(decodeURIComponent(repliesMatch[1])), action = repliesMatch[2], setId = repliesMatch[3], fileId = repliesMatch[4];
+        const bearerOK = !config.env.API_TOKEN || headers.get('Authorization') === 'Bearer ' + config.env.API_TOKEN;
+        let payload: unknown;
+        if (req.method === 'GET' && setId === 'file' && action && fileId) {
+          const reply = builderReplies.getFile(projectId, decodeURIComponent(action), decodeURIComponent(fileId));
+          if (!bearerOK && !pcf.validScopedCredential(headers.get('X-PCF-Token'), projectId, reply.drawingId)) {
+            res.writeHead(401, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Unauthorized' })); return;
+          }
+          await sendFetch(new Response(reply.html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } }), req, res); return;
+        }
+        if (!bearerOK) { res.writeHead(401, { 'Content-Type': 'application/json' }); res.end(JSON.stringify({ error: 'Unauthorized' })); return; }
+        if (req.method === 'POST' && action === 'preview' && !setId) {
+          const form = await new Request(url, { method: 'POST', headers, body }).formData();
+          payload = await builderReplies.preview(projectId, form);
+        } else if (req.method === 'GET' && action === 'pending' && !setId) payload = builderReplies.pending(projectId);
+        else if (req.method === 'POST' && setId === 'skip') {
+          const match = url.pathname.match(/^\/api\/projects\/[^/]+\/builder-replies\/([^/]+)\/skip$/);
+          if (!match) { res.writeHead(404); res.end(); return; }
+          const input = JSON.parse(body?.toString('utf8') || '{}');
+          payload = builderReplies.skip(projectId, decodeURIComponent(match[1]), input.fileId);
+        }
+        else if (req.method === 'POST' && setId === 'apply') {
+          const match = url.pathname.match(/^\/api\/projects\/[^/]+\/builder-replies\/([^/]+)\/apply$/);
+          if (!match) { res.writeHead(404); res.end(); return; }
+          const input = JSON.parse(body?.toString('utf8') || '{}');
+          payload = builderReplies.apply(projectId, decodeURIComponent(match[1]), input.fileIds, input.batchId);
+        } else { res.writeHead(404); res.end(); return; }
+        const response = Response.json(payload, { headers: { 'Cache-Control': 'no-store' } });
+        await sendFetch(response, req, res); return;
+      }
       if (url.pathname.startsWith('/api/pcf/') || url.pathname.startsWith('/pcf/')) {
         const headers = new Headers();
         for (const [key, value] of Object.entries(req.headers)) if (value !== undefined) headers.set(key, Array.isArray(value) ? value.join(', ') : value);

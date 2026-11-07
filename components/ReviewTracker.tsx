@@ -5,6 +5,7 @@ import type { SentDrawingExpectation } from '../store';
 import { RefreshCw, CheckCircle2, Circle, ClipboardCheck, Search, ChevronDown, ChevronRight, Cloud, Lock, Unlock, Send, Award, Flame, FileSpreadsheet, Download } from 'lucide-react';
 import { differenceInCalendarDays, format, isAfter } from 'date-fns';
 import type { Drawing } from '../types';
+import { BuilderRepliesImport } from './BuilderRepliesImport';
 
 const REVIEW_TRACKER_LAYOUT_STORAGE_KEY = 'review-tracker-layout-single-column';
 
@@ -524,6 +525,7 @@ export const ReviewTracker: React.FC = () => {
                     </div>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap justify-end">
+                    {activeProjectId && <BuilderRepliesImport projectId={activeProjectId} />}
                     {lastSendBatch?.projectId === activeProjectId && (
                         <button
                             onClick={retryBatchDownload}

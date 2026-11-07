@@ -223,7 +223,7 @@ export class PcfExchange {
         const item = selected.find(x => x.item.roundId === roundId)!.item;
         ops.push({ type: 'content.set', commentId: item.commentId, roundId, side: 'reply', value, baseRev: entity(live.data, 'round:' + roundId + ':reply').rev });
       }
-      const actor = { clientId: requestedBy.clientId, clientName: '船厂导入（' + preview.exportId + '）', ip: requestedBy.ip };
+      const actor = { clientId: requestedBy.clientId, clientName: 'Builder import (' + preview.exportId + ')', ip: requestedBy.ip };
       const check = applyOps(structuredClone(live.data), ops, actor, live.rev + 1);
       if (check.conflicts.length) fail('Import cannot be applied atomically; preview again or restore/reopen the record first', 409);
       prepared = { hash: requestHash, exportId: preview.exportId, actor, body: { baseRev: live.rev, batchId, ops } };

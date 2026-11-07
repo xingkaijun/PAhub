@@ -74,3 +74,10 @@ POST /api/pcf/:projectId/exports/batch，body 为 {drawingIds,batchId}。保存�
 ## 已知非阻塞事项
 
 构建仍有原图表分包循环依赖警告；依赖审计报告 12 项（1 low、2 moderate、9 high），本次没有扩范围升级。浏览器仅原 favicon 404 和人为注入的打包 500，无其它功能错误。浏览器缓存命名空间改为 pahub-storage，升级前应先同步旧页面未保存修改；服务端项目数据与旧数据库导入不受影响。无需要新授权或产品选择的阻塞事项。
+
+## 第 6 期：批量导入船厂回复（2026-11-07）
+
+- `npm run hub:build` 成功；`npm run hub:test` 42/42 通过（原有 30 项 + 新增 12 项）。
+- 新覆盖 ZIP 多文件分类与 3 份回复的自动应用/冲突处理、非 HTML 忽略、重复导入、同批次幂等、preview 后同意见变更、Approved/Pending 状态不变、Owner 篡改忽略、永久删除意见冲突、ZIP-slip/跨项目拒绝、展开大小上限、模拟 PCF 写入失败回滚、v4 风格回复兼容、单图导入状态更新，以及无实际回复变更时不推进状态。
+- PAPC Waiting Reply → Reviewing 的 `STATUS` 日志、三张图状态及非 Waiting Reply 状态保持均由隔离临时 SQLite 验证；未使用 `data/`、`logs/` 或 8080 服务。
+- Chrome 截图：`hub-server/test/artifacts/row-no-status.png`、`batch-import-preview.png`、`batch-import-conflict.png`、`batch-import-applied.png`。6a 文件名后无往来状态；批量导入 2 clean + 1 conflict，冲突使用原托管 PCF 预览处理；最终 PAPC 显示 3 张 Reviewing；页面错误 0。

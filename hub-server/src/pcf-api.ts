@@ -1,9 +1,10 @@
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
-import { PcfStorage, scriptJSON } from './pcf-storage.ts';
+import { PcfStorage, scriptJSON, parseHTML } from './pcf-storage.ts';
 import { safeId, fail, type Actor } from './pcf-model.ts';
 import { PcfRealtime } from './pcf-realtime.ts';
 import { PcfExchange, externalData, standaloneHTML } from './pcf-exchange.ts';
 import { templateVersion, TEMPLATE_VERSION } from './pcf-template.ts';
+import { updateBuilderReplyPapcStatus } from './pcf-builder-replies.ts';
 
 export class PcfApi {
   readonly realtime = new PcfRealtime();
@@ -14,7 +15,7 @@ export class PcfApi {
     const payload = Buffer.from(JSON.stringify({ p, d, expires: Date.now() + 12 * 3600000 })).toString('base64url');
     return payload + '.' + createHmac('sha256', this.secret).update('pcf:' + payload).digest('base64url');
   }
-  private valid(grant: string | null, p: string, d: string) {
+  validScopedCredential(grant: string | null, p: string, d: string) {
     if (!grant) return false;
     try {
       const [payload, mac] = grant.split('.'), expected = createHmac('sha256', this.secret).update('pcf:' + payload).digest();
@@ -64,7 +65,7 @@ export class PcfApi {
     safeId(d);
     if (page) {
       if (tail || !['GET', 'HEAD'].includes(request.method)) fail('Not found', 404);
-      if (!this.bearer(request) && !this.valid(this.cookieGrant(request, p, d), p, d)) {
+      if (!this.bearer(request) && !this.validScopedCredential(this.cookieGrant(request, p, d), p, d)) {
         // The shared installation token is entered once per drawing/session, never in URL/storage/HTML.
         const endpoint = scriptJSON('/api/pcf/' + p + '/' + d + '/session');
         const html = '<!doctype html><html><head><meta charset="utf-8"><title>PCF access</title></head><body><h1>PCF access</h1><p>This server requires an API token. Enter the shared credential (no personal account required).</p><form id="login"><input id="token" type="password" required autocomplete="off" aria-label="API token"><button>Open PCF</button></form><p id="error"></p><script>document.getElementById("login").onsubmit=async e=>{e.preventDefault();const r=await fetch(' + endpoint + ',{method:"POST",headers:{Authorization:"Bearer "+document.getElementById("token").value}});if(r.ok)location.reload();else document.getElementById("error").textContent="Invalid credential";};</script></body></html>';
@@ -75,7 +76,9 @@ export class PcfApi {
         const { html, rev } = this.storage.load(p, d), grant = this.grant(p, d);
         const version = templateVersion(html);
         const note = version < TEMPLATE_VERSION ? '<script id="pahub-template-note-script">document.addEventListener("DOMContentLoaded",()=>{if(document.getElementById("pahub-template-note"))return;const n=document.createElement("small");n.id="pahub-template-note";n.textContent="Template upgrade available";n.style.cssText="margin-left:8px;color:#777";document.getElementById("save-state")?.after(n);});</script>' : '';
-        const injection = '<script id="pahub-context">window.PAHUB=' + scriptJSON({ projectId: p, drawingId: d, rev, apiBase: '/api', credential: grant, templateVersion: version, currentTemplateVersion: TEMPLATE_VERSION }) + '</script>' + note;
+        const replySet = url.searchParams.get('builderReplySet'), replyFile = url.searchParams.get('builderReplyFile');
+        const handoff = replySet && replyFile ? '<script id="pahub-builder-reply-handoff">document.addEventListener("DOMContentLoaded",async()=>{const nativeFetch=window.fetch.bind(window);window.fetch=async(...args)=>{const init=args[1]||{},response=await nativeFetch(...args);try{if(String(args[0]).includes("/imports")&&init.method==="POST"&&JSON.parse(init.body).step==="apply"&&response.ok)window.opener?.postMessage({type:"builder-reply-applied",fileId:' + scriptJSON(replyFile) + '},location.origin);}catch{}return response;};try{const input=document.getElementById("pahub-import-file");if(!input)return;const url="/api/projects/"+' + scriptJSON(encodeURIComponent(p)) + '+"/builder-replies/"+' + scriptJSON(encodeURIComponent(replySet)) + '+"/file/"+' + scriptJSON(encodeURIComponent(replyFile)) + ';const response=await nativeFetch(url,{headers:{"X-PCF-Token":window.PAHUB.credential}});if(!response.ok)throw Error("Unable to load saved Builder reply ("+response.status+")");const blob=await response.blob(),file=new File([blob],"builder-reply.html",{type:"text/html"}),transfer=new DataTransfer();transfer.items.add(file);input.files=transfer.files;input.dispatchEvent(new Event("change",{bubbles:true}));}catch(error){alert(error.message);}});</script>' : '';
+        const injection = '<script id="pahub-context">window.PAHUB=' + scriptJSON({ projectId: p, drawingId: d, rev, apiBase: '/api', credential: grant, templateVersion: version, currentTemplateVersion: TEMPLATE_VERSION }) + '</script>' + note + handoff;
         if (!/<\/head\s*>/i.test(html)) fail('Template missing head', 500);
         return new Response(html.replace(/<\/head\s*>/i, injection + '</head>'), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' } });
       });
@@ -86,13 +89,13 @@ export class PcfApi {
       return json({ ok: true }, 200, { 'Set-Cookie': cookie });
     }
     const eventGrant = tail === 'events' ? url.searchParams.get('credential') : null;
-    if (!this.bearer(request) && !this.valid(request.headers.get('X-PCF-Token'), p, d) && !this.valid(eventGrant, p, d)) return json({ error: 'Unauthorized' }, 401);
+    if (!this.bearer(request) && !this.validScopedCredential(request.headers.get('X-PCF-Token'), p, d) && !this.validScopedCredential(eventGrant, p, d)) return json({ error: 'Unauthorized' }, 401);
     if (tail === 'events' && request.method === 'GET') {
       return this.storage.serial(p, d, () => {
         const { rev } = this.storage.load(p, d);
         const actor = this.actor({ clientId: url.searchParams.get('clientId'), clientName: url.searchParams.get('clientName') }, ip);
         const from = Number(request.headers.get('Last-Event-ID') || url.searchParams.get('rev') || 0);
-        const expires = eventGrant && this.valid(eventGrant, p, d) ? JSON.parse(Buffer.from(eventGrant.split('.')[0], 'base64url').toString()).expires : Infinity;
+        const expires = eventGrant && this.validScopedCredential(eventGrant, p, d) ? JSON.parse(Buffer.from(eventGrant.split('.')[0], 'base64url').toString()).expires : Infinity;
         return this.realtime.stream(p + '/' + d, actor, rev, from, request.signal, expires);
       });
     }
@@ -132,6 +135,8 @@ export class PcfApi {
           if (body.step === 'preview') return json(this.exchange.preview(p, d, body));
           if (body.step !== 'apply') fail('Import step must be preview or apply');
           const outcome = this.exchange.apply(p, d, body, this.actor(body, ip));
+          const exportId = parseHTML(body.html).export?.exportId;
+          if (exportId && outcome.result.applied.length) updateBuilderReplyPapcStatus(this.storage.db, p, d, exportId);
           if (!outcome.replayed && outcome.result.applied.length) this.realtime.changed(p + '/' + d, outcome.result, outcome.actor);
           return json(outcome.result);
         }

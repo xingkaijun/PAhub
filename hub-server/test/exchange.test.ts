@@ -84,7 +84,7 @@ test('Builder export/offline save and authenticated three-way import through ops
     assert.equal((await api('imports',{...body,batchId:randomUUID(),choices:{...body.choices,'r3:deleted':{choice:'builder'}}})).status,409);
     const applied=await api('imports',body);assert.equal(applied.status,200);assert.equal(applied.value.rev,beforeApply+1);assert.deepEqual(applied.value.conflicts,[]);
     const timeout=setTimeout(()=>abort.abort(),4000);try{while(!events.includes('event: changed')){events+=decoder.decode((await reader.read()).value);}}finally{clearTimeout(timeout);abort.abort();}
-    assert.match(events,/船厂导入/);assert.ok(events.includes(record.exportId));assert.match(events,/round:r1:reply/);
+    assert.match(events,/Builder import/);assert.ok(events.includes(record.exportId));assert.match(events,/round:r1:reply/);
     live=applied.value;assert.equal(live.data.comments.length,3);assert.ok(live.data.comments.some((x:any)=>x.id==='c5'));assert.ok(!live.data.comments.some((x:any)=>x.id==='c3'));assert.ok(!live.data.comments.some((x:any)=>x.id==='c4'));
     assert.equal(live.data.comments[0].rounds[0].owner.text,'OWNER_SENTINEL_1');assert.equal(live.data.comments[0].rounds[0].reply.text,'Builder first reply');
     const sql=hub.db.sqlite.prepare('SELECT manual_comments_count,manual_open_comments_count,current_round FROM drawings WHERE id=?').get('dwg-005')!;

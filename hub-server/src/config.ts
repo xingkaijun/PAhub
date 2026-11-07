@@ -11,7 +11,7 @@ export function readConfig() {
   }
   const port = Number(process.env.PORT || 8080);
   if (!Number.isInteger(port) || port < 0 || port > 65535) throw new Error('Invalid PORT');
-  const bodyLimit = Number(process.env.MAX_BODY_BYTES || 32 * 1024 * 1024);
+  const bodyLimit = Number(process.env.MAX_BODY_BYTES || 51 * 1024 * 1024);
   if (!Number.isSafeInteger(bodyLimit) || bodyLimit < 1) throw new Error('Invalid MAX_BODY_BYTES');
   const dataDir = path.resolve(ROOT_DIR, process.env.PAHUB_DATA_DIR || 'data');
   return {
