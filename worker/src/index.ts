@@ -1302,31 +1302,6 @@ export default {
       const expectedToken = env.API_TOKEN?.trim() || '';
       const segments = path.split('/').filter(Boolean);
 
-      if (path === '/') {
-        return json(env, 200, {
-          service: 'papc-d1-api',
-          phase: 'read-first',
-          endpoints: [
-            'GET /health',
-            'GET /settings',
-            'GET /projects',
-            'POST /projects/:projectId',
-            'GET /projects/:projectId/review-tracker',
-            'GET /projects/:projectId/audit?from=&to=',
-          ],
-        });
-      }
-
-      if (path === '/health' && request.method === 'GET') {
-        return handleHealth(env);
-      }
-
-      const db = requireDb(env);
-
-      if (path === '/settings' && request.method === 'GET') {
-        return json(env, 200, await getSettings(db));
-      }
-
       return notImplemented(env, request.method, path);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
