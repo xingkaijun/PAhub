@@ -38,6 +38,19 @@ test('complete merge receipt is atomic with data and replays after lost response
   } finally { f.cleanup(); }
 });
 
+test('manual complete merge choices cannot inject unsafe or invalid document fields', () => {
+  const f = fixture(); try {
+    const live = f.storage.load(f.p, f.d);
+    f.storage.ops(f.p, f.d, { baseRev: live.rev, ops: [{ type: 'project.set', field: 'planTitle', value: 'server title', baseRev: 0 }] }, f.actor);
+    const preview = f.exchange.preview(f.p, f.d, { json: f.body.json });
+    const conflict = preview.conflicts.find((c: any) => c.path === 'project/planTitle')!;
+    assert.ok(conflict);
+    const before = readFileSync(f.storage.file(f.p, f.d), 'utf8');
+    assert.throws(() => f.exchange.apply(f.p, f.d, { ...f.body, previewToken: preview.previewToken, choices: { [conflict.id]: { choice: 'merge', value: { constructor: { prototype: { bad: true } } } } } }, f.actor));
+    assert.equal(readFileSync(f.storage.file(f.p, f.d), 'utf8'), before);
+  } finally { f.cleanup(); }
+});
+
 test('complete export status failure rolls back merge data, revision, receipt and export record', () => {
   const f = fixture(); try {
     const before = readFileSync(f.storage.file(f.p, f.d), 'utf8');

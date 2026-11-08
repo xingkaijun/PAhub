@@ -298,6 +298,10 @@ export class PcfExchange {
     const live = this.storage.load(p, d);
     const data = restoreServerClocks(result.data, live.data);
     if (data.documentId !== live.data.documentId) fail('documentId mismatch', 409);
+    // Reconcile derived numbering/approval before validating the combined document;
+    // conflict choices are untrusted inputs too, not only the returned copy.
+    initData(data);
+    validateJSON(data);
     const actor = { clientId: requestedBy.clientId, clientName: 'Complete copy import (' + record.export_id + ')', ip: requestedBy.ip };
     const applied = this.storage.replace(p, d, { baseRev: live.rev, data: initData(data) }, actor, undefined, receipt, () => {
       this.storage.db.prepare("UPDATE pcf_exports SET status='imported' WHERE export_id=? AND status!='void'").run(record.export_id);
