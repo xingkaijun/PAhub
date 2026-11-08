@@ -7,6 +7,7 @@ import { Search, FileUp, Layers, FilterX, Printer, ChevronLeft, ChevronRight as 
   Lock, Unlock, X, Cloud, Clock } from 'lucide-react';
 import { isAfter, differenceInCalendarDays, differenceInDays } from 'date-fns';
 import { DrawingRow } from './DrawingRow';
+import { inventoryStyles } from './inventoryStyles';
 import { BuilderRepliesImport, type BuilderRepliesImportHandle } from './BuilderRepliesImport';
 
 const getReviewDeadlineDays = (drawing: Drawing) => {
@@ -389,7 +390,7 @@ export const DrawingList: React.FC = () => {
       <div className="overflow-auto flex-1 no-print" style={{ position: 'relative' }}>
         <div style={{ minWidth: '1400px' }}>
           {/* Search and Filters - scrolls away */}
-          <div className="px-5 py-3 border-b border-teal-100/70 flex flex-col gap-3 bg-white/80 backdrop-blur-sm">
+          <div className={inventoryStyles.filterBar}>
             <div className="flex items-center justify-between">
               <div className="relative w-72">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={14} />
@@ -445,7 +446,7 @@ export const DrawingList: React.FC = () => {
                       }
                     }
                   }}
-                  className="w-full pl-9 pr-3 py-2.5 bg-white/80 border border-slate-200 rounded-full outline-none focus:bg-white focus:border-teal-300 focus:ring-4 focus:ring-teal-500/10 transition-all text-[10px] font-black uppercase tracking-tight shadow-sm"
+                  className={inventoryStyles.input + ' pl-9 uppercase'}
                 />
               </div>
               <div className="flex items-center gap-2">
@@ -546,7 +547,7 @@ export const DrawingList: React.FC = () => {
           {/* Table */}
           <table className="w-full text-left border-collapse table-fixed">
             <thead className="sticky top-0 z-40">
-              <tr className="text-slate-400 uppercase text-[8px] font-black tracking-[0.1em] border-b border-slate-100 shadow-sm">
+              <tr className={inventoryStyles.header}>
                 <th className="px-3 py-3 w-10 bg-slate-50/80 backdrop-blur-md"></th>
                 <ResizableHeader onResize={w => setColumnWidths(p => ({ ...p, id: w }))} width={columnWidths.id || 70}>ID</ResizableHeader>
                 <ResizableHeader onResize={w => setColumnWidths(p => ({ ...p, no: w }))} width={columnWidths.no || 110}>Code</ResizableHeader>
@@ -627,7 +628,7 @@ export const DrawingList: React.FC = () => {
                 <th className="px-3 py-3 w-10 bg-slate-50/50"></th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-slate-50/50">
+            <tbody className={inventoryStyles.divider}>
               {paginatedDrawings.map((drawing) => (
                 <DrawingRow
                   key={drawing.id}

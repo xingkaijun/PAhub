@@ -666,7 +666,7 @@ const App: React.FC = () => {
           )}
           {activeTab === 'drawings' && <CommandBar />}
 
-          <div className="flex-1 bg-white/92 backdrop-blur-xl rounded-[2rem] border border-white/70 shadow-[0_24px_80px_-28px_rgba(15,118,110,0.28)] overflow-hidden flex flex-col">
+          <div className={`flex-1 rounded-[2rem] border border-white/70 shadow-[0_24px_80px_-28px_rgba(15,118,110,0.28)] overflow-hidden flex flex-col ${activeTab === 'drawings' || activeTab === 'comments' ? 'inventory-theme' : ''} ${activeTab === 'comments' ? 'comments-surface' : 'bg-white/92 backdrop-blur-xl'}`}>
             {activeTab === 'drawings' && <DrawingList />}
             {activeTab === 'comments' && (
               <Suspense fallback={<LazyTabFallback />}>

@@ -1,5 +1,42 @@
 @import "tailwindcss";
 
+/* Inventory and Comments share one palette and the existing global theme
+   selectors. There is no OS-only Comments override. */
+:root { color-scheme:light; --inventory-accent:#006a63; --inventory-accent-soft:#e6f4f1; }
+:root.dark, :root[data-theme="dark"] { color-scheme:dark; --inventory-accent:#5eead4; --inventory-accent-soft:#134e4a; }
+@media (prefers-color-scheme:dark) {
+  :root:not([data-theme="light"]):not(.light) { color-scheme:dark; --inventory-accent:#5eead4; --inventory-accent-soft:#134e4a; }
+}
+.inventory-theme {
+  --inventory-surface:var(--hub-modal-surface); --inventory-well:var(--hub-modal-well);
+  --inventory-ink:var(--hub-modal-ink); --inventory-muted:var(--hub-modal-muted);
+  --inventory-line:var(--hub-modal-line);
+  background:var(--inventory-surface); color:var(--inventory-ink);
+}
+.inventory-theme [class*="bg-white"] { background-color:var(--inventory-surface); }
+.inventory-theme :is([class*="bg-slate-50"],[class*="bg-slate-100"]) { background-color:var(--inventory-well); }
+.inventory-theme [class*="border-slate-"], .inventory-theme [class*="border-white"],
+.inventory-theme [class*="divide-slate-"] > :not([hidden]) ~ :not([hidden]) { border-color:var(--inventory-line); }
+.inventory-theme :is([class*="text-slate-9"],[class*="text-slate-8"],[class*="text-slate-7"]) { color:var(--inventory-ink); }
+.inventory-theme :is([class*="text-slate-6"],[class*="text-slate-5"],[class*="text-slate-4"]) { color:var(--inventory-muted); }
+.inventory-theme :is([class*="text-teal-"],[class*="text-[#006A63]"]) { color:var(--inventory-accent); }
+.inventory-theme [class*="bg-teal-50"] { background-color:var(--inventory-accent-soft); }
+.inventory-theme [class*="border-teal-"] { border-color:color-mix(in srgb,var(--inventory-accent) 28%,var(--inventory-line)); }
+.inventory-theme :is(button,input,select) { color-scheme:inherit; }
+.inventory-theme :is(input,select)::placeholder { color:var(--inventory-muted); }
+.inventory-theme .inventory-primary { color:white; }
+.inventory-theme .inventory-table-head { background:var(--inventory-well); }
+.inventory-theme tbody tr:hover { background:var(--inventory-well); }
+.inventory-theme [class*="bg-amber-50"] { background-color:color-mix(in srgb,var(--color-amber-500) 12%,var(--inventory-surface)); }
+.inventory-theme [class*="text-amber-7"] { color:light-dark(var(--color-amber-700),var(--color-amber-300)); }
+.inventory-theme [class*="bg-emerald-50"] { background-color:color-mix(in srgb,var(--color-emerald-500) 12%,var(--inventory-surface)); }
+.inventory-theme [class*="text-emerald-7"] { color:light-dark(var(--color-emerald-700),var(--color-emerald-300)); }
+.inventory-theme [class*="bg-blue-50"] { background-color:color-mix(in srgb,var(--color-blue-500) 12%,var(--inventory-surface)); }
+.inventory-theme [class*="text-blue-7"] { color:light-dark(var(--color-blue-700),var(--color-blue-300)); }
+.inventory-theme .recharts-cartesian-grid line { stroke:var(--inventory-line); }
+.inventory-theme .recharts-text { fill:var(--inventory-muted); }
+.inventory-theme .recharts-default-tooltip { background:var(--inventory-surface)!important; border-color:var(--inventory-line)!important; color:var(--inventory-ink)!important; }
+
 :root { --hub-modal-surface: #fff; --hub-modal-ink: #0f172a; --hub-modal-line: #e2e8f0; --hub-modal-muted: #64748b; --hub-modal-well: #f8fafc; }
 :root.dark, :root[data-theme="dark"] { --hub-modal-surface: #0f172a; --hub-modal-ink: #f1f5f9; --hub-modal-line: #334155; --hub-modal-muted: #94a3b8; --hub-modal-well: #1e293b; }
 @media (prefers-color-scheme: dark) {

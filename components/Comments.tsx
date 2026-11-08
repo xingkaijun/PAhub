@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import './comments.css';
+import { inventoryStyles, inventoryBadgeClass } from './inventoryStyles';
 import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { AlertCircle, ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Download, ExternalLink, Image, MessageSquare, RefreshCw, Search } from 'lucide-react';
 import { safeFormatDate } from '../lib/date';
@@ -7,8 +7,8 @@ import { roundToLetters } from '../lib/rounds';
 import { commentsQuery, exportCommentsXlsx, fetchComments, subscribeToCommentChanges } from '../services/comments';
 import type { CommentsFilters, CommentsOptions, CommentsResponse, CommentsStatistics, CommentsStreamState, ProjectComment } from '../types/comments';
 
-const actionClass = 'inline-flex items-center justify-center gap-2 rounded-full border px-4 py-2 text-[10px] font-black uppercase tracking-widest transition-colors motion-reduce:transition-none disabled:cursor-not-allowed disabled:opacity-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 focus-visible:ring-offset-2';
-const inputClass = 'w-full rounded-lg border border-slate-200 bg-white px-3 py-2 text-xs text-slate-700 outline-none transition-colors focus:border-teal-500 focus:ring-1 focus:ring-teal-500 motion-reduce:transition-none';
+const actionClass = inventoryStyles.action;
+const inputClass = inventoryStyles.input;
 const emptyOptions: CommentsOptions = { disciplines: [], drawingStatuses: [], commentStatuses: [], rounds: [], tags: [] };
 const numberFormat = new Intl.NumberFormat('en');
 const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
@@ -64,7 +64,7 @@ const ChartSection: React.FC<{ title: string; empty: boolean; children: React.Re
   </figure>
 );
 
-const CommentCharts: React.FC<{ statistics: CommentsStatistics }> = ({ statistics }) => {
+const CommentCharts = React.memo(({ statistics }: { statistics: CommentsStatistics }) => {
   const disciplines = useMemo(() => {
     const statuses = [...new Set(statistics.byDiscipline.map(item => item.status))];
     const groups = new Map<string, Record<string, string | number>>();
@@ -77,8 +77,8 @@ const CommentCharts: React.FC<{ statistics: CommentsStatistics }> = ({ statistic
     return { statuses, rows: [...groups.values()] };
   }, [statistics.byDiscipline]);
   const rounds = useMemo(() => [...statistics.byRound].sort((a, b) => a.round - b.round), [statistics.byRound]);
-  const tick = { fontSize: 10, fill: '#64748b' };
-  const tooltipStyle = { borderRadius: 8, borderColor: '#e2e8f0', fontSize: 12 };
+  const tick = { fontSize: 10, fill: 'var(--inventory-muted)' };
+  const tooltipStyle = { borderRadius: 8, borderColor: 'var(--inventory-line)', backgroundColor: 'var(--inventory-surface)', color: 'var(--inventory-ink)', fontSize: 12 };
 
   return (
     <section aria-label="Comment statistics charts" className="grid grid-cols-1 gap-6 border-b border-slate-100 px-5 py-5 md:grid-cols-3 md:divide-x md:divide-slate-100 md:[&>figure:not(:first-child)]:pl-6 sm:px-7">
@@ -86,10 +86,10 @@ const CommentCharts: React.FC<{ statistics: CommentsStatistics }> = ({ statistic
         <div className="h-[210px] overflow-y-auto">
           <ResponsiveContainer width="100%" height={Math.max(210, disciplines.rows.length * 28 + 50)}>
             <BarChart data={disciplines.rows} layout="vertical" margin={{ top: 0, right: 12, bottom: 0, left: 0 }}>
-              <CartesianGrid stroke="#f1f5f9" horizontal={false} />
+              <CartesianGrid stroke="var(--inventory-line)" horizontal={false} />
               <XAxis type="number" allowDecimals={false} tick={tick} axisLine={false} tickLine={false} />
               <YAxis type="category" dataKey="discipline" width={100} tick={tick} axisLine={false} tickLine={false} tickFormatter={value => String(value).length > 16 ? String(value).slice(0, 15) + '…' : value} />
-              <Tooltip contentStyle={tooltipStyle} cursor={{ fill: '#f8fafc' }} />
+              <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'var(--inventory-well)' }} />
               <Legend wrapperStyle={{ fontSize: 10 }} />
               {disciplines.statuses.map((status, index) => <Bar key={status} dataKey={'status' + index} name={statusLabel(status)} stackId="comments" fill={statusColor(status)} maxBarSize={16} isAnimationActive={false} />)}
             </BarChart>
@@ -99,28 +99,28 @@ const CommentCharts: React.FC<{ statistics: CommentsStatistics }> = ({ statistic
       <ChartSection title="Comments by latest round" empty={!rounds.length}>
         <ResponsiveContainer width="100%" height={210}>
           <BarChart data={rounds} margin={{ top: 4, right: 12, bottom: 0, left: -22 }}>
-            <CartesianGrid stroke="#f1f5f9" vertical={false} />
+            <CartesianGrid stroke="var(--inventory-line)" vertical={false} />
             <XAxis dataKey="round" tickFormatter={roundToLetters} tick={tick} axisLine={false} tickLine={false} />
             <YAxis allowDecimals={false} tick={tick} axisLine={false} tickLine={false} />
-            <Tooltip contentStyle={tooltipStyle} labelFormatter={value => 'Round ' + roundToLetters(value as number)} cursor={{ fill: '#f8fafc' }} />
-            <Bar dataKey="count" name="Comments" fill="#0d9488" radius={[3, 3, 0, 0]} maxBarSize={32} isAnimationActive={false} />
+            <Tooltip contentStyle={tooltipStyle} labelFormatter={value => 'Round ' + roundToLetters(value as number)} cursor={{ fill: 'var(--inventory-well)' }} />
+            <Bar dataKey="count" name="Comments" fill="var(--inventory-accent)" radius={[3, 3, 0, 0]} maxBarSize={32} isAnimationActive={false} />
           </BarChart>
         </ResponsiveContainer>
       </ChartSection>
       <ChartSection title="Open comment ageing" empty={!statistics.ageing.length}>
         <ResponsiveContainer width="100%" height={210}>
           <BarChart data={statistics.ageing} margin={{ top: 4, right: 12, bottom: 0, left: -22 }}>
-            <CartesianGrid stroke="#f1f5f9" vertical={false} />
+            <CartesianGrid stroke="var(--inventory-line)" vertical={false} />
             <XAxis dataKey="band" tick={tick} axisLine={false} tickLine={false} />
             <YAxis allowDecimals={false} tick={tick} axisLine={false} tickLine={false} />
-            <Tooltip contentStyle={tooltipStyle} cursor={{ fill: '#f8fafc' }} />
-            <Bar dataKey="count" name="Open comments" fill="#0f766e" radius={[3, 3, 0, 0]} maxBarSize={32} isAnimationActive={false} />
+            <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'var(--inventory-well)' }} />
+            <Bar dataKey="count" name="Open comments" fill="var(--inventory-accent)" radius={[3, 3, 0, 0]} maxBarSize={32} isAnimationActive={false} />
           </BarChart>
         </ResponsiveContainer>
       </ChartSection>
     </section>
   );
-};
+});
 
 export const Comments: React.FC<{ projectId: string | null }> = ({ projectId }) => {
   const [draft, setDraft] = useState<CommentsFilters>({});
@@ -252,10 +252,10 @@ export const Comments: React.FC<{ projectId: string | null }> = ({ projectId }) 
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <button type="button" className={actionClass + ' border-slate-200 bg-white text-slate-600 hover:border-teal-300 hover:text-teal-700'} disabled={loading} onClick={() => setRefreshVersion(value => value + 1)}>
+          <button type="button" className={actionClass + ' ' + inventoryStyles.secondary} disabled={loading} onClick={() => setRefreshVersion(value => value + 1)}>
             <RefreshCw size={13} className={loading ? 'animate-spin motion-reduce:animate-none' : ''} />{loading ? 'Loading' : 'Refresh'}
           </button>
-          <button type="button" className={actionClass + ' border-teal-700 bg-teal-700 text-white hover:bg-teal-800'} disabled={!result || loading || exporting || filtersChanged || failedFilters} onClick={() => void download()} title="Export all matching rows, not just this page. Apply filter changes first.">
+          <button type="button" className={actionClass + ' ' + inventoryStyles.primary} disabled={!result || loading || exporting || filtersChanged || failedFilters} onClick={() => void download()} title="Export all matching rows, not just this page. Apply filter changes first.">
             <Download size={13} />{exporting ? 'Exporting…' : 'Export Excel'}
           </button>
         </div>
@@ -283,7 +283,7 @@ export const Comments: React.FC<{ projectId: string | null }> = ({ projectId }) 
       </section>
       {data && <CommentCharts statistics={data.statistics} />}
 
-      <form onSubmit={applyFilters} className="border-b border-slate-100 bg-slate-50/60 px-5 py-4 sm:px-7">
+      <form onSubmit={applyFilters} className={inventoryStyles.filterBar}>
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
           <h3 className="text-xs font-bold text-slate-700">Filters</h3>
           <span className="text-[10px] text-slate-500">{filtersChanged ? 'Filters changed — apply to update the register.' : 'Metrics, charts and export use the loaded filters.'}</span>
@@ -323,21 +323,21 @@ export const Comments: React.FC<{ projectId: string | null }> = ({ projectId }) 
                 </button>
               </th>)}</tr>
             </thead>
-            <tbody className="divide-y divide-slate-100">
+            <tbody className={inventoryStyles.divider}>
               {pageRows.map(row => {
                 const href = pcfLink(projectId, row.drawingId, row.commentId);
                 const openRow = () => window.open(href, '_blank', 'noopener,noreferrer');
                 return <tr key={row.drawingId + ':' + row.commentId} tabIndex={0} aria-label={'Open comment ' + row.number + ' for ' + row.drawingNo}
                   onClick={event => { if (!(event.target as HTMLElement).closest('a,button') && !window.getSelection()?.toString()) openRow(); }}
                   onKeyDown={event => { if (event.target === event.currentTarget && event.key === 'Enter') openRow(); }}
-                  className="cursor-pointer align-top transition-colors hover:bg-teal-50/50 focus-visible:outline-teal-500 motion-reduce:transition-none">
+                  className={inventoryStyles.row + ' ' + inventoryStyles.rowHover + ' cursor-pointer align-top focus-visible:outline-teal-500'}>
                   <td className="max-w-[240px] px-3 py-3 pl-5"><a className="inline-flex items-center gap-1 font-semibold text-teal-700 hover:underline focus-visible:outline-teal-500" href={href} target="_blank" rel="noopener noreferrer">{row.drawingNo || 'Untitled drawing'}<ExternalLink size={10} className="shrink-0" /></a><p className="mt-1 line-clamp-2 text-[10px] leading-relaxed text-slate-500" title={row.drawingTitle}>{row.drawingTitle}</p></td>
                   <td className="px-3 py-3 text-[11px]">{row.discipline || '—'}</td>
-                  <td className="px-3 py-3 text-[11px]">{row.drawingStatus || '—'}</td>
+                  <td className="px-3 py-3"><span className={inventoryBadgeClass(row.drawingStatus)}>{row.drawingStatus || '—'}</span></td>
                   <td className="px-3 py-3 tabular-nums"><a href={href} target="_blank" rel="noopener noreferrer" className="font-semibold text-teal-700 hover:underline" aria-label={'Open comment ' + row.number + ' for ' + row.drawingNo}>{row.number}</a>{row.hasImages && <span className="mt-2 flex text-slate-400" title="Images available in PCF"><Image size={12} aria-label="Has images" /></span>}</td>
-                  <td className="px-3 py-3 font-semibold">{roundToLetters(row.round) || '—'}</td>
-                  <td className="px-3 py-3"><span className={'inline-block rounded-md px-2 py-1 text-[10px] font-bold ' + (row.status.toLowerCase() === 'open' ? 'bg-teal-50 text-teal-700' : 'bg-slate-100 text-slate-500')}>{statusLabel(row.status)}</span></td>
-                  <td className="px-3 py-3"><div className="flex max-w-[180px] flex-wrap gap-1">{row.tags.length ? row.tags.map(tag => <span key={tag} className="rounded border border-slate-200 px-1.5 py-0.5 text-[9px] text-slate-500">{tag}</span>) : '—'}</div></td>
+                  <td className="px-3 py-3"><span className={inventoryBadgeClass(roundToLetters(row.round), 'round')}>{roundToLetters(row.round) || '—'}</span></td>
+                  <td className="px-3 py-3"><span className={inventoryBadgeClass(row.status)}>{statusLabel(row.status)}</span></td>
+                  <td className="px-3 py-3"><div className="flex max-w-[180px] flex-wrap gap-1">{row.tags.length ? row.tags.map(tag => <span key={tag} className={inventoryBadgeClass(tag, 'tag')}>{tag}</span>) : '—'}</div></td>
                   <td className="max-w-[360px] px-3 py-3"><p className="mb-1 text-[10px] text-slate-400">{row.ownerName || '—'}{row.ownerDate && ' · ' + safeFormatDate(row.ownerDate, 'dd MMM yyyy')}</p><p className="line-clamp-4 whitespace-pre-wrap break-words text-[11px] leading-relaxed" title={row.ownerComment}>{row.ownerComment || '—'}</p></td>
                   <td className="max-w-[360px] px-3 py-3">{row.builderReplyDate && <p className="mb-1 text-[10px] text-slate-400">{safeFormatDate(row.builderReplyDate, 'dd MMM yyyy')}</p>}<p className="line-clamp-4 whitespace-pre-wrap break-words text-[11px] leading-relaxed" title={row.builderReply}>{row.builderReply || '—'}</p></td>
                   <td className="px-3 py-3 tabular-nums text-slate-600">{row.openDays === null ? '—' : numberFormat.format(row.openDays)}</td>

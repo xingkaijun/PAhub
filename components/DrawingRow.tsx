@@ -1,3 +1,4 @@
+import { inventoryStyles } from './inventoryStyles';
 import React, { memo } from 'react';
 import { Drawing, DrawingStatus } from '../types';
 import {
@@ -36,7 +37,7 @@ const StatusBadge = ({ drawing, onStatusChange, disabled }: { drawing: Drawing, 
 
     return (
         <div className="relative flex flex-col items-center group/status" title={`Manual Status: ${drawing.status}`}>
-            <span className={`px-2 py-0.5 rounded-md text-[8px] font-black uppercase border tracking-tight leading-none pointer-events-none ${config[drawing.status]}`}>
+            <span className={`${inventoryStyles.badge} pointer-events-none ${config[drawing.status]}`}>
                 {drawing.status}
             </span>
             {isOverdue && (
@@ -135,7 +136,7 @@ export const DrawingRow = memo(({
 
     return (
         <React.Fragment>
-            <tr className={`group transition-all duration-200 ${isExpanded ? 'bg-teal-50/30' : 'hover:bg-slate-50/40'}`}>
+            <tr className={`${inventoryStyles.row} ${isExpanded ? 'bg-teal-50/30' : inventoryStyles.rowHover}`}>
                 <td className="px-3 py-2 text-center">
                     <button
                         onClick={() => onToggleExpand(drawing.id)}
