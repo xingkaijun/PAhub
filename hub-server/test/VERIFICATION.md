@@ -104,3 +104,45 @@ POST /api/pcf/:projectId/exports/batch，body 为 {drawingIds,batchId}。保存�
 - 实际副本：6/6 打开、6/6 编辑、6/6 船厂导出；临时服务端口58944，已关闭。完整项目 ZIP 导出6份HTML（1,480,403字节），6/6离线DOM打开且无脚本错误。
 - 原data共29文件 SHA-256始终不变；没有推送GitHub，没有触碰8080/8081/8082、SGP0或PAhub-preview。
 - 相关回归（阶段中按文件执行）：存储/汇总/状态39/40首次集成通过，余下1项为模板脚本文本匹配断言（非运行错误），修正后单文件1/1通过、Send All/船厂/协作33/33、模板/phase8 12/12；新增 migrations 7/7、pcf-json-migration 6/6、template-cache 2/2、pcf-project-export 3/3。完整副本API（HTML+JSON）1/1通过；实际迁移副本6/6完整HTML离线编辑后导回，流转/审批历史完全保留，临时端口52860已关闭。最终全量结果在阶段全部完成后补记。迁移实际SQL失败回滚与未来schema拒绝恢复均已补测。
+
+## 架构优化阶段 3（2026-11-08）
+
+仅执行 docs/ARCHITECTURE_PLAN.md 阶段 3 任务 1–5。实际起点是阶段 2 完成后的 c39a8f5，分支 pahub-main；未回退到计划原始基线 26d37a7，未推送。
+
+### 完成项
+
+1. 统一 Router 与 HTTP 中间件：按模块注册、JSON 惰性单次解析、{error} 错误、请求日志、可选 Basic Auth。日志不含查询参数、凭据或请求体；API_TOKEN / Basic Auth 默认关闭。PCF 的 HTML 凭据输入页面保留为认证挑战，API 错误均为 JSON。
+2. 顺序迁移图纸/项目、review-tracker、audit/heartbeat、settings/health、admin；各模块先实现、旧请求对比、切换、移除 Worker 路由、提交。项目密码提示兼容 JSON 错误；管理员图纸修改使用原生写入与 PCF 字段保护；SQL 控制台仍是独立只读连接。
+3. 写入代码直接发送通知，已删除 app.ts 请求体推断和 admin 页面 URL 字符串改写。
+4. 读接口直接查询规范化表，openDatabase 返回 DatabaseSync。worker/、d1.ts、worker.d.ts 已删除；测试种子迁至 test/fixtures。启动幂等移除 api_* 兼容视图，不推进 user_version，也不触发版本 2 的离线 PCF 转换。001 历史迁移原文与仅测试的旧视图 fixture 保留，运行接口不依赖它们。
+5. 全部服务端源码纳入 strict；移除 pcf-v26.ts 的 @ts-nocheck 并补类型，tsc 通过。app.ts 只保留依赖装配与路由注册，监听/静态/SSE 桥接位于 listener.ts 和 http.ts。
+
+### 提交与相关验证（重复运行不累加为独立测试）
+
+| 提交 | 内容 | 提交前相关验证 |
+| --- | --- | --- |
+| c27a345 | 统一路由与 HTTP 中间件 | router/basic-auth/realtime 13/13 |
+| 47013a5 | 图纸与项目 | 新旧对比 2/2；drawing-state/integration 14/14 |
+| 3a7fae9 | review-tracker 与通知 | 项目/tracker 新旧对比 2/2；integration 3/3 |
+| f00fdf7 | audit/heartbeat | 新旧对比 2/2；activity-migration/activity-report 9/9 |
+| 2f3d1f1 | settings/health | 新旧对比 1/1；system/basic-auth 4/4 |
+| b816834 | admin 与原生导入 | admin 新旧对比 1/1；admin-readonly/drawing-state/integration 16/16 |
+| b312147 | 删除兼容层与 strict | 全模块专用对比 6/6；native-db/migrations/pcf-json/router/pcf/v26 27/27；tsc 通过 |
+| ebb0847 | admin 修改前验证归属、防重复新增覆盖 | admin 1/1；tsc 通过 |
+| 78a06c6 | 集成测试完整数据目录隔离 | integration 3/3 |
+
+新旧对比可复跑：node hub-server/scripts/test-parity.mjs，从 git c39a8f5 提取旧实现到独立临时目录，结束删除。与正常 hub:test 分开，避免保留运行时 Worker 依赖。
+
+### 本阶段唯一一次全量验证
+
+- npm run hub:build：退出 0；前端 2670 modules；server/app/import-d1 三入口成功，TypeScript strict 通过。
+- npm run hub:test：161 tests，160 pass，0 fail，1 skipped，0 cancelled，约 77.4 秒。
+- 跳过项是需 PAHUB_WORKER_BASELINE 的项目新旧对比；专用 test-parity.mjs 已执行该项及其余模块，6/6 通过、无跳过。
+- 构建仍有原有 Recharts Bar 跨 chunk 循环依赖警告，未越界修改前端分包。
+
+### 边界、偏差与未执行项
+
+- 所有测试服务使用随机端口与临时数据库并在测试结束关闭；8080/8081/8082 服务、SGP0、PAhub-preview 未动，未部署、未推送。真实 PCF 文档/数据库未迁移。
+- 前几轮 integration 沿用旧脚手架，只隔离 DB、未设置 PAHUB_DATA_DIR，因此 PcfExchange 构造函数会读取真实 data/.pcf-export-key。该文件已有，核对修改时间仍为 2026-11-07T08:54:47.731Z，未改写；78a06c6 已补齐隔离，后续及全量使用临时数据目录。
+- 数据库启动删除视图仅在临时数据库验证；正式数据副本/生产启用留待用户安排。历史 SQL 001 不改写以保持既有迁移可审计，不再使用其兼容视图作为读路径。
+- 辅助任务因额度限制提前终止，未产生代码，后续直接实施。没有执行阶段 4，也没有需要产品决策的阻塞项。
