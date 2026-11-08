@@ -118,7 +118,16 @@ export class PcfStorage {
     if (!result.applied.length && body.batchId) atomicWrite(this.file(p, d), JSON.stringify(data));
     return { replayed: false, result: { rev: nextRev, ...result, data: this.publicData(data) } };
   }
-  replace(p: string, d: string, body: any, actor: Actor, historyRev?: number) {
+  replacementReplay(p: string, d: string, id: string, hash: string) {
+    const { data, rev } = this.load(p, d);
+    const prior = (data.hub.receipts || []).find((r: any) => r.id === id && Date.now() - r.at < 86400000);
+    if (!prior) return undefined;
+    if (prior.hash !== hash || prior.kind !== 'complete-import') fail('batchId reused with different request', 409);
+    const historical = prior.result.rev === rev ? data : this.historyData(p, d, prior.result.rev)?.data;
+    if (!historical) fail('Replay revision no longer retained; reload current document', 409);
+    return { ...prior.result, data: this.publicData(historical) };
+  }
+  replace(p: string, d: string, body: any, actor: Actor, historyRev?: number, receipt?: { id: string; hash: string }, commit?: () => void) {
     const latest = this.load(p, d); if (body.baseRev !== latest.rev) fail('Document revision conflict', 409);
     let data = body.data;
     if (historyRev !== undefined) { const restored = this.historyData(p, d, historyRev); if (!restored) fail('History not found', 404); data = restored.data; }
@@ -146,7 +155,10 @@ export class PcfStorage {
       for (const r of c.rounds) { for (const field of ['owner', 'reply', 'record', 'initiator', 'responder', 'minHeight']) keys.add('round:' + r.id + ':' + field); r.rev = r.ownerRev = r.replyRev = latest.rev + 1; }
     }
     for (const key of keys) data.hub.entities[key] = { rev: latest.rev + 1, clientId: actor.clientId, clientName: actor.clientName, at: new Date().toISOString() };
-    const rev = this.save(p, d, data, actor, [{ type: historyRev === undefined ? 'document.replace' : 'history.restore' }]); return { rev, data: this.publicData(data) };
+    const result = { rev: latest.rev + 1, applied: [{ type: 'document.merge' }], conflicts: [], assigned: {} };
+    if (receipt) data.hub.receipts = [...(data.hub.receipts || []).filter((r: any) => Date.now() - r.at < 86400000), { ...receipt, kind: 'complete-import', at: Date.now(), result }].slice(-1000);
+    const rev = this.save(p, d, data, actor, [{ type: receipt ? 'document.merge' : historyRev === undefined ? 'document.replace' : 'history.restore' }], commit);
+    return receipt ? { ...result, rev, data: this.publicData(data) } : { rev, data: this.publicData(data) };
   }
   private historyData(p: string, d: string, rev: number): { data: PcfData } | undefined {
     const entry = historyEntries(this.historyDir(p, d)).find(item => item.rev === rev);

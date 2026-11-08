@@ -292,26 +292,26 @@ export class PcfExchange {
       previewToken: token + '.' + this.mac(payload),
     };
   }
-  private applyComplete(p: string, d: string, body: any, returned: PcfData, requestedBy: Actor, afterApply?: () => void) {
+  private applyComplete(p: string, d: string, body: any, returned: PcfData, requestedBy: Actor, receipt: { id: string; hash: string }) {
     const { result, record } = this.completeResult(p, d, returned, body.choices || {});
     if (record.status === 'imported' && body.overwrite !== true) fail('This complete copy was already imported; explicitly allow another merge', 409);
     const live = this.storage.load(p, d);
     const data = restoreServerClocks(result.data, live.data);
     if (data.documentId !== live.data.documentId) fail('documentId mismatch', 409);
     const actor = { clientId: requestedBy.clientId, clientName: 'Complete copy import (' + record.export_id + ')', ip: requestedBy.ip };
-    const applied = this.storage.replace(p, d, { baseRev: live.rev, data: initData(data) }, actor);
-    if (afterApply) afterApply();
-    this.storage.db.prepare("UPDATE pcf_exports SET status='imported' WHERE export_id=? AND status!='void'").run(record.export_id);
-    // Same acknowledgement shape as ops imports so callers can use one path.
-    return { replayed: false, result: { ...applied, applied: [{ type: 'document.merge' }], conflicts: [], assigned: {} }, actor };
+    const applied = this.storage.replace(p, d, { baseRev: live.rev, data: initData(data) }, actor, undefined, receipt, () => {
+      this.storage.db.prepare("UPDATE pcf_exports SET status='imported' WHERE export_id=? AND status!='void'").run(record.export_id);
+    });
+    return { replayed: false, result: applied, actor };
   }
-  // Complete copies keep a receipt so a lost acknowledgement can be replayed.
-  // The preview token pins the server revision, so a crash after the document
-  // commit surfaces as a clear "preview again" conflict, never a second merge.
+  // Complete-copy receipts are committed in authoritative JSON with the data.
+  // A lost response or process crash never applies the same merge twice.
   private applyCompleteReceipt(p: string, d: string, body: any, returned: PcfData, requestedBy: Actor, afterApply?: () => void) {
     const batchId = uuid(body.batchId), file = path.join(this.storage.dataDir, 'pcf', p, d, 'imports', batchId + '.json');
     const { adminPassword: _password, ...safeBody } = body;
     const requestHash = hash({ body: safeBody, requestedBy: requestedBy.clientId });
+    const replay = this.storage.replacementReplay(p, d, batchId, requestHash);
+    if (replay) return { replayed: true, result: replay, actor: { ...requestedBy, clientName: 'Complete copy import (' + returned.export.exportId + ')' } };
     if (existsSync(file)) {
       const prepared = JSON.parse(readFileSync(file, 'utf8'));
       if (prepared.hash !== requestHash) fail('batchId reused with a different import', 409);
@@ -323,9 +323,7 @@ export class PcfExchange {
       if (!this.matches(signature, this.mac(payload)) || payload.p !== p || payload.d !== d || payload.exportId !== preview.exportId || payload.hash !== this.returnedHash(body) || payload.rev !== preview.serverRev || payload.expires <= Date.now()) fail('Preview expired or server changed; preview again', 409);
     } catch (e: any) { if (e.status) throw e; fail('Invalid preview token', 409); }
     if (preview.repeated && body.overwrite !== true) fail('This complete copy was already imported; explicitly allow another merge', 409);
-    const outcome = this.applyComplete(p, d, body, returned, requestedBy, afterApply);
-    atomicWrite(file, JSON.stringify({ hash: requestHash, exportId: preview.exportId, actor: outcome.actor, result: outcome.result }));
-    return outcome;
+    return this.applyComplete(p, d, body, returned, requestedBy, { id: batchId, hash: requestHash });
   }
   apply(p: string, d: string, body: any, requestedBy: Actor, afterApply?: () => void) {
     const returned = this.returned(body);
