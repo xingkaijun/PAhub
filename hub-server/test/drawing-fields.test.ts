@@ -59,6 +59,19 @@ test('editing another field during an in-flight save preserves only the newer ed
   } finally { HubApiRepository.prototype.saveDelta = original; }
 });
 
+test('a newer edit to the same field during a save is not acknowledged by the older response', async () => {
+  const store = await storeFixture(); const original = HubApiRepository.prototype.saveDelta;
+  let release!: () => void; let started!: () => void; const ready = new Promise<void>(r => started = r);
+  HubApiRepository.prototype.saveDelta = async () => { started(); await new Promise<void>(r => release = r); return { success: true, drawings: [{ ...initial, title: 'old request' }] }; };
+  try {
+    store.getState().updateDrawing('d', { title: 'old request' });
+    const pending = store.getState().saveProject('p'); await ready;
+    store.getState().updateDrawing('d', { title: 'new edit' }); release(); await pending;
+    assert.equal(store.getState().data.projects[0].drawings[0].title, 'new edit');
+    assert.deepEqual([...store.getState()._dirtyDrawingFields.d], ['title']);
+  } finally { HubApiRepository.prototype.saveDelta = original; }
+});
+
 test('dirty-field refresh retains the local title but accepts remote PCF summary and unrelated fields', () => {
   const local = { id: 'p', drawings: [{ ...initial, title: 'local edit' }] } as Project;
   const remote = { id: 'p', drawings: [{ ...initial, hasPcf: true, discipline: 'Remote discipline', manualCommentsCount: 12, currentRound: 'AB', version: 'PCF version' }] } as Project;
