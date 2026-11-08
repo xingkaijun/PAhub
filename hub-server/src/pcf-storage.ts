@@ -3,6 +3,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { ROOT_DIR } from './config.ts';
+import { historyEntries, prepareHistory } from './pcf-history.ts';
 import * as modelV26 from './pcf-v26.ts';
 import { validateJSON } from './pcf-schema.ts';
 import { initData, reconcile, roundNumber, roundLabel, registerFields, fail, type PcfData, type Actor, type Op, applyOps } from './pcf-model.ts';
@@ -32,7 +33,7 @@ export function atomicWrite(file: string, html: string) {
 }
 export class PcfStorage {
   private queues = new Map<string, Promise<unknown>>();
-  constructor(readonly db: DatabaseSync, readonly dataDir: string) {}
+  constructor(readonly db: DatabaseSync, readonly dataDir: string, private readonly now: () => number = Date.now) {}
   file(p: string, d: string) { return path.join(this.dataDir, 'pcf', p, d + '.html'); }
   historyDir(p: string, d: string) { return path.join(this.dataDir, 'pcf', p, '.history', d); }
   async serial<T>(p: string, d: string, task: () => T | Promise<T>): Promise<T> {
@@ -92,13 +93,16 @@ export class PcfStorage {
   private save(p: string, d: string, html: string, data: PcfData, actor: Actor, ops: unknown[]) {
     const file = this.file(p, d), old = existsSync(file) ? readFileSync(file, 'utf8') : null;
     const oldRev = old ? parseHTML(old).hub.rev : 0;
-    reconcile(data); data.hub.rev = oldRev + 1; data.updatedAt = new Date().toISOString();
+    const at = this.now();
+    reconcile(data); data.hub.rev = oldRev + 1; data.updatedAt = new Date(at).toISOString();
     data.hub.lastChange = { ...actor, ops }; const next = replaceData(html, data);
-    if (old) atomicWrite(path.join(this.historyDir(p, d), oldRev + '-' + Date.now() + '-' + randomUUID() + '.html'), old);
+    const history = old ? prepareHistory(this.historyDir(p, d), oldRev, old, actor.clientId, at, atomicWrite) : undefined;
     // Synchronous section: Worker cannot interleave in an open SQLite transaction.
     let renamed = false;
     try { this.transaction(() => { this.indexWrite(p, d, data); atomicWrite(file, next); renamed = true; }); }
-    catch (e) { if (renamed) { if (old) atomicWrite(file, old); else unlinkSync(file); } throw e; }
+    catch (e) { if (renamed) { if (old) atomicWrite(file, old); else unlinkSync(file); } history?.rollback(); throw e; }
+    // Retention is maintenance after a successful write; never reject an already committed save.
+    try { history?.commit(data.hub.rev); } catch (error) { console.warn('PCF history retention deferred', error); }
     return data.hub.rev;
   }
   publicData(data: PcfData) { const copy = structuredClone(data); delete copy.hub.receipts; return copy; }
@@ -112,7 +116,8 @@ export class PcfStorage {
     const prior = body.batchId && receipts.find((r: any) => r.id === body.batchId);
     if (prior) {
       if (prior.hash !== hash) fail('batchId reused with different request', 409);
-      const historical = prior.result.rev === rev ? data : parseHTML(readFileSync(path.join(this.historyDir(p, d), this.history(p, d).find(x => x.rev === prior.result.rev)!.filename), 'utf8'));
+      const historical = prior.result.rev === rev ? data : this.historyData(p, d, prior.result.rev)?.data;
+      if (!historical) fail('Replay revision no longer retained; reload current document', 409);
       return { replayed: true, result: { ...prior.result, data: this.publicData(historical) } };
     }
     if (body.baseRev > rev) fail('Future document revision', 409);
@@ -126,7 +131,7 @@ export class PcfStorage {
   replace(p: string, d: string, body: any, actor: Actor, historyRev?: number) {
     const latest = this.load(p, d); if (body.baseRev !== latest.rev) fail('Document revision conflict', 409);
     let html = body.html || latest.html, data = body.data;
-    if (historyRev !== undefined) { const h = this.history(p, d).find(x => x.rev === historyRev); if (!h) fail('History not found', 404); html = readFileSync(path.join(this.historyDir(p, d), h.filename), 'utf8'); data = parseHTML(html); }
+    if (historyRev !== undefined) { const restored = this.historyData(p, d, historyRev); if (!restored) fail('History not found', 404); html = restored.html; data = restored.data; }
     else if (body.html) data = parseHTML(body.html);
     // Imported/migrated HTML must not retain a live page's capability.
     html = html.replace(/<script\b[^>]*\bid\s*=\s*(['"])pahub-context\1[^>]*>[\s\S]*?<\/script\s*>/gi, '');
@@ -155,8 +160,13 @@ export class PcfStorage {
     for (const key of keys) data.hub.entities[key] = { rev: latest.rev + 1, clientId: actor.clientId, clientName: actor.clientName, at: new Date().toISOString() };
     const rev = this.save(p, d, html, data, actor, [{ type: historyRev === undefined ? 'document.replace' : 'history.restore' }]); return { rev, data: this.publicData(data) };
   }
+  private historyData(p: string, d: string, rev: number): { html: string; data: PcfData } | undefined {
+    const entry = historyEntries(this.historyDir(p, d)).find(item => item.rev === rev);
+    if (!entry) return undefined;
+    try { const html = readFileSync(path.join(this.historyDir(p, d), entry.filename), 'utf8'); return { html, data: parseHTML(html) }; }
+    catch (error: any) { if (error.code === 'ENOENT') return undefined; throw error; }
+  }
   history(p: string, d: string) {
-    this.load(p, d); const dir = this.historyDir(p, d); if (!existsSync(dir)) return [];
-    return readdirSync(dir).flatMap(filename => { const m = filename.match(/^(\d+)-(\d+)-[a-f0-9-]+\.html$/); return m ? [{ rev: Number(m[1]), savedAt: new Date(Number(m[2])).toISOString(), filename }] : []; }).sort((a, b) => b.rev - a.rev);
+    this.load(p, d); return historyEntries(this.historyDir(p, d));
   }
 }

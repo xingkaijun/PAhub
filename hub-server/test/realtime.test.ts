@@ -61,7 +61,7 @@ test('two real SSE clients: changed clocks, presence release, reconnect and dura
     do { presence = await b.next('presence'); } while (presence.online.some((x: any) => x.clientId === 'A'));
     const project = await fetch(base + '/api/pcf/proj-test-001/presence', { headers: { Authorization: 'Bearer rt-secret' } }).then(r => r.json()); assert.equal(project.drawings['dwg-005'].length, 1);
     b.close(); b = undefined;
-    const second = await api('ops', { batchId: randomUUID(), ...actor('A'), baseRev: first.rev, ops: [contentOp(first.data, 'owner', 'newer')] });
+    const second = await api('ops', { batchId: randomUUID(), ...actor('B'), baseRev: first.rev, ops: [contentOp(first.data, 'owner', 'newer')] });
     b = await sse(base + route + '/events?clientId=B&credential=' + grant, { 'Last-Event-ID': String(first.rev) });
     const hello = await b.next('hello'); assert.equal(hello.rev, second.rev); assert.equal(hello.resync, true); assert.equal((await api('data')).data.comments[0].rounds[0].owner.text, 'newer');
     assert.deepEqual(await api('ops', batch), first); // exact old response after another revision

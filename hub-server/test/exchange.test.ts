@@ -77,7 +77,7 @@ test('Builder export/offline save and authenticated three-way import through ops
     const preview=(await api('imports',{step:'preview',html:returnedHTML})).value;
     assert.equal(preview.ownerTampered,true);assert.ok(preview.ignored.some((x:any)=>x.path.includes('owner.text')));
     assert.deepEqual(preview.automatic.map((x:any)=>x.id),['r1:body']);assert.deepEqual(preview.conflicts.map((x:any)=>x.id),['r2:body','r3:deleted']);
-    const beforeApply=live.rev,body={step:'apply',html:returnedHTML,previewToken:preview.previewToken,batchId:randomUUID(),choices:{'r2:body':{choice:'builder'},'r3:deleted':{choice:'server'}},ignoreOwner:true,adminPassword:'phase4-admin'};
+    const beforeApply=live.rev,body={step:'apply',clientId:'import-reviewer',html:returnedHTML,previewToken:preview.previewToken,batchId:randomUUID(),choices:{'r2:body':{choice:'builder'},'r3:deleted':{choice:'server'}},ignoreOwner:true,adminPassword:'phase4-admin'};
     assert.equal((await api('imports',{...body,ignoreOwner:false})).status,409);assert.equal((await api('imports',{...body,adminPassword:'wrong'})).status,403);
     const eventResponse=await fetch(origin+endpoint+'events?clientId=observer',{headers:{Authorization:'Bearer phase4-secret'},signal:abort.signal});assert.equal(eventResponse.status,200);
     const reader=eventResponse.body!.getReader(), decoder=new TextDecoder();let events='';

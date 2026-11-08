@@ -5,6 +5,11 @@ import path from 'node:path';
 export const ROOT_DIR = fileURLToPath(new URL('../..', import.meta.url));
 export const SQL_DIR = path.join(ROOT_DIR, 'hub-server/dist/sql');
 
+// PCF history policy: independent of revision clocks, audit logs and receipts.
+export const PCF_HISTORY_COALESCE_MS = 10 * 60 * 1000;
+export const PCF_HISTORY_RECENT_LIMIT = 50;
+export const PCF_HISTORY_TIME_ZONE = 'Asia/Shanghai';
+
 export function readConfig() {
   if (Number(process.versions.node.split('.')[0]) !== 24) {
     throw new Error('PAhub requires Node 24.x (built-in node:sqlite).');
