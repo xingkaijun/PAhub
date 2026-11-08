@@ -1,4 +1,5 @@
 import { createServer, type IncomingMessage, type ServerResponse } from 'node:http';
+import { createHash, timingSafeEqual } from 'node:crypto';
 import { createReadStream } from 'node:fs';
 import { stat, realpath } from 'node:fs/promises';
 import path from 'node:path';
@@ -21,6 +22,18 @@ const MIME: Record<string, string> = {
   '.ico': 'image/x-icon', '.woff': 'font/woff', '.woff2': 'font/woff2', '.txt': 'text/plain; charset=utf-8',
 };
 type Middleware = (req: IncomingMessage, res: ServerResponse, next: (error?: unknown) => void) => void;
+
+// Compare fixed-length digests so neither value nor length leaks through timing.
+function safeEqual(a: string, b: string): boolean {
+  return timingSafeEqual(createHash('sha256').update(a).digest(), createHash('sha256').update(b).digest());
+}
+
+function basicAuthAllows(header: string | undefined, expected: string): boolean {
+  if (!header) return false;
+  const [scheme, encoded] = header.split(' ');
+  if (scheme?.toLowerCase() !== 'basic' || !encoded) return false;
+  return safeEqual(Buffer.from(encoded, 'base64').toString('utf8'), expected);
+}
 
 async function readBody(req: IncomingMessage, limit: number): Promise<Buffer | undefined> {
   if (req.method === 'GET' || req.method === 'HEAD') return undefined;
@@ -79,6 +92,11 @@ export async function createHub(options: { middleware?: Middleware; host?: '127.
   const comments = new ProjectComments(pcf.storage);
   const server = createServer((req, res) => {
     void (async () => {
+      // Optional Basic Auth gate for everything, including static assets and SSE.
+      if (config.basicAuth && !basicAuthAllows(req.headers.authorization, config.basicAuth)) {
+        res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="PAhub", charset="UTF-8"', 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' });
+        res.end('Unauthorized'); return;
+      }
       // Host headers never control routing or API prefix rewriting.
       const url = new URL(req.url || '/', 'http://pahub.local');
       const commentsMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/comments(\.xlsx)?$/);

@@ -280,7 +280,7 @@ const App: React.FC = () => {
     const connectFetch = async () => {
       controller = new AbortController();
       try {
-        const response = await fetch(url, { headers: { Authorization: 'Bearer ' + token }, signal: controller.signal });
+        const response = await fetch(url, { headers: token ? { Authorization: 'Bearer ' + token } : {}, signal: controller.signal });
         if (!response.ok || !response.body) throw Error('Project event stream unavailable');
         retryDelay = 1000; stopPoll(); fullRefresh();
         const reader = response.body.getReader(), decoder = new TextDecoder(); let buffer = '';

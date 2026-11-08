@@ -19,8 +19,12 @@ export function readConfig() {
   const bodyLimit = Number(process.env.MAX_BODY_BYTES || 51 * 1024 * 1024);
   if (!Number.isSafeInteger(bodyLimit) || bodyLimit < 1) throw new Error('Invalid MAX_BODY_BYTES');
   const dataDir = path.resolve(ROOT_DIR, process.env.PAHUB_DATA_DIR || 'data');
+  // Optional gate for public exposure (e.g. frp tcp proxy). Unset means no authentication.
+  const basicAuth = process.env.PAHUB_BASIC_AUTH || '';
+  if (basicAuth && !basicAuth.includes(':')) throw new Error('PAHUB_BASIC_AUTH must be <username>:<password>');
   return {
     port,
+    basicAuth,
     dbPath: path.resolve(ROOT_DIR, process.env.PAPC_DB_PATH || path.join(dataDir, 'papc.db')),
     dataDir,
     distDir: path.resolve(ROOT_DIR, process.env.PAPC_DIST_DIR || 'dist'),
