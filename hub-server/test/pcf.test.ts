@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { JSDOM, VirtualConsole } from 'jsdom';
 import { createHub } from '../src/app.ts';
-import { ROOT_DIR, SQL_DIR } from '../src/config.ts';
+import { ROOT_DIR } from '../src/config.ts';
 import { parseHTML, replaceData, scriptJSON } from '../src/pcf-storage.ts';
 import { blankContent, entity, type PcfData } from '../src/pcf-model.ts';
 
