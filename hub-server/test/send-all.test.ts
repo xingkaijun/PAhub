@@ -102,6 +102,7 @@ test('Send All uses tracker APR only: PCF Approved without APR becomes Waiting R
     });
     root = createRoot(dom.window.document.getElementById('root'));
     await act(async () => root.render(createElement(ReviewTracker)));
+    assert.equal(Array.from(dom.window.document.querySelectorAll('button')).some(button => button.textContent?.includes('Import Builder Replies')), false);
     const send = Array.from(dom.window.document.querySelectorAll('button')).find(button => button.textContent?.includes('Send All'))!;
     assert.ok(send);
     await act(async () => { send.click(); });
@@ -110,6 +111,7 @@ test('Send All uses tracker APR only: PCF Approved without APR becomes Waiting R
     assert.match(confirmation, /1 张 → Waiting Reply/);
     assert.match(confirmation, /2 张图纸/);
     assert.equal(packed, true);
+    assert.ok(Array.from(dom.window.document.querySelectorAll('button')).some(button => button.textContent?.includes('Download Again')));
     const state = useStore.getState();
     assert.deepEqual(state.data.projects[0].drawings.map((drawing: any) => drawing.status), ['Approved', 'Waiting Reply']);
     assert.deepEqual(state.reviewTracker, { 'with-apr': { Engineer: { done: false }, __approved__: { done: false } }, 'without-apr': { Engineer: { done: false } } });
@@ -140,7 +142,7 @@ test('Send All authenticated batch ZIP, latest rev, skipped/collision manifest, 
     const p = 'proj-test-001', origin = 'http://127.0.0.1:' + hub.port;
     const api = async (route: string, body?: any, auth = true) => fetch(origin + '/api/pcf/' + p + '/' + route, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', ...(auth ? { Authorization: 'Bearer send-all-token' } : {}) }, body: body ? JSON.stringify({ clientId: 'send-all-test', clientName: 'Reviewer', ...body }) : undefined });
     const json = async (route: string, body?: any) => { const r = await api(route, body); assert.equal(r.status, 200, await r.clone().text()); return r.json() as Promise<any>; };
-    db.prepare('UPDATE drawings SET drawing_no=?,title=? WHERE id IN (?,?)').run('中文/主图', 'Title, "quoted"', 'dwg-001', 'dwg-002');
+    db.prepare('UPDATE drawings SET custom_id=?,drawing_no=?,title=? WHERE id IN (?,?)').run('ID-01', '中文/主图', 'Title, "quoted"', 'dwg-001', 'dwg-002');
     await json('dwg-001/create', {}); await json('dwg-002/create', {});
     for (const [id, approval] of [['dwg-001', 'Approved'], ['dwg-002', 'Under review']]) {
       const live = await json(id + '/data');
@@ -172,10 +174,10 @@ test('Send All authenticated batch ZIP, latest rev, skipped/collision manifest, 
     assert.equal((await api('exports/batch', { drawingIds: ['dwg-001','foreign-drawing'], batchId: randomUUID() })).status, 400);
     assert.equal(db.prepare('SELECT COUNT(*) AS n FROM pcf_exports').get()!.n, 0);
     const response = await api('exports/batch', { drawingIds, batchId }); assert.equal(response.status, 200);
-    assert.match(response.headers.get('Content-Disposition')!, /filename\*=UTF-8''/);
+    assert.match(response.headers.get('Content-Disposition')!, /PG-VLEC-H2684_SendAll_\d{8}-\d{4}\.zip/);
     const entries = unzip(Buffer.from(await response.arrayBuffer())); assert.equal(entries.size, 3);
     const names = [...entries.keys()].filter(x => x.endsWith('.html'));
-    assert.match(names[0], /^中文-主图_A_PCF_\d{8}\.html$/); assert.match(names[1], /_2\.html$/);
+    assert.equal(names[0], 'ID-01-中文-主图-Title, -quoted--A-A.html'); assert.equal(names[1], 'ID-01-中文-主图-Title, -quoted--A-A_2.html');
     const bytes = entries.get('manifest.csv')!; assert.deepEqual([...bytes.subarray(0, 3)], [0xef, 0xbb, 0xbf]);
     assert.equal(bytes.toString('utf8').split('\r\n')[0].slice(1), 'drawingNo,title,round,approval,total,open,baseRev,exportId,file,status,reason');
     const manifest = csv(bytes.toString('utf8').slice(1));

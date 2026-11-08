@@ -5,10 +5,18 @@ import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig(({ mode }) => {
   const env = loadEnv(mode, '.', '');
+  // Runtime PCFs and import previews are data, not frontend source. Watching
+  // their HTML files causes a full reload and sends users back to project selection.
+  // Match the backend's process.env paths, including custom data/database locations.
+  const dataDir = path.resolve(__dirname, process.env.PAHUB_DATA_DIR || 'data').replace(/\\/g, '/');
+  const dbPath = path.resolve(__dirname, process.env.PAPC_DB_PATH || path.join(dataDir, 'papc.db')).replace(/\\/g, '/');
   return {
     server: {
       port: 3000,
       host: '0.0.0.0',
+      watch: {
+        ignored: [dataDir, dataDir + '/**', dbPath, dbPath + '-wal', dbPath + '-shm', dbPath + '-journal'],
+      },
       proxy: {
         '/api': {
           target: 'http://localhost:3001',

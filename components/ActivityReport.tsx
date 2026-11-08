@@ -1,13 +1,15 @@
 import React, { useState, useMemo } from 'react';
 import { useStore } from '../store';
+import type { Project } from '../types';
+import { ActivityCommentsPages, useActivityComments } from './ActivityCommentsReport';
 import { HEALTH_COLORS, HEALTH_LABELS, ReportPage } from './reportLayout';
 import { format, subDays, startOfDay, endOfDay, parseISO, eachWeekOfInterval, eachDayOfInterval, endOfWeek, differenceInDays } from 'date-fns';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
-  PieChart, Pie, Cell, AreaChart, Area, Legend, LabelList
+  PieChart, Pie, Cell, AreaChart, Area, Legend
 } from 'recharts';
 import {
-  TrendingUp, CheckCircle, Search, Hash, Clock, MessageSquare, Printer, Calendar as CalendarIcon, Filter, Star, FileText
+  TrendingUp, CheckCircle, Search, Hash, MessageSquare, Printer, Calendar as CalendarIcon, RefreshCw, Star, FileText
 } from 'lucide-react';
 
 const formatDiscipline = (disc: string) => {
@@ -67,19 +69,25 @@ const LegendItem: React.FC<{ color: string; label: string; count?: number; total
 export const ActivityReport: React.FC = () => {
   const { data, activeProjectId } = useStore();
   const activeProject = data.projects.find(p => p.id === activeProjectId);
+  if (!activeProject) return <div className="p-20 text-center text-slate-400 font-black uppercase tracking-widest">Select a project to view reports.</div>;
+  return <ProjectActivityReport key={activeProject.id} activeProject={activeProject} />;
+};
 
+const ProjectActivityReport: React.FC<{ activeProject: Project }> = ({ activeProject }) => {
   const [timeRange, setTimeRange] = useState<number>(14);
   const [customRange, setCustomRange] = useState<{ start: string; end: string } | null>(null);
-
-  if (!activeProject) return <div className="p-20 text-center text-slate-400 font-black uppercase tracking-widest">Select a project to view reports.</div>;
+  const comments = useActivityComments(activeProject.id);
 
   const drawings = activeProject.drawings;
   const projectName = activeProject.name;
 
   // --- 时间范围计算 ---
   const now = new Date();
-  const rangeEnd = customRange?.end ? endOfDay(parseISO(customRange.end)) : endOfDay(now);
-  const rangeStart = customRange?.start ? startOfDay(parseISO(customRange.start)) : startOfDay(subDays(now, timeRange - 1));
+  const requestedStart = customRange?.start ? startOfDay(parseISO(customRange.start)) : startOfDay(subDays(now, timeRange - 1));
+  const requestedEnd = customRange?.end ? endOfDay(parseISO(customRange.end)) : endOfDay(now);
+  const validRange = (!customRange || !!customRange.start && !!customRange.end) && Number.isFinite(requestedStart.getTime()) && Number.isFinite(requestedEnd.getTime()) && requestedStart <= requestedEnd;
+  const rangeStart = validRange ? requestedStart : startOfDay(subDays(now, timeRange - 1));
+  const rangeEnd = validRange ? requestedEnd : endOfDay(now);
   const interval = { start: rangeStart, end: rangeEnd };
   const rangeLabel = `${format(rangeStart, 'yyyy/MM/dd')} – ${format(rangeEnd, 'yyyy/MM/dd')}`;
 
@@ -95,11 +103,9 @@ export const ActivityReport: React.FC = () => {
     const reviewing = drawings.filter(d => d.status === 'Reviewing').length;
     const waiting = drawings.filter(d => d.status === 'Waiting Reply').length;
     const approved = drawings.filter(d => d.status === 'Approved').length;
-    const totalComments = drawings.reduce((a, d) => a + (d.manualCommentsCount || 0), 0);
-    const openComments = drawings.reduce((a, d) => a + (d.manualOpenCommentsCount || 0), 0);
     const issued = total - pending;
     const completion = total > 0 ? Math.round((approved / total) * 100) : 0;
-    return { total, pending, reviewing, waiting, approved, totalComments, openComments, issued, completion };
+    return { total, pending, reviewing, waiting, approved, issued, completion };
   }, [drawings]);
 
   // --- 从 statusHistory 聚合事件 ---
@@ -169,19 +175,6 @@ export const ActivityReport: React.FC = () => {
     return { timeline, flow, disciplineRank, transitionTable, totalEvents: events.length };
   }, [drawings, rangeStart, rangeEnd]);
 
-  // --- Comments 数据 ---
-  const disciplineMainData = useMemo(() => {
-    const map = new Map<string, { name: string; totalComments: number; openComments: number }>();
-    drawings.forEach(d => {
-      const disc = formatDiscipline(d.discipline);
-      const e = map.get(disc) || { name: disc, totalComments: 0, openComments: 0 };
-      e.totalComments += (d.manualCommentsCount || 0);
-      e.openComments += (d.manualOpenCommentsCount || 0);
-      map.set(disc, e);
-    });
-    return Array.from(map.values());
-  }, [drawings]);
-
   // --- 各 discipline 的变化趋势 (动态颗粒度) ---
   const activityTrends = useMemo(() => {
     const reportDays = differenceInDays(rangeEnd, rangeStart);
@@ -200,11 +193,10 @@ export const ActivityReport: React.FC = () => {
           ? endOfDay(intervalStart)
           : endOfWeek(intervalStart, { weekStartsOn: 1 });
         
-        // 我们需要计算截至 `intervalEnd` 时，这个专业下图纸的状态分布和 open comments 数量
+        // Drawing status histories are separate from the current comment snapshot.
         let approved = 0;
         let reviewing = 0;
         let waiting = 0;
-        let openCmt = 0;
 
         discDrawings.forEach(d => {
           // 寻找该图纸在 intervalEnd 及之前的最后一条状态记录
@@ -213,20 +205,11 @@ export const ActivityReport: React.FC = () => {
             .sort((a, b) => parseISO(a.createdAt).getTime() - parseISO(b.createdAt).getTime());
 
           let currentStatusAtTime = 'Pending';
-          let drawingOpenCmt = 0;
 
           historyBeforeOrAtEnd.forEach(h => {
              if (h.content.includes('Status:')) {
                const m = h.content.match(/Status: .* -> (.*)/);
                if (m) currentStatusAtTime = m[1].trim();
-             }
-             if (h.content.includes('Comments:')) {
-               // 格式: "Comments: total/open -> total/open"
-               // 提取箭头右侧的 open 值作为该时间点的最新 open comments
-               const match = h.content.match(/->\s*(\d+)\s*\/\s*(\d+)/);
-               if (match) {
-                 drawingOpenCmt = parseInt(match[2], 10);
-               }
              }
           });
 
@@ -234,15 +217,13 @@ export const ActivityReport: React.FC = () => {
           else if (currentStatusAtTime.includes('Review')) reviewing++;
           else if (currentStatusAtTime.includes('Waiting')) waiting++;
           
-          openCmt += drawingOpenCmt;
         });
 
         return { 
           date: format(intervalStart, 'MM/dd'), 
           approvedCount: approved,
           reviewingCount: reviewing,
-          waitingCount: waiting,
-          openComments: openCmt
+          waitingCount: waiting
         };
       });
 
@@ -250,17 +231,8 @@ export const ActivityReport: React.FC = () => {
       const latestApproved = discDrawings.filter(d => d.status === 'Approved').length;
       const latestReviewing = discDrawings.filter(d => d.status === 'Reviewing').length;
       const latestWaiting = discDrawings.filter(d => d.status === 'Waiting Reply').length;
-      const latestOpen = discDrawings.reduce((a, d) => a + (d.manualOpenCommentsCount || 0), 0);
 
-      // 通过修正最后一个周期的数据为当前最新的精确值，防止回放误差
-      if (intervalData.length > 0) {
-         intervalData[intervalData.length - 1].approvedCount = latestApproved;
-         intervalData[intervalData.length - 1].reviewingCount = latestReviewing;
-         intervalData[intervalData.length - 1].waitingCount = latestWaiting;
-         intervalData[intervalData.length - 1].openComments = latestOpen;
-      }
-
-      return { discipline: disc, isDaily, intervalData, latest: { approved: latestApproved, reviewing: latestReviewing, waiting: latestWaiting, openComments: latestOpen } };
+      return { discipline: disc, isDaily, intervalData, latest: { approved: latestApproved, reviewing: latestReviewing, waiting: latestWaiting } };
     });
   }, [drawings, derivedDisciplines, rangeStart, rangeEnd]);
 
@@ -308,38 +280,6 @@ export const ActivityReport: React.FC = () => {
     return { data, isProgressDaily };
   }, [drawings, rangeStart, rangeEnd]);
 
-  // --- Discipline Progress Heatmap: 各专业每周审批完成率 ---
-  const heatmapData = useMemo(() => {
-    const weeks = eachWeekOfInterval({ start: rangeStart, end: rangeEnd }, { weekStartsOn: 1 });
-    const weekLabels = weeks.map(w => format(w, 'MM/dd'));
-
-    const rows = derivedDisciplines.map(disc => {
-      const discDrawings = drawings.filter(d => formatDiscipline(d.discipline) === disc);
-      const total = discDrawings.length;
-      const cells = weeks.map(weekStart => {
-        const wEnd = endOfWeek(weekStart, { weekStartsOn: 1 });
-        let approved = 0;
-        discDrawings.forEach(d => {
-          const history = (d.statusHistory || [])
-            .filter(h => parseISO(h.createdAt).getTime() <= wEnd.getTime())
-            .sort((a, b) => parseISO(a.createdAt).getTime() - parseISO(b.createdAt).getTime());
-          let st = 'Pending';
-          history.forEach(h => {
-            if (h.content.includes('Status:')) {
-              const m = h.content.match(/Status: .* -> (.*)/);
-              if (m) st = m[1].trim();
-            }
-          });
-          if (st === 'Approved') approved++;
-        });
-        return total > 0 ? Math.round((approved / total) * 100) : 0;
-      });
-      return { discipline: disc, cells, total };
-    });
-
-    return { weekLabels, rows };
-  }, [drawings, derivedDisciplines, rangeStart, rangeEnd]);
-
   // --- Velocity: 动态颗粒度 新提交 vs 新审批 ---
   const { velocityData, isVelocityDaily } = useMemo(() => {
     const reportDays = differenceInDays(rangeEnd, rangeStart);
@@ -376,10 +316,11 @@ export const ActivityReport: React.FC = () => {
   const summaryPages = hasSummary ? 1 : 0;
   const healthPages = Math.ceil(derivedDisciplines.length / 8);
   const trendPages = Math.ceil(activityTrends.length / 2);
-  const totalPages = (summaryPages + 3) + healthPages + trendPages;
+  const commentPages = (comments.report?.overviewPages || 1) + 1;
+  const totalPages = summaryPages + 3 + commentPages + healthPages + trendPages;
 
   return (
-    <div className="h-full flex flex-col overflow-hidden">
+    <div className="activity-report h-full flex flex-col overflow-hidden">
       {/* ===== 设置控制栏（不打印） ===== */}
       <div className="no-print px-6 py-4 bg-white border-b border-slate-200 shrink-0">
         <div className="max-w-[210mm] mx-auto">
@@ -429,18 +370,27 @@ export const ActivityReport: React.FC = () => {
                 </button>
               )}
 
-              {/* 打印按钮 */}
-              <button onClick={() => window.print()}
-                className="flex items-center gap-2 px-4 py-2 bg-[linear-gradient(135deg,#005c55_0%,#0f766e_100%)] hover:brightness-105 text-white rounded-full text-[10px] font-black uppercase tracking-[0.18em] transition-all shadow-[0_12px_24px_-16px_rgba(13,148,136,0.45)] active:scale-95">
+              <button type="button" onClick={comments.refresh} disabled={comments.loading}
+                className="flex items-center gap-2 rounded-full border border-slate-200 px-3 py-2 text-[10px] font-bold text-slate-600 disabled:opacity-50">
+                <RefreshCw size={13} className={comments.loading ? 'animate-spin motion-reduce:animate-none' : ''} />{comments.loading ? 'Loading comments…' : 'Refresh comments'}
+              </button>
+              <button onClick={() => window.print()} disabled={comments.loading || !comments.data || comments.stale || !validRange}
+                title="Load a current comments snapshot and a valid date range before printing."
+                className="flex items-center gap-2 px-4 py-2 bg-[linear-gradient(135deg,#005c55_0%,#0f766e_100%)] hover:brightness-105 text-white rounded-full text-[10px] font-black uppercase tracking-[0.18em] transition-all shadow-[0_12px_24px_-16px_rgba(13,148,136,0.45)] active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed">
                 <Printer size={14} /> Print / Export
               </button>
             </div>
           </div>
+          <p className="mt-3 text-[10px] text-slate-500">Date controls apply to drawing activity only. Comment pages show the latest loaded snapshot of all project comments.</p>
+          {!validRange && <p role="alert" className="mt-2 text-xs text-rose-700">Enter a valid start and end date with the start no later than the end. The default range is shown until corrected.</p>}
+          {(comments.error || comments.stale || comments.offline) && <div role={comments.error ? 'alert' : 'status'} className="mt-2 flex items-center justify-between gap-3 rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-[11px] text-amber-900">
+            <span>{comments.error || (comments.stale ? 'Project changes detected. Refresh the comments snapshot before issuing this report.' : 'Live change notices are unavailable. Refresh comments before issuing this report.')}{comments.error && comments.data ? ' The previous successful snapshot is retained.' : ''}</span>
+          </div>}
         </div>
       </div>
 
       {/* ===== A4 报告内容（可滚动 + 可打印） ===== */}
-      <div className="flex-1 overflow-y-auto bg-slate-100 print:bg-white print:overflow-visible">
+      <div className="activity-report-scroll flex-1 overflow-y-auto bg-slate-100 print:bg-white print:overflow-visible">
 
         {/* ===== PAGE 0: PROJECT SUMMARY (conditional) ===== */}
         {hasSummary && (() => {
@@ -636,7 +586,7 @@ export const ActivityReport: React.FC = () => {
             <div className="grid grid-cols-3 gap-3">
               <StatCard label="Approved" value={stats.approved} icon={<CheckCircle size={14} className="text-emerald-500" />} color="emerald" />
               <StatCard label="Completion" value={`${stats.completion}%`} icon={<TrendingUp size={14} className="text-teal-500" />} color="emerald" />
-              <StatCard label="Comments Status" value={`${stats.totalComments - stats.openComments} / ${stats.totalComments}`} icon={<MessageSquare size={14} className="text-indigo-500" />} color="indigo" />
+              <StatCard label="Closed / Total Comments" value={comments.report ? `${comments.report.closed} / ${comments.report.total}` : '—'} icon={<MessageSquare size={14} className="text-indigo-500" />} color="indigo" />
             </div>
 
             {/* 状态分布饼图 */}
@@ -681,7 +631,7 @@ export const ActivityReport: React.FC = () => {
                           <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
                         </linearGradient>
                       </defs>
-                      <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                      <CartesianGrid vertical={false} stroke="#e2e8f0" />
                       <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 8, fontWeight: 900, fill: '#94a3b8' }} />
                       <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 8, fontWeight: 900, fill: '#94a3b8' }} />
                       <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontSize: '10px', fontWeight: 700 }} />
@@ -738,7 +688,7 @@ export const ActivityReport: React.FC = () => {
               <div className="h-[200px] bg-slate-50/50 rounded-2xl p-4 border border-slate-100 shrink-0">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={eventData.timeline} margin={{ top: 20, right: 10, left: -30, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="2 2" vertical={false} stroke="#e2e8f0" />
+                    <CartesianGrid vertical={false} stroke="#e2e8f0" />
                     <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 8, fontWeight: 900, fill: '#94a3b8' }} />
                     <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 8, fill: '#94a3b8' }} />
                     <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontSize: '10px', fontWeight: 700 }} cursor={{ fill: '#f8fafc' }} />
@@ -780,38 +730,18 @@ export const ActivityReport: React.FC = () => {
           </div>
         </ReportPage>
 
-        {/* ===== PAGE 3: COMMENTS + VELOCITY ===== */}
-        <ReportPage pageNumber={summaryPages + 3} totalPages={totalPages} projectName={projectName}>
-          <div className="flex flex-col gap-8">
-            {/* Discipline Comments 条形图 */}
-            <div className="flex flex-col gap-3 shrink-0">
-              <h3 className="text-[10px] font-[1000] text-slate-800 uppercase tracking-widest border-l-4 border-indigo-500 pl-4">Discipline Comments Status</h3>
-              <div className="h-[375px] bg-slate-50/50 rounded-2xl p-6 border border-slate-100">
-                <ResponsiveContainer width="100%" height="100%">
-                  <BarChart data={disciplineMainData} layout="vertical" margin={{ top: 0, right: 40, left: 10, bottom: 0 }} barGap={2}>
-                    <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#e2e8f0" />
-                    <XAxis type="number" axisLine={false} tickLine={false} tick={{ fontSize: 9, fill: '#94a3b8', fontWeight: 600 }} />
-                    <YAxis dataKey="name" type="category" axisLine={false} tickLine={false} width={120} tick={{ fontSize: 9, fill: '#475569', fontWeight: 800 }} />
-                    <Tooltip cursor={{ fill: '#f1f5f9', radius: 4 }} contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0/0.1)', padding: '10px' }} itemStyle={{ fontSize: '10px', fontWeight: 700 }} />
-                    <Legend verticalAlign="top" align="right" iconType="circle" wrapperStyle={{ fontSize: '9px', fontWeight: 900, textTransform: 'uppercase', paddingBottom: '15px' }} />
-                    <Bar dataKey="totalComments" name="Total Comments" fill="#cbd5e1" radius={[0, 4, 4, 0]} barSize={10}>
-                      <LabelList dataKey="totalComments" position="right" style={{ fill: '#cbd5e1', fontSize: 9, fontWeight: 900 }} />
-                    </Bar>
-                    <Bar dataKey="openComments" name="Open Comments" fill="#ef4444" radius={[0, 4, 4, 0]} barSize={10}>
-                      <LabelList dataKey="openComments" position="right" style={{ fill: '#ef4444', fontSize: 9, fontWeight: 900 }} />
-                    </Bar>
-                  </BarChart>
-                </ResponsiveContainer>
-              </div>
-            </div>
+        <ActivityCommentsPages state={comments} projectName={projectName} startPage={summaryPages + 3} totalPages={totalPages} />
 
+        <ReportPage pageNumber={summaryPages + 3 + commentPages} totalPages={totalPages} projectName={projectName}>
+          <div className="flex flex-col gap-8">
             {/* Weekly Velocity (原 Page 4 挪动于此) */}
             <div className="flex flex-col gap-3 shrink-0">
-              <h3 className="text-[10px] font-[1000] text-slate-800 uppercase tracking-widest border-l-4 border-cyan-500 pl-4">Weekly Velocity</h3>
+              <h3 className="text-[10px] font-[1000] text-slate-800 uppercase tracking-widest border-l-4 border-cyan-500 pl-4">{isVelocityDaily ? 'Daily' : 'Weekly'} Drawing Activity</h3>
+              <p className="text-[10px] text-slate-500">Drawing status transitions during {rangeLabel}. Repeated transitions are counted as events, not unique drawings.</p>
               <div className="h-[250px] bg-slate-50/50 rounded-2xl p-6 border border-slate-100">
                 <ResponsiveContainer width="100%" height="100%">
                   <BarChart data={velocityData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                    <CartesianGrid vertical={false} stroke="#e2e8f0" />
                     <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 8, fontWeight: 900, fill: '#94a3b8' }} />
                     <YAxis axisLine={false} tickLine={false} tick={{ fontSize: 8, fontWeight: 900, fill: '#94a3b8' }} />
                     <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)', fontSize: '10px', fontWeight: 700 }} cursor={{ fill: '#f8fafc' }} />
@@ -827,7 +757,7 @@ export const ActivityReport: React.FC = () => {
 
         {/* ===== HEALTH PAGES ===== */}
         {Array.from({ length: healthPages }).map((_, hpIdx) => (
-          <ReportPage key={`health-${hpIdx}`} pageNumber={summaryPages + 4 + hpIdx} totalPages={totalPages} projectName={projectName}>
+          <ReportPage key={`health-${hpIdx}`} pageNumber={summaryPages + 4 + commentPages + hpIdx} totalPages={totalPages} projectName={projectName}>
             <div className="flex flex-col gap-6">
               <div className="flex items-center justify-between border-l-4 border-emerald-500 pl-4">
                 <h3 className="text-[10px] font-[1000] text-slate-800 uppercase tracking-widest">Discipline Status {healthPages > 1 ? `(${hpIdx + 1}/${healthPages})` : ''}</h3>
@@ -879,10 +809,10 @@ export const ActivityReport: React.FC = () => {
 
         {/* ===== TREND PAGES ===== */}
         {Array.from({ length: trendPages }).map((_, tpIdx) => (
-          <ReportPage key={`trend-${tpIdx}`} pageNumber={summaryPages + 5 + healthPages + tpIdx} totalPages={totalPages} projectName={projectName}>
+          <ReportPage key={`trend-${tpIdx}`} pageNumber={summaryPages + 4 + commentPages + healthPages + tpIdx} totalPages={totalPages} projectName={projectName}>
             <div className="flex flex-col gap-10">
               <div className="flex items-center justify-between border-l-4 border-indigo-600 pl-4">
-                <h3 className="text-[10px] font-[1000] text-slate-800 uppercase tracking-widest">Activity Trends</h3>
+                <h3 className="text-[10px] font-[1000] text-slate-800 uppercase tracking-widest">Drawing Status Trends</h3>
               </div>
               <div className="flex flex-col gap-10">
                 {activityTrends.slice(tpIdx * 2, tpIdx * 2 + 2).map(trend => (
@@ -898,21 +828,18 @@ export const ActivityReport: React.FC = () => {
                         <MiniMetric label="Approved" value={trend.latest.approved} color="text-emerald-500" />
                         <MiniMetric label="Reviewing" value={trend.latest.reviewing} color="text-amber-500" />
                         <MiniMetric label="Sent Out" value={trend.latest.waiting} color="text-blue-500" />
-                        <MiniMetric label="Open Cmt" value={trend.latest.openComments} color="text-red-500" />
                       </div>
                     </div>
                     <div className="h-[200px] w-full bg-slate-50/20 rounded-2xl p-2 border border-slate-100/50 shrink-0">
                       <ResponsiveContainer width="100%" height="100%">
                         <AreaChart data={trend.intervalData} margin={{ top: 10, right: 10, left: -10, bottom: 0 }}>
-                          <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                          <CartesianGrid vertical={false} stroke="#e2e8f0" />
                           <XAxis dataKey="date" axisLine={false} tickLine={false} tick={{ fontSize: 8, fontWeight: 900, fill: '#94a3b8' }} />
-                          <YAxis yAxisId="left" axisLine={false} tickLine={false} tick={{ fontSize: 8, fontWeight: 900, fill: '#ef4444' }} />
-                          <YAxis yAxisId="right" orientation="right" axisLine={false} tickLine={false} tick={{ fontSize: 8, fontWeight: 900, fill: '#64748b' }} />
+                          <YAxis allowDecimals={false} axisLine={false} tickLine={false} tick={{ fontSize: 8, fontWeight: 900, fill: '#64748b' }} />
                           <Tooltip contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0/0.1)', fontSize: '9px' }} itemStyle={{ padding: 0 }} />
-                          <Area yAxisId="right" type="monotone" dataKey="approvedCount" name="Approved" stroke="#10b981" strokeWidth={2} fill="#10b981" fillOpacity={0.05} />
-                          <Area yAxisId="right" type="monotone" dataKey="reviewingCount" name="Reviewing" stroke="#eab308" strokeWidth={2} fill="#eab308" fillOpacity={0.1} />
-                          <Area yAxisId="right" type="monotone" dataKey="waitingCount" name="Sent Out" stroke="#3b82f6" strokeWidth={2} fill="#3b82f6" fillOpacity={0.05} />
-                          <Area yAxisId="left" type="monotone" dataKey="openComments" name="Open Comments" stroke="#ef4444" strokeWidth={2} strokeDasharray="4 4" fill="transparent" />
+                          <Area type="monotone" dataKey="approvedCount" name="Approved" stroke="#10b981" strokeWidth={2} fill="#10b981" fillOpacity={0.05} />
+                          <Area type="monotone" dataKey="reviewingCount" name="Reviewing" stroke="#eab308" strokeWidth={2} fill="#eab308" fillOpacity={0.1} />
+                          <Area type="monotone" dataKey="waitingCount" name="Sent Out" stroke="#3b82f6" strokeWidth={2} fill="#3b82f6" fillOpacity={0.05} />
                           <Legend iconType="circle" wrapperStyle={{ fontSize: '8px', fontWeight: 900, textTransform: 'uppercase' }} />
                         </AreaChart>
                       </ResponsiveContainer>

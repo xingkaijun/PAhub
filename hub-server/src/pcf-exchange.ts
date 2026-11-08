@@ -84,7 +84,7 @@ export class PcfExchange {
     const ids = rawIds.map(value => safeId(value));
     if (new Set(ids).size !== ids.length) fail('drawingIds must be unique');
     const drawings = this.storage.db.prepare(
-      'SELECT d.id,d.drawing_no,d.title,d.current_round,p.name AS project_name FROM drawings d JOIN projects p ON p.id=d.project_id WHERE d.project_id=? AND COALESCE(d._deleted,0)=0'
+      'SELECT d.id,d.custom_id,d.drawing_no,d.title,d.current_round,p.name AS project_name FROM drawings d JOIN projects p ON p.id=d.project_id WHERE d.project_id=? AND COALESCE(d._deleted,0)=0'
     ).all(p) as any[];
     const byId = new Map(drawings.map(row => [String(row.id), row]));
     // Validate the entire selection before creating even the first export.
@@ -116,7 +116,8 @@ export class PcfExchange {
           const exportId = randomUUID();
           files.push(path.join(this.dir(p, id), exportId + '.html'));
           const record = this.create(p, id, actor, exportId);
-          const base = safeName(drawing.drawing_no, id) + '_' + roundToLetters(record.round) + '_PCF_' + date;
+          const current: any = this.storage.db.prepare('SELECT version,current_round FROM drawings WHERE project_id=? AND id=?').get(p, id);
+          const base = [drawing.custom_id || id, drawing.drawing_no, drawing.title, current.version, current.current_round].map(value => safeName(value, '')).join('-');
           let file = base + '.html', suffix = 2;
           while (used.has(file.toLowerCase())) file = base + '_' + suffix++ + '.html';
           used.add(file.toLowerCase());

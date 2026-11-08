@@ -5,7 +5,6 @@ import type { SentDrawingExpectation } from '../store';
 import { RefreshCw, CheckCircle2, Circle, ClipboardCheck, Search, ChevronDown, ChevronRight, Cloud, Lock, Unlock, Send, Award, Flame, FileSpreadsheet, Download } from 'lucide-react';
 import { differenceInCalendarDays, format, isAfter } from 'date-fns';
 import type { Drawing } from '../types';
-import { BuilderRepliesImport } from './BuilderRepliesImport';
 
 const REVIEW_TRACKER_LAYOUT_STORAGE_KEY = 'review-tracker-layout-single-column';
 
@@ -413,9 +412,32 @@ export const ReviewTracker: React.FC = () => {
                 </div>
 
                 {/* 标题 */}
-                <span className="text-[11px] font-bold text-slate-500 truncate flex-1 min-w-0">
-                    {drawing.title}
-                </span>
+                {import.meta.env.MODE === 'hub' ? (
+                    <a
+                        href={'/pcf/' + encodeURIComponent(currentProject.id) + '/' + encodeURIComponent(drawing.id)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[11px] font-bold text-slate-500 truncate flex-1 min-w-0 hover:text-teal-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 rounded"
+                        title={`Open PCF: ${drawing.title || drawing.drawingNo}`}
+                        onClick={async e => {
+                            const token = import.meta.env.VITE_DATA_API_TOKEN?.trim();
+                            if (!token) return;
+                            e.preventDefault();
+                            const href = e.currentTarget.href, tab = window.open('about:blank', '_blank');
+                            try {
+                                const response = await fetch('/api/pcf/' + encodeURIComponent(currentProject.id) + '/' + encodeURIComponent(drawing.id) + '/session', { method: 'POST', headers: { Authorization: 'Bearer ' + token } });
+                                if (!response.ok) throw Error('PCF access failed: ' + response.status);
+                                if (tab) { tab.opener = null; tab.location.href = href; } else window.location.href = href;
+                            } catch (error) { tab?.close(); alert(String(error)); }
+                        }}
+                    >
+                        {drawing.title || drawing.drawingNo}
+                    </a>
+                ) : (
+                    <span className="text-[11px] font-bold text-slate-500 truncate flex-1 min-w-0">
+                        {drawing.title}
+                    </span>
+                )}
 
                 <div className="shrink-0">
                     {drawing.reviewDeadline ? (
@@ -525,16 +547,15 @@ export const ReviewTracker: React.FC = () => {
                     </div>
                 </div>
                 <div className="flex items-center gap-2 flex-wrap justify-end">
-                    {activeProjectId && <BuilderRepliesImport projectId={activeProjectId} />}
                     {lastSendBatch?.projectId === activeProjectId && (
                         <button
                             onClick={retryBatchDownload}
                             disabled={isSending}
                             className={`${softActionClass} bg-amber-50 text-amber-800 border-amber-200 hover:bg-amber-100 disabled:opacity-60`}
-                            title={packError || '重新生成并下载本次 Send All 的 PCF 压缩包'}
+                            title={packError || 'Regenerate and download this Send All PCF archive'}
                         >
                             <Download size={14} />
-                            {sendPhase === 'packing' ? 'Packing...' : '重新下载本次打包'}
+                            {sendPhase === 'packing' ? 'Packing...' : 'Download Again'}
                         </button>
                     )}
                     {/* 同步按钮 */}

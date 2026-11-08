@@ -141,10 +141,10 @@ const TOOLBAR = `<script id="pahub-banner-toolbar">
 
     /* PAPC capsule: a dark translucent pill holding rounded-full buttons. */
     header.banner.pahub-unified .capsule { display:flex; flex:0 0 auto; align-items:center; gap:2px; width:max-content; max-width:none; margin:0; padding:4px; border:1px solid rgba(255,255,255,.10)!important; border-radius:999px!important; background:rgba(0,0,0,.15)!important; box-shadow:inset 0 2px 4px rgba(0,0,0,.10)!important; backdrop-filter:blur(4px); }
-    header.banner.pahub-unified .capsule :is(button,.banner-menu > button,.pahub-io > button) { display:inline-flex!important; align-items:center; justify-content:center; gap:6px!important; height:30px!important; min-height:30px!important; min-width:0!important; padding:0 11px!important; margin:0!important; border:0!important; border-radius:999px!important; background:transparent!important; color:rgba(240,253,250,.78)!important; font:900 10px/1 var(--font)!important; letter-spacing:.07em!important; text-transform:uppercase!important; white-space:nowrap; box-shadow:none!important; transition:background-color .2s,color .2s,box-shadow .2s; cursor:pointer; }
-    header.banner.pahub-unified .capsule :is(button,.banner-menu > button,.pahub-io > button):hover:not(:disabled) { background:rgba(255,255,255,.12)!important; color:#fff!important; }
+    header.banner.pahub-unified :is(.capsule,.capsule > .banner-menu,.capsule > .pahub-io) > button { display:inline-flex!important; align-items:center; justify-content:center; gap:6px!important; height:30px!important; min-height:30px!important; min-width:0!important; padding:0 11px!important; margin:0!important; border:0!important; border-radius:999px!important; background:transparent!important; color:rgba(240,253,250,.78)!important; font:900 10px/1 var(--font)!important; letter-spacing:.07em!important; text-transform:uppercase!important; white-space:nowrap; box-shadow:none!important; transition:background-color .2s,color .2s,box-shadow .2s; cursor:pointer; }
+    header.banner.pahub-unified :is(.capsule,.capsule > .banner-menu,.capsule > .pahub-io) > button:hover:not(:disabled) { background:rgba(255,255,255,.12)!important; color:#fff!important; }
     header.banner.pahub-unified .capsule button:disabled { opacity:.45; cursor:not-allowed; }
-    header.banner.pahub-unified .capsule button:focus-visible { outline:2px solid #fff; outline-offset:1px; }
+    header.banner.pahub-unified :is(.capsule,.capsule > .banner-menu,.capsule > .pahub-io) > button:focus-visible { outline:2px solid #fff; outline-offset:1px; }
     header.banner.pahub-unified .capsule .banner-menu.menu-open > button,
     header.banner.pahub-unified .capsule .pahub-io.io-open > button { background:rgba(255,255,255,.12)!important; color:#fff!important; }
 
@@ -163,8 +163,6 @@ const TOOLBAR = `<script id="pahub-banner-toolbar">
     header.banner.pahub-unified .capsule #pahub-exchange { padding:0 11px!important; }
     header.banner.pahub-unified .pahub-io .io-panel { position:absolute; top:calc(100% + 9px); left:0; z-index:150; width:max-content; min-width:200px; max-width:calc(100vw - 16px); padding:6px; border:1px solid var(--line); border-radius:12px; background:var(--surface); color:var(--ink); box-shadow:0 18px 40px -18px rgba(0,0,0,.45); display:flex; flex-direction:column; gap:2px; }
     header.banner.pahub-unified .pahub-io .io-panel[hidden] { display:none; }
-    header.banner.pahub-unified .pahub-io .io-panel button { display:flex!important; justify-content:flex-start!important; height:34px!important; padding:0 12px!important; border-radius:8px!important; color:var(--ink)!important; letter-spacing:.06em!important; }
-    header.banner.pahub-unified .pahub-io .io-panel button:hover:not(:disabled) { background:var(--green-soft, rgba(15,118,110,.1))!important; color:var(--ink)!important; }
 
     header.banner.pahub-unified .capsule svg { width:13px!important; height:13px!important; flex:0 0 13px!important; }
     header.banner.pahub-unified .capsule svg.menu-chevron { width:10px!important; height:10px!important; flex:0 0 10px!important; }
@@ -172,8 +170,10 @@ const TOOLBAR = `<script id="pahub-banner-toolbar">
     header.banner.pahub-unified #save-menu-btn::before, header.banner.pahub-unified :is(#pahub-io-menu-btn,#pahub-export,#pahub-exchange,#pahub-io-export,#pahub-import,#pahub-name)::before { display:none!important; content:none!important; }
     header.banner.pahub-unified .banner-menu { position:relative; display:flex; flex:0 0 auto; }
     header.banner.pahub-unified .banner-menu .banner-menu-panel { top:calc(100% + 9px); left:0; right:auto; transform:none; background:var(--surface); border-color:var(--line); color:var(--ink); border-radius:12px; z-index:150; }
-    header.banner.pahub-unified .banner-menu-panel button { background:transparent; color:var(--ink); text-transform:none; }
-    header.banner.pahub-unified .banner-menu-panel button:hover { background:var(--green-soft); color:var(--ink); }
+    /* Menu items sit on a document surface, not on the teal toolbar pill. */
+    header.banner.pahub-unified .capsule :is(.banner-menu-panel,.io-panel) button { display:flex!important; align-items:center; justify-content:flex-start!important; gap:6px; width:100%; min-width:0; height:34px!important; padding:0 12px!important; margin:0; border:0!important; border-radius:8px!important; background:transparent!important; color:var(--ink)!important; font:600 12px/1.3 var(--font); letter-spacing:.02em!important; text-transform:none!important; text-align:left; white-space:nowrap; box-shadow:none!important; }
+    header.banner.pahub-unified .capsule :is(.banner-menu-panel,.io-panel) button:is(:hover,:focus-visible):not(:disabled) { background:var(--green-soft)!important; color:var(--ink)!important; }
+    header.banner.pahub-unified .capsule :is(.banner-menu-panel,.io-panel) button:focus-visible { outline:2px solid var(--green); outline-offset:-2px; }
   }
   @media screen and (max-width:1680px) {
     header.banner.pahub-unified { position:relative; }

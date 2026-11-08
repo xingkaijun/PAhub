@@ -101,6 +101,9 @@ try {
   await page.waitForFunction(() => document.querySelector('section[aria-label="Comments register"]')?.getAttribute('aria-busy') === 'false');
   await page.getByText('Live change notices', { exact: false }).waitFor();
   assert.equal(await register.locator('tbody tr').count(), 4);
+  assert.equal(await register.getByRole('columnheader', { name: 'Issued by' }).count(), 1);
+  assert.equal(await register.getByRole('columnheader', { name: 'Open days' }).count(), 0);
+  assert.equal(await register.locator('tbody tr').first().getByText('审图员王', { exact: true }).count(), 1);
   console.log('Comments initial snapshot:', (await register.innerText()).slice(0, 2200));
   await screenshot(page, 'comments-all');
   await screenshot(page, 'comments-light');

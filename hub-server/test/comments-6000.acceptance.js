@@ -48,9 +48,18 @@ async (page) => {
   });
   await page.evaluate(() => { for (const el of document.querySelectorAll('*')) if (el.scrollTop) el.scrollTop = 0; });
   await page.screenshot({ path: 'output/playwright/comments-6000-light.png' });
+  const lightPalette = await page.locator('.inventory-theme').evaluate(el => {
+    const style = getComputedStyle(el);
+    return { background: style.backgroundColor, color: style.color, colorScheme: style.colorScheme };
+  });
+  if (lightPalette.background !== 'rgb(255, 255, 255)' || lightPalette.colorScheme !== 'light') throw Error('Comments must use the light palette');
   await page.emulateMedia({ colorScheme: 'dark' });
-  await page.waitForFunction(() => getComputedStyle(document.querySelector('.comments-register-page')).backgroundColor === 'rgb(15, 23, 42)');
-  await page.screenshot({ path: 'output/playwright/comments-6000-dark.png' });
+  const darkSystemPalette = await page.locator('.inventory-theme').evaluate(el => {
+    const style = getComputedStyle(el);
+    return { background: style.backgroundColor, color: style.color, colorScheme: style.colorScheme };
+  });
+  if (JSON.stringify(darkSystemPalette) !== JSON.stringify(lightPalette)) throw Error('System dark mode changed Comments palette');
+  await page.screenshot({ path: 'output/playwright/comments-6000-dark-system.png' });
   await page.emulateMedia({ colorScheme: 'light' });
   if (await page.getByRole('button', { name: 'Intelligence', exact: true }).count()) throw Error('Retired navigation returned');
   const link = register.locator('tbody a').first(), popupReady = page.waitForEvent('popup');

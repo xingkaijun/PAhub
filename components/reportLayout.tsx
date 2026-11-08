@@ -43,9 +43,9 @@ export const PageFooter: React.FC<{ pageNumber: number; totalPages: number; proj
 );
 
 export const ReportPage: React.FC<{ children: React.ReactNode; pageNumber?: number; totalPages?: number; projectName: string; hideFooter?: boolean; forceBreakAfter?: boolean }> = ({ children, pageNumber, totalPages, projectName, hideFooter, forceBreakAfter = true }) => (
-  <div className={`mx-auto my-8 bg-white w-[210mm] h-[297mm] shadow-[0_0_50px_-12px_rgba(0,0,0,0.12)] border border-slate-200 p-[15mm] flex flex-col relative box-border ${forceBreakAfter ? 'break-after-page' : ''} print:m-0 print:border-none print:shadow-none mb-12 shrink-0`}>
+  <div className={`report-page mx-auto my-8 bg-white w-[210mm] h-[297mm] shadow-[0_0_50px_-12px_rgba(0,0,0,0.12)] border border-slate-200 p-[15mm] flex flex-col relative box-border ${forceBreakAfter ? 'break-after-page' : ''} print:m-0 print:border-none print:shadow-none mb-12 shrink-0`}>
     <PageHeader projectName={projectName} />
-    <div className="flex-1 flex flex-col overflow-hidden min-h-0 print:overflow-visible print:h-auto print:flex-none print:block">
+    <div className="report-page-content flex-1 flex flex-col overflow-hidden min-h-0 print:overflow-visible print:h-auto print:flex-none print:block">
       {children}
     </div>
     {!hideFooter && <PageFooter pageNumber={pageNumber || 0} totalPages={totalPages || 0} projectName={projectName} />}

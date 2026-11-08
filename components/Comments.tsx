@@ -12,7 +12,7 @@ const inputClass = inventoryStyles.input;
 const emptyOptions: CommentsOptions = { disciplines: [], drawingStatuses: [], commentStatuses: [], rounds: [], tags: [] };
 const numberFormat = new Intl.NumberFormat('en');
 const collator = new Intl.Collator('en', { numeric: true, sensitivity: 'base' });
-type SortKey = 'drawingNo' | 'discipline' | 'drawingStatus' | 'number' | 'round' | 'status' | 'tags' | 'ownerComment' | 'builderReply' | 'openDays' | 'updatedAt';
+type SortKey = 'drawingNo' | 'discipline' | 'drawingStatus' | 'number' | 'round' | 'status' | 'tags' | 'ownerName' | 'ownerComment' | 'builderReply' | 'updatedAt';
 const columns: Array<{ key: SortKey; label: string; width: string }> = [
   { key: 'drawingNo', label: 'Drawing', width: 'min-w-[180px]' },
   { key: 'discipline', label: 'Discipline', width: 'min-w-[100px]' },
@@ -21,9 +21,9 @@ const columns: Array<{ key: SortKey; label: string; width: string }> = [
   { key: 'round', label: 'Round', width: 'min-w-[70px]' },
   { key: 'status', label: 'Status', width: 'min-w-[90px]' },
   { key: 'tags', label: 'Tags', width: 'min-w-[116px]' },
+  { key: 'ownerName', label: 'Issued by', width: 'min-w-[110px]' },
   { key: 'ownerComment', label: 'Owner comment', width: 'min-w-[280px]' },
   { key: 'builderReply', label: 'Builder reply', width: 'min-w-[280px]' },
-  { key: 'openDays', label: 'Open days', width: 'min-w-[100px]' },
   { key: 'updatedAt', label: 'Updated', width: 'min-w-[126px]' },
 ];
 
@@ -34,6 +34,7 @@ function pcfLink(projectId: string, drawingId: string, commentId?: string): stri
 
 function sortValue(row: ProjectComment, key: SortKey): string | number | null {
   if (key === 'tags') return row.tags.join(', ');
+  if (key === 'ownerName') return row.ownerName.trim() || null;
   if (key === 'updatedAt') {
     const value = Date.parse(row.updatedAt);
     return Number.isNaN(value) ? null : value;
@@ -177,7 +178,7 @@ export const Comments: React.FC<{ projectId: string | null }> = ({ projectId }) 
     const rows = [...(result?.data.comments || [])];
     return rows.sort((a, b) => {
       const left = sortValue(a, sort.key), right = sortValue(b, sort.key);
-      // Unknown ages/dates always sort last, in either direction.
+      // Missing names and dates always sort last, in either direction.
       if (left === null && right !== null) return 1;
       if (right === null && left !== null) return -1;
       const comparison = left === null && right === null ? 0
@@ -315,7 +316,7 @@ export const Comments: React.FC<{ projectId: string | null }> = ({ projectId }) 
         </div>
         <div className={'max-h-[640px] overflow-auto transition-opacity motion-reduce:transition-none ' + (loading && result ? 'opacity-50' : '')} tabIndex={0} role="region" aria-label="Scrollable comments table">
           <table className="w-full border-collapse text-left text-xs">
-            <caption className="sr-only">Project comments, latest round per comment. Sort using column headings. Unknown open days are displayed as a dash.</caption>
+            <caption className="sr-only">Project comments, latest round per comment. Sort using column headings.</caption>
             <thead className="sticky top-0 z-10 bg-slate-50 text-[10px] font-bold text-slate-500">
               <tr>{columns.map(column => <th key={column.key} scope="col" aria-sort={sort.key === column.key ? (sort.direction === 'asc' ? 'ascending' : 'descending') : 'none'} className={'border-y border-slate-200 px-3 py-3 first:pl-5 ' + column.width}>
                 <button type="button" className="flex w-full items-center gap-1.5 whitespace-nowrap text-left transition-colors hover:text-teal-700 focus-visible:outline-teal-500" onClick={() => sortBy(column.key)}>
@@ -338,9 +339,9 @@ export const Comments: React.FC<{ projectId: string | null }> = ({ projectId }) 
                   <td className="px-3 py-3"><span className={inventoryBadgeClass(roundToLetters(row.round), 'round')}>{roundToLetters(row.round) || '—'}</span></td>
                   <td className="px-3 py-3"><span className={inventoryBadgeClass(row.status)}>{statusLabel(row.status)}</span></td>
                   <td className="px-3 py-3"><div className="flex max-w-[180px] flex-wrap gap-1">{row.tags.length ? row.tags.map(tag => <span key={tag} className={inventoryBadgeClass(tag, 'tag')}>{tag}</span>) : '—'}</div></td>
-                  <td className="max-w-[360px] px-3 py-3"><p className="mb-1 text-[10px] text-slate-400">{row.ownerName || '—'}{row.ownerDate && ' · ' + safeFormatDate(row.ownerDate, 'dd MMM yyyy')}</p><p className="line-clamp-4 whitespace-pre-wrap break-words text-[11px] leading-relaxed" title={row.ownerComment}>{row.ownerComment || '—'}</p></td>
+                  <td className="px-3 py-3 text-[11px] text-slate-600">{row.ownerName || '—'}</td>
+                  <td className="max-w-[360px] px-3 py-3">{row.ownerDate && <p className="mb-1 text-[10px] text-slate-400">{safeFormatDate(row.ownerDate, 'dd MMM yyyy')}</p>}<p className="line-clamp-4 whitespace-pre-wrap break-words text-[11px] leading-relaxed" title={row.ownerComment}>{row.ownerComment || '—'}</p></td>
                   <td className="max-w-[360px] px-3 py-3">{row.builderReplyDate && <p className="mb-1 text-[10px] text-slate-400">{safeFormatDate(row.builderReplyDate, 'dd MMM yyyy')}</p>}<p className="line-clamp-4 whitespace-pre-wrap break-words text-[11px] leading-relaxed" title={row.builderReply}>{row.builderReply || '—'}</p></td>
-                  <td className="px-3 py-3 tabular-nums text-slate-600">{row.openDays === null ? '—' : numberFormat.format(row.openDays)}</td>
                   <td className="whitespace-nowrap px-3 py-3 text-[10px] text-slate-500" title={row.updatedAt}>{safeFormatDate(row.updatedAt, 'dd MMM yyyy')}<p className="mt-1 text-slate-400">{safeFormatDate(row.updatedAt, 'HH:mm')}</p></td>
                 </tr>;
               })}

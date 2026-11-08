@@ -153,7 +153,7 @@ export const Manual: React.FC = () => {
 
             <Section icon={<FileText size={18} />} title="船厂回复导入">
               <ol className="space-y-2 text-[11px] font-medium text-slate-600 leading-relaxed list-decimal pl-5">
-                <li>入口在 Drawings 列表工具栏或 Review Tracker 右上角的 <strong>Import Builder Replies</strong>；也可将 ZIP 或 PCF HTML 文件拖到 Drawings 页面。单张 PCF 页的 <strong>Import Builder Reply</strong> 用于处理该图冲突回复。</li>
+                <li>入口在 Inventory 的 Drawings 列表工具栏中的 <strong>Import Builder Replies</strong>；也可将 ZIP 或 PCF HTML 文件拖到 Drawings 页面。单张 PCF 页的 <strong>Import Builder Reply</strong> 用于处理该图冲突回复。</li>
                 <li>选择或拖入文件后点 Preview replies，检查图纸匹配和结果分类，再点 Apply all clean 应用无冲突回复；冲突项用 Resolve 单独核对后处理。</li>
                 <li><strong>Ready to apply</strong> 可自动合并；<strong>Conflict</strong> 需人工选择；<strong>No changes</strong> 无新回复；<strong>Unable to match / Duplicate import</strong> 不会应用；<strong>Owner changed</strong> 表示船东只读字段被改动，该字段会忽略，回复仍按基线核对。</li>
                 <li>有实际新回复被应用时，状态仅从 <strong>Waiting Reply</strong> 自动更新为 <strong>Reviewing</strong>；其它状态保持不变，绝不会自动设为 Approved。</li>

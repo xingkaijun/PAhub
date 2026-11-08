@@ -9,8 +9,9 @@ import { performance } from 'node:perf_hooks';
 import { createHub } from '../src/app.ts';
 import { PcfStorage, scriptJSON } from '../src/pcf-storage.ts';
 import { blankContent, type PcfData } from '../src/pcf-model.ts';
+import { commentStatistics, type CommentRow } from '../src/comments-register.ts';
 
-// Tests exercise GET HTTP routes, never a pre-warmed ProjectComments instance.
+// Tests exercise GET HTTP routes; direct statistics tests cover malformed age inputs.
 const project = 'p9-comments-a', otherProject = 'p9-comments-b';
 const apiToken = 'phase9-api-token-do-not-export', adminPassword = 'phase9-admin-do-not-export';
 const day = 86_400_000;
@@ -146,6 +147,41 @@ test('phase 9: project with no PCF returns empty rows/statistics/options without
   } finally { await f.cleanup(); }
 });
 
+test('activity coverage counts canonical zero-comment PCFs, missing and unreadable active drawings independently of filters', async () => {
+  const f = await fixture(); try {
+    const emptyCoverage = { totalActiveDrawings: 0, parsedPcfDrawings: 0, missingPcfDrawings: 0, unreadablePcfDrawings: 0 };
+    assert.deepEqual((await f.query()).coverage, emptyCoverage);
+    f.drawing('coverage-missing');
+    assert.deepEqual((await f.query()).coverage, { ...emptyCoverage, totalActiveDrawings: 1, missingPcfDrawings: 1 }, 'adding a no-PCF drawing invalidates an empty cached response');
+    for (const id of ['coverage-zero', 'coverage-comments', 'coverage-broken', 'coverage-unreadable', 'coverage-deleted']) f.drawing(id);
+    f.drawing('coverage-other', otherProject);
+    const c = comment('Coverage visible marker');
+    await f.store('coverage-zero', documentData([]));
+    await f.store('coverage-comments', documentData([c]));
+    await f.store('coverage-broken', documentData([], { comments: null }), project, false);
+    await mkdir(f.storage.file(project, 'coverage-unreadable'));
+    await f.store('coverage-deleted', documentData([]));
+    await f.store('coverage-other', documentData([]), otherProject);
+    await f.store('coverage-orphan', documentData([]), project, false);
+    f.db.prepare('UPDATE drawings SET _deleted=1 WHERE id=?').run('coverage-deleted');
+    const expected = { totalActiveDrawings: 5, parsedPcfDrawings: 2, missingPcfDrawings: 1, unreadablePcfDrawings: 2 };
+    const result = await f.query();
+    assert.deepEqual(ids(result), [c.id]); assert.deepEqual(result.coverage, expected);
+    assert.equal(result.warnings.length, 2);
+    assert.deepEqual((await f.query(params({ q: 'no matches', discipline: 'Electrical' }))).coverage, expected, 'coverage is project-wide, not filtered comment coverage');
+    assert.deepEqual((await f.query(new URLSearchParams(), otherProject)).coverage, { ...emptyCoverage, totalActiveDrawings: 1, parsedPcfDrawings: 1 });
+    assert.deepEqual((await f.query()).coverage, expected, 'warm response preserves coverage');
+    await f.store('coverage-missing', documentData([]));
+    assert.deepEqual((await f.query()).coverage, { ...expected, parsedPcfDrawings: 3, missingPcfDrawings: 0 });
+    await unlink(f.storage.file(project, 'coverage-zero'));
+    assert.deepEqual((await f.query()).coverage, expected, 'deleted zero-comment PCF is missing rather than parsed');
+    f.drawing('coverage-added-missing');
+    assert.deepEqual((await f.query()).coverage, { ...expected, totalActiveDrawings: 6, missingPcfDrawings: 2 });
+    f.db.prepare('UPDATE drawings SET _deleted=1 WHERE id=?').run('coverage-added-missing');
+    assert.deepEqual((await f.query()).coverage, expected, 'removing a missing drawing invalidates cached coverage');
+  } finally { await f.cleanup(); }
+});
+
 test('phase 9: corrupted JSON and invalid PCF are skipped with drawingNo warnings, never hide healthy rows', async () => {
   const f = await fixture(); try {
     const healthy = comment('Still available');
@@ -241,6 +277,76 @@ test('phase 9: absent business dates fall back to creation/round update and clos
     const closedRow = result.comments.find((r: any) => r.commentId === closed.id);
     assert.equal(closedRow.status.toLowerCase(), 'closed'); assert.equal(closedRow.openDays, null);
   } finally { await f.cleanup(); }
+});
+
+test('activity dates expose original createdAt and separate invalid, missing, future and closed ages at exact boundaries', async t => {
+  const f = await fixture(); try {
+    const now = Date.parse('2026-11-08T12:00:00.000Z');
+    t.mock.method(Date, 'now', () => now);
+    f.drawing('activity-dates');
+    const elapsed = [0, 1, 8 * day - 1, 8 * day, 15 * day - 1, 15 * day, 31 * day - 1, 31 * day];
+    const known = elapsed.map(ms => comment('Known age ' + ms, { createdAt: new Date(now - ms).toISOString() }));
+    const invalid = ['not-a-date', '', null, undefined].map(createdAt => comment('Unknown age', { createdAt }));
+    const future = comment('Future age', { createdAt: new Date(now + 1).toISOString() });
+    const closed = ['not-a-date', '', new Date(now + day).toISOString(), new Date(now - 90 * day).toISOString()]
+      .map(createdAt => comment('Closed age', { status: 'CLOSED', createdAt }));
+    await f.store('activity-dates', documentData([...known, ...invalid, future, ...closed], { roundRegister: [{ round: 1, ownerDate: '2026-10-01', replyDate: '' }] }));
+    const result = await f.query();
+    for (const [i, c] of known.entries()) {
+      const row = result.comments.find((r: any) => r.commentId === c.id);
+      assert.equal(row.createdAt, c.createdAt); assert.equal(row.openDays, Math.floor(elapsed[i] / day));
+    }
+    for (const c of [...invalid, future, ...closed]) {
+      const row = result.comments.find((r: any) => r.commentId === c.id);
+      assert.equal(row.createdAt, typeof c.createdAt === 'string' ? c.createdAt : '');
+      assert.equal(row.openDays, null, 'unknown/closed age must not become zero or fall back to round/business dates');
+    }
+    assert.deepEqual(result.statistics.ageing, [
+      { band: '0–7', count: 3 }, { band: '8–14', count: 2 }, { band: '15–30', count: 2 }, { band: '>30', count: 1 }, { band: 'Unknown', count: 5 },
+    ]);
+    assert.equal(result.statistics.ageing.reduce((n: number, row: any) => n + row.count, 0), result.statistics.open);
+    assert.deepEqual(ids(await f.query(params({ openOlderThanDays: '0' }))), known.filter((_, i) => elapsed[i] >= day).map(c => c.id).sort());
+    const response = await f.get(project, params({ q: 'Unknown age' }), 'comments.xlsx');
+    assert.equal(response.status, 200);
+    const files = zipText(Buffer.from(await response.arrayBuffer())), rows = sheetRows(files), headers = rows[0].map(cell => cell.value);
+    const ageColumn = headers.indexOf('Open days'); assert.ok(ageColumn >= 0);
+    assert.equal(rows.length, invalid.length + 1);
+    assert.ok(rows.slice(1).every(row => row[ageColumn].value === ''), 'Excel keeps unknown age blank, not zero');
+    assert.doesNotMatch(headers.join('|'), /Created at|Coverage/, 'existing export columns remain unchanged');
+    assert.ok(files.get('xl/worksheets/sheet2.xml')?.includes('Unknown'), 'Unknown ageing is present in the existing statistics export');
+  } finally { await f.cleanup(); }
+});
+
+test('activity future-only age cache expires at creation time and each subsequent day boundary', async t => {
+  const f = await fixture(); try {
+    const start = Date.parse('2026-11-08T12:00:00.000Z'); let now = start - 1000;
+    t.mock.method(Date, 'now', () => now);
+    f.drawing('activity-future-cache');
+    const c = comment('Future cache marker', { createdAt: new Date(start).toISOString() });
+    await f.store('activity-future-cache', documentData([c]));
+    const first = await f.get(), originalEtag = first.headers.get('etag');
+    assert.equal((await first.json() as any).comments[0].openDays, null);
+    now = start - 1;
+    const stillFuture = await f.get(project, new URLSearchParams(), 'comments', { 'If-None-Match': originalEtag! });
+    assert.equal(stillFuture.status, 304); await stillFuture.arrayBuffer();
+    now = start;
+    const born = await f.get(project, new URLSearchParams(), 'comments', { 'If-None-Match': originalEtag! });
+    assert.equal(born.status, 200); assert.notEqual(born.headers.get('etag'), originalEtag);
+    const bornResult = await born.json() as any;
+    assert.equal(bornResult.comments[0].openDays, 0);
+    assert.deepEqual(bornResult.statistics.ageing, [{ band: '0–7', count: 1 }, { band: '8–14', count: 0 }, { band: '15–30', count: 0 }, { band: '>30', count: 0 }]);
+    now = start + day - 1; assert.equal((await f.query()).comments[0].openDays, 0);
+    now = start + day; assert.equal((await f.query()).comments[0].openDays, 1);
+  } finally { await f.cleanup(); }
+});
+
+test('activity statistics append Unknown only for open null, non-finite or negative ages', () => {
+  const row = { drawingId: 'statistics', drawingNo: 'P9-statistics', discipline: 'Hull', drawingStatus: 'Under Review', round: 1, status: 'open', openDays: 0 } as CommentRow;
+  const comments = [0, 7, 8, 14, 15, 30, 31, null, NaN, Infinity, -1].map(openDays => ({ ...row, openDays }));
+  const stats = commentStatistics([...comments, { ...row, status: 'Closed', openDays: null }]);
+  assert.deepEqual(stats.ageing, [{ band: '0–7', count: 2 }, { band: '8–14', count: 2 }, { band: '15–30', count: 2 }, { band: '>30', count: 1 }, { band: 'Unknown', count: 4 }]);
+  assert.equal(stats.ageing.reduce((n, band) => n + band.count, 0), stats.open);
+  assert.deepEqual(commentStatistics([{ ...row, status: 'CLOSED', openDays: null }]).ageing.map(band => band.band), ['0–7', '8–14', '15–30', '>30']);
 });
 
 test('phase 9: ageing boundaries, strictly-older filter, case-insensitive Closed and statistics match active rows', async () => {

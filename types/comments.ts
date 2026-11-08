@@ -15,7 +15,10 @@ export interface ProjectComment {
   ownerComment: string;
   builderReply: string;
   builderReplyDate: string;
+  /** Original comment creation date, or empty when missing. Optional for older fixtures. */
+  createdAt?: string;
   updatedAt: string;
+  /** Elapsed whole days for open comments; null for closed, invalid, missing or future dates. */
   openDays: number | null;
   hasImages: boolean;
 }
@@ -39,10 +42,21 @@ export interface CommentsOptions {
   tags: string[];
 }
 
+/** Project-wide canonical PCF coverage, independent of comment filters. */
+export interface CommentsCoverage {
+  totalActiveDrawings: number;
+  /** Successfully parsed canonical PCFs, including drawings with zero comments. */
+  parsedPcfDrawings: number;
+  missingPcfDrawings: number;
+  /** Includes files that cannot be read or parsed. */
+  unreadablePcfDrawings: number;
+}
+
 export interface CommentsResponse {
   comments: ProjectComment[];
   statistics: CommentsStatistics;
   options: CommentsOptions;
+  coverage: CommentsCoverage;
   warnings: Array<{ drawingId: string; drawingNo: string; message: string }>;
   generatedAt: string;
 }

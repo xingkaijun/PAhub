@@ -49,3 +49,7 @@ backup-*.sql
 /hub-server/test/artifacts/
 /.playwright-cli/
 /output/
+
+# Local exported PCFs and returned builder reply packages
+/from yard/
+/to yard/

@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "pahub-dev",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": ["run", "hub:dev"],
+      "port": 8080
+    }
+  ]
+}
