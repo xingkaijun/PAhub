@@ -5,6 +5,7 @@ import { stat, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
+import { DatabaseSync } from 'node:sqlite';
 import worker from '@pahub/worker';
 import { readConfig } from './config.ts';
 import { openDatabase } from './database.ts';
@@ -33,6 +34,19 @@ function basicAuthAllows(header: string | undefined, expected: string): boolean 
   const [scheme, encoded] = header.split(' ');
   if (scheme?.toLowerCase() !== 'basic' || !encoded) return false;
   return safeEqual(Buffer.from(encoded, 'base64').toString('utf8'), expected);
+}
+
+// Admin SQL console: a dedicated read-only connection so writes are refused by SQLite itself.
+function readOnlyQuery(dbPath: string, sql: string): Record<string, unknown>[] {
+  const reader = new DatabaseSync(dbPath, { readOnly: true });
+  try {
+    // readOnly covers the main file; query_only also covers databases attached by the query.
+    reader.exec('PRAGMA query_only = ON');
+    const stmt = reader.prepare(sql);
+    const rows = stmt.all();
+    return rows.map(row => Object.fromEntries(Object.entries(row).map(([key, value]) =>
+      [key, value instanceof Uint8Array ? Array.from(value) : value])));
+  } finally { reader.close(); }
 }
 
 async function readBody(req: IncomingMessage, limit: number): Promise<Buffer | undefined> {
@@ -86,7 +100,7 @@ export async function createHub(options: { middleware?: Middleware; host?: '127.
   const config = readConfig();
   if (!options.middleware) await stat(path.join(config.distDir, 'index.html'));
   const db = openDatabase(config.dbPath);
-  const env = { ...config.env, PAPC_DB: db };
+  const env = { ...config.env, PAPC_DB: db, ADMIN_SQL: (sql: string) => readOnlyQuery(config.dbPath, sql) };
   const pcf = new PcfApi(new PcfStorage(db.sqlite, config.dataDir), config.env.API_TOKEN);
   const builderReplies = new PcfBuilderReplies(pcf.storage, pcf.exchange, pcf.realtime, config.env.ADMIN_PASSWORD);
   const comments = new ProjectComments(pcf.storage);

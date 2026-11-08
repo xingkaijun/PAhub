@@ -7,6 +7,7 @@ declare const worker: {
     PAPC_DB: D1Adapter;
     API_TOKEN?: string;
     ADMIN_PASSWORD?: string;
+    ADMIN_SQL?: (sql: string) => Record<string, unknown>[];
     ALLOW_CORS_ORIGIN?: string;
   }): Promise<Response>;
 };

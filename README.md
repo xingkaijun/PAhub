@@ -7,9 +7,8 @@
 ~~~powershell
 npm ci
 npm run hub:build
-$env:ADMIN_PASSWORD = '<设置强密码>'
-$env:API_TOKEN = '<设置共享凭据>'
 $env:PAHUB_DATA_DIR = '<数据目录>'
+# 可选：$env:ADMIN_PASSWORD、$env:API_TOKEN、$env:PAHUB_BASIC_AUTH（见下文）
 npm run hub:start
 ~~~
 

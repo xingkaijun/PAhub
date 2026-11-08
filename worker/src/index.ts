@@ -25,6 +25,7 @@ interface Env {
   API_TOKEN?: string;
   ALLOW_CORS_ORIGIN?: string;
   ADMIN_PASSWORD?: string;
+  ADMIN_SQL?: (sql: string) => Record<string, unknown>[];
 }
 
 interface ProjectListRow extends Record<string, unknown> {
@@ -990,11 +991,17 @@ const notImplemented = (env: Env, method: string, path: string) =>
   });
 
 const handleAdminRequest = async (request: Request, env: Env, url: URL): Promise<Response> => {
+  // No default password: without ADMIN_PASSWORD the admin console is not served.
+  const pwd = env.ADMIN_PASSWORD?.trim();
+  if (!pwd) {
+    if (url.pathname === '/admin') return text(env, 404, 'Not found');
+    return json(env, 403, { error: 'Admin console is disabled: ADMIN_PASSWORD is not set' });
+  }
+
   if (url.pathname === '/admin') {
     return new Response(adminHtml, { headers: { 'Content-Type': 'text/html; charset=utf-8' } });
   }
 
-  const pwd = env.ADMIN_PASSWORD || 'papc-admin-2026';
   const adminToken = 'admin_token_' + btoa(pwd).substring(0, 10);
 
   if (url.pathname === '/admin/auth' && request.method === 'POST') {
@@ -1182,17 +1189,15 @@ const handleAdminRequest = async (request: Request, env: Env, url: URL): Promise
 
   if (segments.length === 3 && segments[1] === 'api' && segments[2] === 'sql' && request.method === 'POST') {
     const body = await request.json() as { query: string };
-    const sql = body.query.trim();
-    if (sql.toUpperCase().startsWith('DROP') || sql.toUpperCase().startsWith('ALTER') || sql.toUpperCase().startsWith('CREATE') || sql.toUpperCase().startsWith('ATTACH')) {
-      return json(env, 400, { error: 'DDL not allowed' });
+    const sql = String(body.query || '').trim();
+    if (!sql) return json(env, 400, { error: 'Query required' });
+    if (!env.ADMIN_SQL) return json(env, 503, { error: 'Read-only SQL console is not available' });
+    // A separate read-only connection enforces this; statements cannot opt out via prefixes or comments.
+    try {
+      return json(env, 200, { results: env.ADMIN_SQL(sql) as unknown as JsonValue });
+    } catch (error) {
+      return json(env, 400, { error: error instanceof Error ? error.message : 'Query failed' });
     }
-    const res = await db.prepare(sql).all();
-
-    if (!sql.toUpperCase().startsWith('SELECT')) {
-      await db.prepare(`INSERT INTO audit_log (table_name, action, detail) VALUES (?, ?, ?)`).bind('SQL', 'EXECUTE', sql).run();
-    }
-
-    return json(env, 200, { results: (res.results as any) || [] });
   }
   // 整库导出：GET /admin/api/export
   if (segments.length === 3 && segments[1] === 'api' && segments[2] === 'export' && request.method === 'GET') {

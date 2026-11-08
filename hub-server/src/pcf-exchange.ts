@@ -195,7 +195,9 @@ export class PcfExchange {
       if (preview.repeated && body.overwrite !== true) fail('This export was already imported; explicitly allow another merge', 409);
       if (preview.ownerTampered) {
         if (body.ignoreOwner !== true) fail('Read-only content changed; administrator confirmation required', 409);
-        if (body.adminPassword !== (process.env.ADMIN_PASSWORD || 'papc-admin-2026')) fail('Administrator password required to ignore tampered Owner content', 403);
+        const adminPassword = process.env.ADMIN_PASSWORD?.trim();
+        if (!adminPassword) fail('Owner content overrides are disabled: ADMIN_PASSWORD is not set', 403);
+        if (body.adminPassword !== adminPassword) fail('Administrator password required to ignore tampered Owner content', 403);
       }
       const choices = body.choices || {}, valid = new Set(preview.conflicts.map(x => x.id));
       if (Object.keys(choices).some(k => !valid.has(k))) fail('Unknown conflict choice');

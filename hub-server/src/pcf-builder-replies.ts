@@ -146,7 +146,7 @@ export class PcfBuilderReplies {
         const fresh = this.exchange.preview(projectId, row.drawingId, { html });
         if (fresh.repeated) throw Error('duplicate');
         if (fresh.conflicts.length) { row.category = 'conflict'; row.conflicts = fresh.conflicts.length; row.previewToken = fresh.previewToken; results.push({ id, category: 'conflict', conflicts: fresh.conflicts.length }); continue; }
-        const outcome = this.exchange.apply(projectId, row.drawingId, { step: 'apply', html, previewToken: fresh.previewToken, batchId, ignoreOwner: true, adminPassword: this.adminPassword || 'papc-admin-2026' }, { clientId: 'builder-import', clientName: `Builder import (${fresh.exportId})`, ip: '127.0.0.1' });
+        const outcome = this.exchange.apply(projectId, row.drawingId, { step: 'apply', html, previewToken: fresh.previewToken, batchId, ignoreOwner: true, adminPassword: this.adminPassword }, { clientId: 'builder-import', clientName: `Builder import (${fresh.exportId})`, ip: '127.0.0.1' });
         const state = outcome.result.applied.length
           ? updateBuilderReplyPapcStatus(this.storage.db, projectId, row.drawingId, fresh.exportId)
           : `status unchanged (${row.papcStatus})`;

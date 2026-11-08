@@ -4,7 +4,7 @@
 
 需要 Node.js 24。首次运行 npm ci，然后 npm run hub:build；设置服务端环境变量后运行 npm run hub:start。默认地址 http://localhost:8080，局域网用户使用主机 IP。服务器不会自动读取 .env；Vite 的 VITE_ 值在构建时读取。
 
-建议设置 ADMIN_PASSWORD、API_TOKEN；前端 VITE_DATA_API_TOKEN 须与服务器一致后重新构建。共享 API token 不是个人账号，局域网 HTTP 不加密凭据。数据目录由 PAHUB_DATA_DIR 指定，默认 data；数据库默认为该目录的 papc.db。
+建议设置 ADMIN_PASSWORD、API_TOKEN；前端 VITE_DATA_API_TOKEN 须与服务器一致后重新构建。三者都不是必需的，未设置时对应功能关闭或不校验：不设置 ADMIN_PASSWORD 时管理后台不可用；不设置 API_TOKEN 时所有接口匿名可用；公网暴露时可用 PAHUB_BASIC_AUTH 开启 Basic Auth（见 README）。共享 API token 不是个人账号，局域网 HTTP 不加密凭据。数据目录由 PAHUB_DATA_DIR 指定，默认 data；数据库默认为该目录的 papc.db。
 
 ## Comments：全项目意见汇总
 
