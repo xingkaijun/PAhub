@@ -18,8 +18,8 @@ test('hub end-to-end: real frontend repository, persisted PATCH/PUT, audit logs,
   const temp = await mkdtemp(path.join(tmpdir(), 'pahub-test-'));
   console.log('Test artifacts: ' + temp);
   const destination = path.join(temp, 'seed.db');
-  const previousEnv = { PORT: process.env.PORT, PAPC_DB_PATH: process.env.PAPC_DB_PATH, API_TOKEN: process.env.API_TOKEN, ADMIN_PASSWORD: process.env.ADMIN_PASSWORD };
-  Object.assign(process.env, { PORT: '0', PAPC_DB_PATH: destination, API_TOKEN: '', ADMIN_PASSWORD: 'integration-password' });
+  const previousEnv = { PORT: process.env.PORT, PAHUB_DATA_DIR: process.env.PAHUB_DATA_DIR, PAPC_DB_PATH: process.env.PAPC_DB_PATH, API_TOKEN: process.env.API_TOKEN, ADMIN_PASSWORD: process.env.ADMIN_PASSWORD };
+  Object.assign(process.env, { PORT: '0', PAHUB_DATA_DIR: temp, PAPC_DB_PATH: destination, API_TOKEN: '', ADMIN_PASSWORD: 'integration-password' });
   let hub: Awaited<ReturnType<typeof createHub>> | undefined;
   try {
     await importData(path.join(ROOT_DIR, 'hub-server/test/fixtures/seed-test-data.sql'), destination);
