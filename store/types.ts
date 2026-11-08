@@ -1,0 +1,84 @@
+import type { StateCreator } from 'zustand';
+import type { AppData, Project, Drawing, AppSettings, ProjectConfig, ReviewTrackerData, AuditEntry } from '../types';
+import type { DirtyDrawingFields } from '../lib/drawing-fields';
+import type { SentDrawingExpectation, SendVerification } from '../lib/review-tracker';
+export interface AuditLogResult {
+  entries: AuditEntry[];
+  truncated: boolean;
+  error?: string;
+}
+export interface ProjectSlice {
+  data: AppData;
+  isLoading: boolean;
+  error: string | null;
+  activeProjectId: string | null;
+  hasUnsavedChanges: () => boolean;
+  getUnsavedChangesCount: () => number;
+  addProject: (name: string) => void;
+  deleteProject: (projectId: string) => void;
+  setActiveProject: (projectId: string) => void;
+  updateSettings: (settings: Partial<AppSettings>) => void;
+  addDrawing: (drawing: Drawing) => void;
+  updateDrawing: (id: string, updates: Partial<Drawing>) => void;
+  deleteDrawing: (id: string) => void;
+  addRemark: (drawingId: string, content: string) => void;
+  deleteRemark: (drawingId: string, content: string) => void;
+  batchUpdateDrawings: (updates: {
+    id: string;
+    changes: Partial<Drawing>;
+  }[]) => void;
+  resetAllAssignees: () => void;
+  bulkImportDrawings: (drawings: Drawing[]) => void;
+  saveActiveProject: (password: string) => Promise<boolean>;
+  saveProject: (projectId: string) => Promise<boolean>;
+  fetchGlobalSettings: () => Promise<void>;
+  fetchProjectList: () => Promise<void>;
+  loadProject: (projectId: string, passwordInput?: string) => Promise<void>;
+  refreshProjectPreservingDirty: (projectId: string) => Promise<number>;
+  testConnection: (url: string, user: string, pass: string, proxyUrl?: string) => Promise<{
+    success: boolean;
+    message: string;
+  }>;
+  updateProjectConfig: (projectId: string, updates: Partial<ProjectConfig>) => void;
+  restoreProject: (project: Project) => void;
+  toggleRemarkStatus: (drawingId: string, remarkId: string) => void;
+  loadAuditLog: (projectId: string, fromISO: string, toISO: string) => Promise<AuditLogResult>;
+  _dirtyDrawingIds: Set<string>;
+  _dirtyDrawingFields: DirtyDrawingFields;
+  _deletedDrawingIds: Set<string>;
+  _dirtyConf: boolean;
+}
+export interface ReviewTrackerSlice {
+  reviewTracker: ReviewTrackerData;
+  loadReviewTracker: (projectId: string) => Promise<void>;
+  toggleAssigneeDone: (drawingId: string, assignee: string) => void;
+  clearTrackerForDrawings: (drawingIds: string[]) => void;
+  verifySentDrawings: (projectId: string, expected: SentDrawingExpectation[]) => Promise<SendVerification>;
+  _dirtyTracker: boolean;
+  _dirtyTrackerDrawingIds: Set<string>;
+}
+export interface UiSlice {
+  viewMode: 'list' | 'board';
+  setViewMode: (mode: 'list' | 'board') => void;
+  filterQuery: string;
+  setFilterQuery: (query: string) => void;
+  isEditMode: boolean;
+  toggleEditMode: (password?: string) => boolean;
+  clearError: () => void;
+}
+export interface PresenceSlice {
+  pcfPresence: Record<string, number>;
+  refreshPcfPresence: (projectId: string) => Promise<void>;
+  adminPresence: {
+    isOnline: boolean;
+    lastSeen?: string;
+  };
+  _heartbeatTimer: ReturnType<typeof setInterval> | null;
+  startEditingPresence: () => void;
+  stopEditingPresence: () => void;
+  refreshAdminPresence: (projectId: string) => Promise<void>;
+}
+export type AppState = ProjectSlice & ReviewTrackerSlice & UiSlice & PresenceSlice;
+export type SliceCreator<T> = StateCreator<AppState, [
+], [
+], T>;
