@@ -4,7 +4,7 @@ import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAx
 import { AlertCircle, ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Download, ExternalLink, Image, MessageSquare, RefreshCw, Search } from 'lucide-react';
 import { safeFormatDate } from '../lib/date';
 import { roundToLetters } from '../lib/rounds';
-import { commentsQuery, exportCommentsXlsx, fetchComments, subscribeToCommentChanges } from '../services/comments';
+import { commentsQuery, exportCommentsXlsx, fetchComments, subscribeToCommentChanges } from '../services/api/commentsApi';
 import type { CommentsFilters, CommentsOptions, CommentsResponse, CommentsStatistics, CommentsStreamState, ProjectComment } from '../types/comments';
 
 const actionClass = inventoryStyles.action;

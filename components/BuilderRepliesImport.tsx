@@ -1,10 +1,11 @@
+import { builderRepliesApi, type BuilderReplyRow as ReplyRow, type BuilderReplyResult } from '../services/api/builderRepliesApi';
+import { pcfApi } from '../services/api/pcfApi';
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { DownloadCloud, FileArchive, Upload, X } from 'lucide-react';
 import { useStore } from '../store';
 import { roundToLetters } from '../lib/rounds';
 
-type ReplyRow = { id: string; fileName: string; importSetId?: string; drawingId?: string; drawingNo?: string; title?: string; tags?: string[]; round?: number | string; newReplies?: number; automatic?: number; conflicts?: number; papcStatus?: string; statusNote?: string; category: string; reason?: string; ownerTampered?: boolean };
 const label: Record<string,string> = { clean: 'Ready to apply', conflict: 'Conflict', unchanged: 'No changes', unmatched: 'Unable to match', 'owner-tampered': 'Owner changed', duplicate: 'Duplicate import', applied: 'Applied', failed: 'Failed', skipped: 'Skipped' };
 
 export type BuilderRepliesImportHandle = { openWithFiles: (files: File[]) => void };
@@ -57,19 +58,16 @@ export const BuilderRepliesImport = forwardRef<BuilderRepliesImportHandle, { pro
       void loadProject(projectId); void refreshPcfPresence(projectId);
     };
     window.addEventListener('message', onMessage);
-    const token = import.meta.env.VITE_DATA_API_TOKEN?.trim();
-    fetch(`/api/projects/${encodeURIComponent(projectId)}/builder-replies/pending`, { headers: token ? { Authorization: 'Bearer ' + token } : {} })
-      .then(r => r.ok ? r.json() : []).then((pending: ReplyRow[]) => { if (pending.length) setRows(old => [...pending, ...old.filter(row => !pending.some(item => item.id === row.id && item.importSetId === row.importSetId))]); }).catch(() => {});
-    return () => window.removeEventListener('message', onMessage);
+    const controller = new AbortController();
+    builderRepliesApi.pending(projectId, controller.signal)
+      .then((pending: ReplyRow[]) => { if (pending.length) setRows(old => [...pending, ...old.filter(row => !pending.some(item => item.id === row.id && item.importSetId === row.importSetId))]); }).catch(() => {});
+    return () => { controller.abort(); window.removeEventListener('message', onMessage); };
   }, [open, projectId]);
-  const headers = () => { const token = import.meta.env.VITE_DATA_API_TOKEN?.trim(); return token ? { Authorization: 'Bearer ' + token } : {}; };
   const add = (incoming: FileList | File[]) => setFiles(old => [...old, ...Array.from(incoming).filter(accepted)]);
   const preview = async () => {
     setBusy(true); setMessage('');
     try {
-      const form = new FormData(); files.forEach(file => form.append('files', file));
-      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/builder-replies/preview`, { method: 'POST', headers: headers(), body: form });
-      const data = await response.json(); if (!response.ok) throw Error(data.error || 'Upload failed');
+      const data = await builderRepliesApi.preview(projectId, files);
       setSetId(data.importSetId); setRows(data.files); setFiles([]);
     } catch (error: any) { setMessage(error.message); } finally { setBusy(false); }
   };
@@ -79,10 +77,10 @@ export const BuilderRepliesImport = forwardRef<BuilderRepliesImportHandle, { pro
     if (!groups.size) return;
     setBusy(true); setMessage('');
     try {
-      const allResults: any[] = [];
+      const allResults: BuilderReplyResult[] = [];
       for (const [importSetId, fileIds] of groups) {
-        const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/builder-replies/${encodeURIComponent(importSetId)}/apply`, { method: 'POST', headers: { ...headers(), 'Content-Type': 'application/json' }, body: JSON.stringify({ fileIds, batchId: crypto.randomUUID() }) });
-        const data = await response.json(); if (!response.ok) throw Error(data.error || 'Apply failed'); allResults.push(...data.results);
+        const data = await builderRepliesApi.apply(projectId, importSetId, fileIds, crypto.randomUUID());
+        allResults.push(...data.results);
       }
       const results = new Map(allResults.map((r: any) => [r.id, r]));
       setRows(old => old.map(row => { const result: any = results.get(row.id); return result ? { ...row, category: result.category, conflicts: result.conflicts ?? row.conflicts, statusNote: result.status || row.statusNote, reason: result.reason || row.reason } : row; }));
@@ -91,15 +89,13 @@ export const BuilderRepliesImport = forwardRef<BuilderRepliesImportHandle, { pro
   };
   const skip = async (row: ReplyRow) => {
     try {
-      const response = await fetch(`/api/projects/${encodeURIComponent(projectId)}/builder-replies/${encodeURIComponent(row.importSetId || setId)}/skip`, { method: 'POST', headers: { ...headers(), 'Content-Type': 'application/json' }, body: JSON.stringify({ fileId: row.id }) });
-      const data = await response.json(); if (!response.ok) throw Error(data.error); setRows(old => old.map(item => item.id === row.id ? { ...item, category: 'skipped' } : item));
+      await builderRepliesApi.skip(projectId, row.importSetId || setId, row.id); setRows(old => old.map(item => item.id === row.id ? { ...item, category: 'skipped' } : item));
     } catch (error: any) { setMessage(error.message); }
   };
   const resolve = async (row: ReplyRow) => {
     const tab = window.open('about:blank', '_blank'); if (!tab) return;
     const href = `/pcf/${encodeURIComponent(projectId)}/${encodeURIComponent(row.drawingId || '')}?builderReplySet=${encodeURIComponent(row.importSetId || setId)}&builderReplyFile=${encodeURIComponent(row.id)}`;
-    const token = import.meta.env.VITE_DATA_API_TOKEN?.trim();
-    try { if (token) { const response = await fetch(`/api/pcf/${encodeURIComponent(projectId)}/${encodeURIComponent(row.drawingId || '')}/session`, { method: 'POST', headers: { Authorization: 'Bearer ' + token } }); if (!response.ok) throw Error('PCF access failed'); } tab.location.href = href; }
+    try { await pcfApi.ensureSession(projectId, row.drawingId || ''); tab.location.href = href; }
     catch (error) { tab.close(); setMessage(String(error)); }
   };
   return <>

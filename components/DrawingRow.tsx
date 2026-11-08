@@ -1,3 +1,5 @@
+import { apiClient } from '../services/api/apiClient';
+import { pcfApi } from '../services/api/pcfApi';
 import { inventoryStyles } from './inventoryStyles';
 import React, { memo } from 'react';
 import { Drawing, DrawingStatus } from '../types';
@@ -197,13 +199,11 @@ export const DrawingRow = memo(({
                         href={'/pcf/' + encodeURIComponent(activeProjectId) + '/' + encodeURIComponent(drawing.id)}
                         target="_blank" rel="noopener noreferrer" className="hover:text-teal-600 hover:underline"
                         onClick={async e => {
-                            const token = import.meta.env.VITE_DATA_API_TOKEN?.trim();
-                            if (!token) return;
+                            if (!apiClient.hasToken()) return;
                             e.preventDefault();
                             const href = e.currentTarget.href, tab = window.open('about:blank', '_blank');
                             try {
-                                const response = await fetch('/api/pcf/' + encodeURIComponent(activeProjectId) + '/' + encodeURIComponent(drawing.id) + '/session', { method: 'POST', headers: { Authorization: 'Bearer ' + token } });
-                                if (!response.ok) throw Error('PCF access failed: ' + response.status);
+                                await pcfApi.ensureSession(activeProjectId, drawing.id);
                                 if (tab) { tab.opener = null; tab.location.href = href; } else window.location.href = href;
                             } catch (error) { tab?.close(); alert(String(error)); }
                         }}

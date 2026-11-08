@@ -8,8 +8,8 @@ export const createUiSlice: SliceCreator<UiSlice> = (set, get) => ({
   toggleEditMode: (password) => {
     const state = get();
     if (!state.isEditMode) {
-      const expected = import.meta.env.VITE_EDIT_PASSWORD?.trim();
-      if (expected && password !== expected)
+      const expected = import.meta.env.VITE_EDIT_PASSWORD;
+      if (expected?.trim() && password !== expected)
         return false;
       set({ isEditMode: true });
       get().startEditingPresence();

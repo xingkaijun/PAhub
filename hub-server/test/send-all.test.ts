@@ -13,11 +13,12 @@ import { crc32 } from '../src/zip.ts';
 import { openDatabase, migrationSql } from '../src/database.ts';
 import { importData } from '../src/importer.ts';
 import { normalizeLegacySql } from '../src/import-legacy.ts';
-import { HubApiRepository } from '../../services/data/HubApiRepository';
+import { createApiClient } from '../../services/api/apiClient';
+import { createProjectsApi } from '../../services/api/projectsApi';
 import { build } from 'esbuild';
 import { JSDOM } from 'jsdom';
 import { MessageChannel } from 'node:worker_threads';
-import type { AppSettings, Project } from '../../types';
+import type { Project } from '../../types';
 
 function unzip(buffer: Buffer) {
   const result = new Map<string, Buffer>(); let offset = 0;
@@ -148,21 +149,21 @@ test('Send All authenticated batch ZIP, latest rev, skipped/collision manifest, 
       const live = await json(id + '/data');
       await json(id + '/ops', { baseRev: live.rev, batchId: randomUUID(), ops: [{ type: 'project.set', field: 'approval', baseRev: 0, value: approval }, ...(id === 'dwg-002' ? [{ type: 'comment.add', id: 'open-comment', roundIdNew: 'open-round' }] : [])] });
     }
-    const repository = new HubApiRepository(origin + '/api', 'send-all-token'), settings = {} as AppSettings;
-    let project = await repository.loadProject(settings, { id: p } as Project);
+    const repository = createProjectsApi(createApiClient({ baseUrl: origin + '/api', token: 'send-all-token' }));
+    let project = await repository.loadProject({ id: p } as Project);
     const manual = { 'dwg-001': { engineer_a: { done: true }, __approved__: { done: true } }, 'dwg-002': { engineer_b: { done: true } } };
-    assert.equal((await repository.saveReviewTracker(settings, project, manual)).success, true);
-    const tracker = await repository.loadReviewTracker(settings, project);
+    assert.equal((await repository.saveReviewTracker(project.id, manual)).success, true);
+    const tracker = await repository.loadReviewTracker(project.id);
     const cleared = Object.fromEntries(Object.entries(tracker).map(([id, entries]) => [id,
       Object.fromEntries(Object.keys(entries).map(key => [key, { done: false }]))]));
     // Send All clears via the project save, not the single-check merge endpoint.
     project.drawings = project.drawings.map(d => d.id === 'dwg-001' || d.id === 'dwg-002' ? { ...d, status: tracker[d.id]?.__approved__?.done ? 'Approved' : 'Waiting Reply' } : d);
-    assert.equal((await repository.saveProject(settings, project, cleared)).success, true);
-    const savedTracker = await repository.loadReviewTracker(settings, project);
+    assert.equal((await repository.saveProject(project, cleared)).success, true);
+    const savedTracker = await repository.loadReviewTracker(project.id);
     assert.equal(Boolean(savedTracker['dwg-001'].__approved__.done), false);
     assert.equal(Boolean(savedTracker['dwg-001'].engineer_a.done), false);
     assert.equal(Boolean(savedTracker['dwg-002'].engineer_b.done), false);
-    project = await repository.loadProject(settings, project);
+    project = await repository.loadProject(project);
     assert.equal(project.drawings.find(d => d.id === 'dwg-001')!.status, 'Approved');
     assert.equal(project.drawings.find(d => d.id === 'dwg-002')!.status, 'Waiting Reply');
     // Exporting must use the latest server document after Send All status updates.
@@ -237,14 +238,14 @@ test('existing tracker source columns are ignored by reads, writes and verificat
     hub.db.exec(await readFile(path.join(ROOT_DIR, 'hub-server/test/fixtures/seed-test-data.sql'), 'utf8'));
     hub.db.exec("ALTER TABLE review_tracker ADD COLUMN source TEXT; UPDATE review_tracker SET source='ignored'; CREATE TRIGGER reject_source_update BEFORE UPDATE OF source ON review_tracker BEGIN SELECT RAISE(ABORT,'source must be ignored'); END;");
     await hub.close(); hub = await createHub();
-    const repository = new HubApiRepository('http://127.0.0.1:' + hub.port + '/api'), settings = {} as AppSettings;
-    const project = await repository.loadProject(settings, { id: 'proj-test-001' } as Project);
-    let tracker = await repository.loadReviewTracker(settings, project);
+    const repository = createProjectsApi(createApiClient({ baseUrl: 'http://127.0.0.1:' + hub.port + '/api' }));
+    const project = await repository.loadProject({ id: 'proj-test-001' } as Project);
+    let tracker = await repository.loadReviewTracker(project.id);
     assert.equal('source' in tracker['dwg-001'].engineer_a, false);
     tracker['dwg-001'].engineer_a = { done: false };
-    assert.equal((await repository.saveReviewTracker(settings, project, tracker)).success, true);
-    assert.equal((await repository.saveProject(settings, project, tracker)).success, true);
-    tracker = await repository.loadReviewTracker(settings, project);
+    assert.equal((await repository.saveReviewTracker(project.id, tracker)).success, true);
+    assert.equal((await repository.saveProject(project, tracker)).success, true);
+    tracker = await repository.loadReviewTracker(project.id);
     assert.equal(Boolean(tracker['dwg-001'].engineer_a.done), false); assert.equal(tracker['dwg-001'].engineer_a.doneAt ?? null, null);
     assert.ok(hub.db.prepare('PRAGMA table_info(review_tracker)').all().some(row => row.name === 'source'));
   } finally {

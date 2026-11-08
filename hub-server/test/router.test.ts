@@ -1,14 +1,15 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { Router, basicAuthResponse, normalizeError } from '../src/router.ts';
-import { HubApiRepository } from '../../services/data/HubApiRepository';
+import { createApiClient } from '../../services/api/apiClient';
+import { createProjectsApi } from '../../services/api/projectsApi';
 
 test('project password errors keep their client message after JSON error unification', async () => {
   const original = globalThis.fetch;
   const location = Object.getOwnPropertyDescriptor(globalThis,'location');
   Object.defineProperty(globalThis,'location',{configurable:true,value:{origin:'http://local'}});
   globalThis.fetch = async () => Response.json({error:'PASSWORD_REQUIRED'},{status:401});
-  try { await assert.rejects(new HubApiRepository('/api').fetchGlobalSettings({} as any),error => error instanceof Error && error.message === 'PASSWORD_REQUIRED'); }
+  try { await assert.rejects(createProjectsApi(createApiClient({ baseUrl: '/api' })).fetchGlobalSettings(),error => error instanceof Error && error.message === 'PASSWORD_REQUIRED'); }
   finally { globalThis.fetch=original;if(location)Object.defineProperty(globalThis,'location',location);else Reflect.deleteProperty(globalThis,'location'); }
 });
 

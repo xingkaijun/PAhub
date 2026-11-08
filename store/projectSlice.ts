@@ -1,5 +1,5 @@
 import type { AppData, Drawing, Project, ReviewTrackerData, DeltaPayload } from '../types';
-import { appRepository } from '../services/data/AppRepository';
+import { projectsApi } from '../services/api/projectsApi';
 import { mergeProjectPreservingDirty } from '../lib/merge-project';
 import { calculateDeadline, projectDateKey } from '../lib/deadline';
 import { drawingFieldPatch, PCF_MANAGED_FIELDS, type DirtyDrawingFields } from '../lib/drawing-fields';
@@ -38,8 +38,8 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     if (!stub)
       return 0;
     const [rawProject, remoteTracker] = await Promise.all([
-      appRepository.loadProject(initial.data.settings, stub, stub.conf?.password),
-      appRepository.loadReviewTracker(initial.data.settings, stub).catch(() => ({})),
+      projectsApi.loadProject(stub, stub.conf?.password),
+      projectsApi.loadReviewTracker(stub.id).catch(() => ({})),
     ]);
     const remote = normalizeProjectDrawingIds(rawProject, generateId);
     let changed = 0;
@@ -331,7 +331,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
         if (Object.keys(trackerSlice).length > 0)
           payload.reviewTracker = trackerSlice;
       }
-      const saveResult = await appRepository.saveDelta(data.settings, projectId, payload);
+      const saveResult = await projectsApi.saveDelta(projectId, payload);
       // 服务端回读校验：没落库的图纸不清脏标记，交给下次保存重试
       const verification = saveResult?.verification;
       const unverifiedIds = new Set(verification && !verification.ok && !verification.error
@@ -409,9 +409,8 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     }
   },
   fetchGlobalSettings: async () => {
-    const { data } = get();
     try {
-      const settings = await appRepository.fetchGlobalSettings(data.settings);
+      const settings = await projectsApi.fetchGlobalSettings();
       if (settings) {
         set(state => ({
           data: {
@@ -429,10 +428,9 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     }
   },
   fetchProjectList: async () => {
-    const { data } = get();
     set({ isLoading: true, error: null });
     try {
-      const remoteProjects = await appRepository.fetchProjectList(data.settings);
+      const remoteProjects = await projectsApi.fetchProjectList();
       set(state => {
         const currentProjects = state.data.projects;
         const mergedProjects = [...currentProjects];
@@ -477,7 +475,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
       return;
     set({ isLoading: true });
     try {
-      const fullProject = normalizeProjectDrawingIds(await appRepository.loadProject(data.settings, projectStub, passwordInput), generateId);
+      const fullProject = normalizeProjectDrawingIds(await projectsApi.loadProject(projectStub, passwordInput), generateId);
       // Inject defaults
       const globalSettings = data.settings;
       if (!fullProject.conf) {
@@ -513,10 +511,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
       throw err;
     }
   },
-  testConnection: async (url, user, pass, proxyUrl) => {
-    const { data } = get();
-    return appRepository.testConnection(data.settings, { url, user, pass, proxyUrl });
-  },
+  testConnection: async () => projectsApi.testConnection(),
   updateProjectConfig: (projectId, updates) => set((state) => {
     const shouldRecalculateDeadlines = updates.holidays !== undefined ||
       updates.roundACycle !== undefined ||
@@ -604,7 +599,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     if (!project)
       return { entries: [], truncated: false, error: 'Project not found locally' };
     try {
-      const page = await appRepository.loadAuditLog(data.settings, project, fromISO, toISO);
+      const page = await projectsApi.loadAuditLog(project.id, fromISO, toISO);
       return { entries: page?.entries || [], truncated: Boolean(page?.truncated) };
     }
     catch (err: any) {

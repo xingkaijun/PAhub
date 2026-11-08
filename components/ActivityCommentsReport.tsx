@@ -1,6 +1,6 @@
 import React, { useEffect, useId, useMemo, useRef, useState } from 'react';
 import { AlertCircle, CheckCircle2, Circle, RefreshCw, X } from 'lucide-react';
-import { fetchComments, subscribeToCommentChanges } from '../services/comments';
+import { fetchComments, subscribeToCommentChanges } from '../services/api/commentsApi';
 import type { CommentsResponse } from '../types/comments';
 import {
   buildCommentReport, commentAge, disciplineLabel, isClosedComment, REPORT_DISCIPLINES_PER_PAGE,

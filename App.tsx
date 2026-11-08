@@ -1,3 +1,5 @@
+import { apiClient } from './services/api/apiClient';
+import { projectsApi } from './services/api/projectsApi';
 import { createDebouncedSave } from './lib/auto-save';
 
 
@@ -259,8 +261,7 @@ const App: React.FC = () => {
   useEffect(() => {
     if (import.meta.env.MODE !== 'hub' || !activeProjectId || showProjectSelector || !['drawings', 'tracker'].includes(activeTab)) return;
     const projectId = activeProjectId;
-    const token = import.meta.env.VITE_DATA_API_TOKEN?.trim();
-    const url = '/api/projects/' + encodeURIComponent(projectId) + '/events';
+    const url = projectsApi.eventsUrl(projectId);
     let closed = false, retryDelay = 1000, retryTimer: ReturnType<typeof setTimeout> | undefined;
     let pollTimer: ReturnType<typeof setInterval> | undefined, mergeTimer: ReturnType<typeof setTimeout> | undefined;
     let controller: AbortController | undefined, source: EventSource | undefined;
@@ -298,7 +299,7 @@ const App: React.FC = () => {
     const connectFetch = async () => {
       controller = new AbortController();
       try {
-        const response = await fetch(url, { headers: token ? { Authorization: 'Bearer ' + token } : {}, signal: controller.signal });
+        const response = await projectsApi.openEvents(projectId, controller.signal);
         if (!response.ok || !response.body) throw Error('Project event stream unavailable');
         retryDelay = 1000; stopPoll(); fullRefresh();
         const reader = response.body.getReader(), decoder = new TextDecoder(); let buffer = '';
@@ -317,7 +318,7 @@ const App: React.FC = () => {
     };
     function connect() {
       if (closed) return;
-      if (token) { void connectFetch(); return; }
+      if (apiClient.hasToken()) { void connectFetch(); return; }
       source = new EventSource(url);
       source.addEventListener('presence', e => { try { event('presence', JSON.parse((e as MessageEvent).data)); } catch {} });
       source.addEventListener('drawing-changed', e => { try { event('drawing-changed', JSON.parse((e as MessageEvent).data)); } catch {} });

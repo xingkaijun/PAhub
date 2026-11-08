@@ -6,7 +6,8 @@ import { createReviewTrackerSlice } from '../../store/reviewTrackerSlice';
 import { createUiSlice } from '../../store/uiSlice';
 import { createPresenceSlice } from '../../store/presenceSlice';
 import { persistenceOptions } from '../../store/persistence';
-import { appRepository } from '../../services/data/AppRepository';
+import { projectsApi } from '../../services/api/projectsApi';
+import { pcfApi } from '../../services/api/pcfApi';
 import type { AppState } from '../../store/types';
 import type { Drawing, Project } from '../../types';
 
@@ -66,9 +67,9 @@ test('persistence migration and empty storage preserve defaults and legacy dirty
 
 test('presence slice owns one heartbeat timer and edit exit stops it', async () => {
   const store = fixture();
-  const original = appRepository.sendHeartbeat;
+  const original = projectsApi.sendHeartbeat;
   const ids: string[] = [];
-  appRepository.sendHeartbeat = async id => { ids.push(id); };
+  projectsApi.sendHeartbeat = async id => { ids.push(id); };
   try {
     assert.equal(store.getState().toggleEditMode(), true);
     assert.equal(store.getState().isEditMode, true);
@@ -82,14 +83,14 @@ test('presence slice owns one heartbeat timer and edit exit stops it', async () 
     assert.equal(store.getState().isEditMode, false);
     assert.equal(store.getState()._heartbeatTimer, null);
     assert.equal(store.getState().adminPresence.isOnline, false);
-  } finally { store.getState().stopEditingPresence(); appRepository.sendHeartbeat = original; }
+  } finally { store.getState().stopEditingPresence(); projectsApi.sendHeartbeat = original; }
 });
 
 test('a delayed heartbeat lookup cannot overwrite another project or active edit presence', async () => {
   const store = fixture();
-  const original = appRepository.getHeartbeat;
+  const original = projectsApi.getHeartbeat;
   let release!: (value: string | null) => void;
-  appRepository.getHeartbeat = () => new Promise(resolve => { release = resolve; });
+  projectsApi.getHeartbeat = () => new Promise(resolve => { release = resolve; });
   try {
     const pending = store.getState().refreshAdminPresence('p');
     store.setState({ activeProjectId: 'other', adminPresence: { isOnline: false } });
@@ -100,19 +101,49 @@ test('a delayed heartbeat lookup cannot overwrite another project or active edit
     store.setState({ isEditMode: true, adminPresence: { isOnline: true } });
     release(null); await editing;
     assert.equal(store.getState().adminPresence.isOnline, true);
-  } finally { appRepository.getHeartbeat = original; }
+  } finally { projectsApi.getHeartbeat = original; }
 });
 
 test('tracker verification failures re-dirty drawing and tracker for normal save retry', async () => {
   const store = fixture();
-  const loadProject = appRepository.loadProject, loadTracker = appRepository.loadReviewTracker;
-  appRepository.loadProject = async (_settings, project) => ({ ...project });
-  appRepository.loadReviewTracker = async () => ({ d: { __approved__: { done: true } } });
+  const loadProject = projectsApi.loadProject, loadTracker = projectsApi.loadReviewTracker;
+  projectsApi.loadProject = async (project) => ({ ...project });
+  projectsApi.loadReviewTracker = async () => ({ d: { __approved__: { done: true } } });
   try {
     const result = await store.getState().verifySentDrawings('p', [{ id: 'd', customId: '001', status: 'Approved' }]);
     assert.deepEqual(result, { ok: false, mismatchedDrawings: ['001'], mismatchedTracker: ['001'] });
     assert.ok(store.getState()._dirtyDrawingIds.has('d'));
     assert.ok(store.getState()._dirtyTrackerDrawingIds.has('d'));
     assert.equal(store.getState()._dirtyTracker, true);
-  } finally { appRepository.loadProject = loadProject; appRepository.loadReviewTracker = loadTracker; }
+  } finally { projectsApi.loadProject = loadProject; projectsApi.loadReviewTracker = loadTracker; }
+});
+
+
+test('PCF presence accepts active project counts but ignores a delayed response after switching', async () => {
+  const store = fixture();
+  const original = pcfApi.refreshPresence;
+  let release!: (value: { drawings: Record<string, unknown[]> }) => void;
+  pcfApi.refreshPresence = () => new Promise(resolve => { release = resolve; });
+  try {
+    const active = store.getState().refreshPcfPresence('p');
+    release({ drawings: { d: [{}, {}], empty: [] } }); await active;
+    assert.deepEqual(store.getState().pcfPresence, { d: 2, empty: 0 });
+    const pending = store.getState().refreshPcfPresence('p');
+    store.setState({ activeProjectId: 'other', pcfPresence: {} });
+    release({ drawings: { d: [{}] } }); await pending;
+    assert.deepEqual(store.getState().pcfPresence, {});
+  } finally { pcfApi.refreshPresence = original; }
+});
+
+test('heartbeat lifecycle clears its handle even when edit presence restarts without a project', async () => {
+  const store = fixture();
+  const original = projectsApi.sendHeartbeat;
+  projectsApi.sendHeartbeat = async () => {};
+  try {
+    store.getState().startEditingPresence();
+    assert.ok(store.getState()._heartbeatTimer);
+    store.setState({ activeProjectId: null });
+    store.getState().startEditingPresence();
+    assert.equal(store.getState()._heartbeatTimer, null);
+  } finally { store.getState().stopEditingPresence(); projectsApi.sendHeartbeat = original; }
 });

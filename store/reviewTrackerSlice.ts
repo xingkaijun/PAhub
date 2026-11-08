@@ -1,5 +1,5 @@
 import type { Project, ReviewTrackerData } from '../types';
-import { appRepository } from '../services/data/AppRepository';
+import { projectsApi } from '../services/api/projectsApi';
 import { mergeReviewTracker, clearReviewTracker, verifySentState, type SentDrawingExpectation, type SendVerification } from '../lib/review-tracker';
 import type { ReviewTrackerSlice, SliceCreator } from './types';
 export const createReviewTrackerSlice: SliceCreator<ReviewTrackerSlice> = (set, get) => ({
@@ -10,7 +10,7 @@ export const createReviewTrackerSlice: SliceCreator<ReviewTrackerSlice> = (set, 
     if (!project)
       return;
     try {
-      const remote = await appRepository.loadReviewTracker(data.settings, project);
+      const remote = await projectsApi.loadReviewTracker(project.id);
       const merged = mergeReviewTracker(localTracker, remote || {}, _dirtyTrackerDrawingIds);
       set({ reviewTracker: merged });
     }
@@ -42,7 +42,7 @@ export const createReviewTrackerSlice: SliceCreator<ReviewTrackerSlice> = (set, 
       const project = data.projects.find(p => p.id === activeProjectId);
       if (project) {
         const singleUpdate = { [drawingId]: { [assignee]: { done: newDone, doneAt } } };
-        appRepository.saveReviewTracker(data.settings, project, singleUpdate)
+        projectsApi.saveReviewTracker(project.id, singleUpdate)
           .then(result => {
           // 回读校验说没落库时保留脏标记，下次手动/自动保存兜底重试。
           // 校验查询自身失败（result.verification.error）只说明无法确认，按成功处理
@@ -91,8 +91,8 @@ export const createReviewTrackerSlice: SliceCreator<ReviewTrackerSlice> = (set, 
     let remoteTracker: ReviewTrackerData;
     try {
       [remoteProject, remoteTracker] = await Promise.all([
-        appRepository.loadProject(data.settings, project, project.conf?.password),
-        appRepository.loadReviewTracker(data.settings, project),
+        projectsApi.loadProject(project, project.conf?.password),
+        projectsApi.loadReviewTracker(project.id),
       ]);
     }
     catch (err: any) {

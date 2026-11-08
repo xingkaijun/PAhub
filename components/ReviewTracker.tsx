@@ -1,3 +1,5 @@
+import { apiClient } from '../services/api/apiClient';
+import { pcfApi } from '../services/api/pcfApi';
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store';
@@ -236,25 +238,12 @@ export const ReviewTracker: React.FC = () => {
     };
 
     const downloadBatch = async (projectId: string, drawingIds: string[], batchId: string) => {
-        const token = import.meta.env.VITE_DATA_API_TOKEN?.trim();
-        const response = await fetch('/api/pcf/' + encodeURIComponent(projectId) + '/exports/batch', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) },
-            body: JSON.stringify({
-                drawingIds, batchId,
-                clientId: localStorage.getItem('pahub.clientId') || 'send-all',
-                clientName: localStorage.getItem('pahub.clientName') || 'PAPC Send All',
-            }),
+        const { blob, filename } = await pcfApi.exportBatch(projectId, {
+            drawingIds, batchId,
+            clientId: localStorage.getItem('pahub.clientId') || 'send-all',
+            clientName: localStorage.getItem('pahub.clientName') || 'PAPC Send All',
         });
-        if (!response.ok) {
-            const message = await response.text().catch(() => '');
-            throw new Error(message || 'PCF batch export failed: ' + response.status);
-        }
-        const disposition = response.headers.get('Content-Disposition') || '';
-        const encoded = disposition.match(/filename\*=UTF-8''([^;]+)/i)?.[1];
-        const fallback = disposition.match(/filename="([^"]+)"/i)?.[1];
-        const filename = encoded ? decodeURIComponent(encoded) : (fallback || 'PAhub_SendAll.zip');
-        const url = URL.createObjectURL(await response.blob());
+        const url = URL.createObjectURL(blob);
         const link = document.createElement('a');
         link.href = url;
         link.download = filename;
@@ -299,12 +288,7 @@ export const ReviewTracker: React.FC = () => {
         sendBusy.current = true;
         let pcfCount: number;
         try {
-            const token = import.meta.env.VITE_DATA_API_TOKEN?.trim();
-            const response = await fetch('/api/pcf/' + encodeURIComponent(activeProjectId) + '/index', {
-                headers: token ? { Authorization: 'Bearer ' + token } : {},
-            });
-            if (!response.ok) throw new Error('PCF index: ' + response.status);
-            const index: { drawing_id: string }[] = await response.json();
+            const index = await pcfApi.getIndex(activeProjectId);
             const pcfIds = new Set(index.map(row => row.drawing_id));
             pcfCount = expected.filter(d => pcfIds.has(d.id)).length;
         } catch (error: any) {
@@ -420,13 +404,11 @@ export const ReviewTracker: React.FC = () => {
                         className="text-[11px] font-bold text-slate-500 truncate flex-1 min-w-0 hover:text-teal-600 hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-teal-500 rounded"
                         title={`Open PCF: ${drawing.title || drawing.drawingNo}`}
                         onClick={async e => {
-                            const token = import.meta.env.VITE_DATA_API_TOKEN?.trim();
-                            if (!token) return;
+                            if (!apiClient.hasToken()) return;
                             e.preventDefault();
                             const href = e.currentTarget.href, tab = window.open('about:blank', '_blank');
                             try {
-                                const response = await fetch('/api/pcf/' + encodeURIComponent(currentProject.id) + '/' + encodeURIComponent(drawing.id) + '/session', { method: 'POST', headers: { Authorization: 'Bearer ' + token } });
-                                if (!response.ok) throw Error('PCF access failed: ' + response.status);
+                                await pcfApi.ensureSession(currentProject.id, drawing.id);
                                 if (tab) { tab.opener = null; tab.location.href = href; } else window.location.href = href;
                             } catch (error) { tab?.close(); alert(String(error)); }
                         }}
