@@ -44,6 +44,15 @@ test('project ZIP contains complete independent HTML, baseline records and skipp
   } finally { f.cleanup(); }
 });
 
+test('failed complete baseline insertion leaves no orphan export file or partial ZIP', () => {
+  const f = fixture(); try {
+    f.db.sqlite.exec("CREATE TRIGGER reject_complete_export BEFORE INSERT ON pcf_exports BEGIN SELECT RAISE(ABORT,'simulated export insert failure'); END");
+    assert.throws(() => exportPcfProject(f.storage, f.exchange, f.p, path.join(f.dir, 'failed.zip'), f.actor), /simulated export insert failure/);
+    assert.equal(f.db.sqlite.prepare('SELECT count(*) AS n FROM pcf_exports').get()!.n, 0);
+    assert.deepEqual(readdirSync(path.join(f.dir, 'pcf', f.p, 'dwg-001', 'exports')), []);
+  } finally { f.cleanup(); }
+});
+
 test('export refuses overwrite and rolls back records/files when a later document fails', () => {
   const f = fixture(); try {
     const target = path.join(f.dir, 'exists.zip'); writeFileSync(target, 'KEEP');
