@@ -6,7 +6,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { openDatabase } from '../src/database.ts';
 import { ROOT_DIR, PCF_HISTORY_COALESCE_MS } from '../src/config.ts';
-import { PcfStorage, parseHTML } from '../src/pcf-storage.ts';
+import { PcfStorage } from '../src/pcf-storage.ts';
 import { historyDay } from '../src/pcf-history.ts';
 
 const p = 'proj-test-001', d = 'dwg-005';
@@ -32,7 +32,7 @@ test('same client coalesces to pre-segment baseline across storage restart; clie
     for (let i = 0; i < 10; i++) { f.tick(60000); assert.equal(f.save().result.rev, i + 2); }
     assert.equal(f.storage.history(p, d).length, 1);
     const entry = f.storage.history(p, d)[0]; assert.equal(entry.rev, 1);
-    assert.equal(parseHTML(readFileSync(path.join(f.storage.historyDir(p, d), entry.filename), 'utf8')).project.planTitle, baseline);
+    assert.equal(JSON.parse(readFileSync(path.join(f.storage.historyDir(p, d), entry.filename), 'utf8')).project.planTitle, baseline);
     const restarted = new PcfStorage(f.db.sqlite, f.dir, () => Date.now() + 11 * 60000);
     const current = restarted.load(p, d);
     restarted.replace(p, d, { baseRev: current.rev, data: { ...current.data, project: { ...current.data.project, planTitle: 'Restart edit' } } }, f.actor('A'));

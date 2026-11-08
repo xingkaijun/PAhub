@@ -32,12 +32,6 @@ function documentData(comments: any[], overrides: Record<string, any> = {}): Pcf
     deleted: [], circulation: [], approvalHistory: [], settings: { fontSize: 15, autoSaveSeconds: 60 }, roundRegister: [],
     hub: { rev: 1, entities: {}, tombstones: [], lastChange: { clientId: 'fixture', clientName: 'Phase 9 fixture', ip: '127.0.0.1', ops: [] } }, ...overrides };
 }
-function html(data: PcfData) {
-  // Complete small HTML avoids writing the large template 500 times in perf setup.
-  return '<!doctype html><html><head><meta charset="UTF-8"><title>Phase 9</title></head><body>' +
-    '<script id="pcf-data" type="application/json">' + scriptJSON(data) + '</script>' +
-    '<script id="pahub-context" type="application/json">' + JSON.stringify({ token: apiToken, capability: 'private-capability-do-not-export' }) + '</script></body></html>';
-}
 async function fixture(token = '') {
   const dir = await mkdtemp(path.join(tmpdir(), 'pahub-phase9-comments-'));
   const keys = ['PORT', 'PAHUB_DATA_DIR', 'PAPC_DB_PATH', 'API_TOKEN', 'ADMIN_PASSWORD'];
@@ -71,7 +65,7 @@ async function fixture(token = '') {
         .run(id, p, meta.drawingNo, meta.title, meta.discipline, meta.status, 'A'); return meta;
     };
     const store = async (id: string, data: PcfData, p = project, index = true) => {
-      const file = storage.file(p, id); await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, html(data));
+      const file = storage.file(p, id); await mkdir(path.dirname(file), { recursive: true }); await writeFile(file, JSON.stringify(data));
       if (index) storage.load(p, id); return file;
     };
     return { hub: liveHub, db, storage, origin, auth, get, query, drawing, store, cleanup, dir };
@@ -188,7 +182,7 @@ test('phase 9: corrupted JSON and invalid PCF are skipped with drawingNo warning
     f.drawing('healthy'); f.drawing('bad-json', project, { drawingNo: '损坏-JSON' }); f.drawing('bad-shape', project, { drawingNo: 'P9-BAD-SHAPE' });
     await f.store('healthy', documentData([healthy]));
     await mkdir(path.dirname(f.storage.file(project, 'bad-json')), { recursive: true });
-    await writeFile(f.storage.file(project, 'bad-json'), '<html><script id="pcf-data" type="application/json">{broken</script></html>');
+    await writeFile(f.storage.file(project, 'bad-json'), '{broken');
     await f.store('bad-shape', documentData([], { comments: null }), project, false);
     const result = await f.query(); assert.deepEqual(ids(result), [healthy.id]);
     for (const [drawingId, drawingNo] of [['bad-json', '损坏-JSON'], ['bad-shape', 'P9-BAD-SHAPE']]) {
@@ -199,22 +193,22 @@ test('phase 9: corrupted JSON and invalid PCF are skipped with drawingNo warning
   } finally { await f.cleanup(); }
 });
 
-test('phase 9: HTML mtime invalidates cached bodies even when hub/index revision is unchanged', async () => {
+test('phase 9: JSON mtime invalidates cached bodies even when hub/index revision is unchanged', async () => {
   const f = await fixture(); try {
     f.drawing('mtime'); const data = documentData([comment('Before mtime')]), file = await f.store('mtime', data);
     assert.equal((await f.query()).comments[0].ownerComment, 'Before mtime');
     data.comments[0].rounds[0].owner = content('After mtime');
-    const previous = await stat(file); await writeFile(file, html(data)); await utimes(file, previous.atime, new Date(previous.mtimeMs + 2000));
+    const previous = await stat(file); await writeFile(file, JSON.stringify(data)); await utimes(file, previous.atime, new Date(previous.mtimeMs + 2000));
     assert.equal((await f.query()).comments[0].ownerComment, 'After mtime');
   } finally { await f.cleanup(); }
 });
 
-test('phase 9: index/HTML rev invalidates cache with identical mtime and file size', async () => {
+test('phase 9: index/JSON rev invalidates cache with identical mtime and file size', async () => {
   const f = await fixture(); try {
     f.drawing('revision'); const data = documentData([comment('original')]), file = await f.store('revision', data);
     assert.equal((await f.query()).comments[0].ownerComment, 'original');
     const previous = await stat(file); data.comments[0].rounds[0].owner = content('rev-only'); data.hub.rev++;
-    await writeFile(file, html(data)); f.storage.load(project, 'revision'); await utimes(file, previous.atime, previous.mtime);
+    await writeFile(file, JSON.stringify(data)); f.storage.load(project, 'revision'); await utimes(file, previous.atime, previous.mtime);
     assert.equal((await stat(file)).size, previous.size, 'rev-only fixture preserves size');
     assert.equal((await f.query()).comments[0].ownerComment, 'rev-only');
   } finally { await f.cleanup(); }

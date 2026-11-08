@@ -1,6 +1,6 @@
 import { readFileSync, statSync } from 'node:fs';
 import { createHash } from 'node:crypto';
-import { PcfStorage, parseHTML } from './pcf-storage.ts';
+import { PcfStorage } from './pcf-storage.ts';
 import { fail, safeId, roundNumber } from './pcf-model.ts';
 
 export type CommentRow = {
@@ -151,8 +151,8 @@ export class ProjectComments {
     return payload;
   }
 
-  private derive(html: string): DerivedComment[] {
-    const data = parseHTML(html);
+  private derive(json: string): DerivedComment[] {
+    const data = JSON.parse(json);
     if (data.schemaVersion !== '1.0' || !data.project || !Array.isArray(data.comments) || !Number.isSafeInteger(data.hub?.rev) || data.hub.rev < 1) fail('Invalid stored PCF document');
     const tombstones = new Set((data.hub.tombstones || []).map((t: any) => t.id));
     const ids = new Set<string>();

@@ -9,7 +9,7 @@ import { ROOT_DIR } from '../src/config.ts';
 import { parseHTML, replaceData } from '../src/pcf-storage.ts';
 import { blankContent } from '../src/pcf-model.ts';
 
-test('exchange edges: whole image sets, disjoint fields, stale preview, invalid mode and old-template hint', async () => {
+test('exchange edges: whole image sets, disjoint fields, stale preview, invalid mode and JSON rendering', async () => {
   const temp=await mkdtemp(path.join(tmpdir(),'pahub-exchange-edge-'));
   const old=Object.fromEntries(['PORT','PAHUB_DATA_DIR','PAPC_DB_PATH','API_TOKEN'].map(k=>[k,process.env[k]]));
   Object.assign(process.env,{PORT:'0',PAHUB_DATA_DIR:temp,PAPC_DB_PATH:path.join(temp,'papc.db'),API_TOKEN:''});
@@ -34,8 +34,8 @@ test('exchange edges: whole image sets, disjoint fields, stale preview, invalid 
     const applied=await api('imports',{step:'apply',html:returned,previewToken:preview.previewToken,batchId:randomUUID(),choices:{'r1:images':{choice:'builder'}}});
     assert.equal(applied.status,200);assert.equal(applied.data.data.comments[0].rounds[0].reply.text,'Builder body');assert.deepEqual(applied.data.data.comments[0].rounds[0].reply.images,[image('builder-image')]);
     const invalid=structuredClone(data);invalid.export.mode='owner';assert.equal((await api('imports',{step:'preview',html:replaceData(html,invalid)})).status,409);
-    const file=path.join(temp,'pcf','proj-test-001','dwg-005.html'),original=(await readFile(file,'utf8')).replace('<meta name="pahub-template-version" content="4">','');await writeFile(file,original,'utf8');
-    const oldPage=await (await fetch(origin+'/pcf/proj-test-001/dwg-005')).text();assert.match(oldPage,/pahub-template-note-script/);assert.match(oldPage,/Template upgrade available/);assert.equal(await readFile(file,'utf8'),original);
-    console.log('Exchange edges: images compared/replaced as whole sets; Builder body + server image disjoint automatic; stale preview 409; wrong mode 409; old-template hint injected without changing authoritative HTML');
+    const file=path.join(temp,'pcf','proj-test-001','dwg-005.json'),original=await readFile(file,'utf8');
+    const page=await (await fetch(origin+'/pcf/proj-test-001/dwg-005')).text();assert.match(page,/pahub-template-version" content="6/);assert.doesNotMatch(page,/<script id="pahub-template-note-script">/);assert.equal(await readFile(file,'utf8'),original);
+    console.log('Exchange edges: images compared/replaced as whole sets; Builder body + server image disjoint automatic; stale preview 409; wrong mode 409; current template renders without changing authoritative JSON');
   } finally {await hub.close();for(const[k,v]of Object.entries(old))if(v===undefined)delete process.env[k];else process.env[k]=v;}
 });

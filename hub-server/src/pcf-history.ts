@@ -7,7 +7,7 @@ import { projectDateKey } from '../../lib/deadline.ts';
 export function historyEntries(directory: string) {
   if (!existsSync(directory)) return [];
   return readdirSync(directory).flatMap(filename => {
-    const match = filename.match(/^(\d+)-(\d+)-[a-f0-9-]+\.html$/);
+    const match = filename.match(/^(\d+)-(\d+)-[a-f0-9-]+\.json$/);
     return match ? [{ rev: Number(match[1]), savedAt: new Date(Number(match[2])).toISOString(), filename }] : [];
   }).sort((a, b) => b.rev - a.rev);
 }
@@ -28,20 +28,20 @@ export function pruneHistory(directory: string) {
 
 // Persist only editing-segment metadata, never bodies or receipts in SQLite.
 type Segment = { filename: string; clientId: string; lastSavedAt: number; headRev: number };
-export function prepareHistory(directory: string, oldRev: number, oldHTML: string, clientId: string, at: number, write: (file: string, content: string) => void) {
+export function prepareHistory(directory: string, oldRev: number, oldJSON: string, clientId: string, at: number, write: (file: string, content: string) => void) {
   const manifest = path.join(directory, '.retention.json');
   let previous: Segment | undefined;
   try { previous = JSON.parse(readFileSync(manifest, 'utf8')); } catch (error: any) {
     if (error.code !== 'ENOENT' && !(error instanceof SyntaxError)) throw error;
   }
-  const validFilename = previous && /^(\d+)-(\d+)-[a-f0-9-]+\.html$/.test(previous.filename);
+  const validFilename = previous && /^(\d+)-(\d+)-[a-f0-9-]+\.json$/.test(previous.filename);
   const coalesce = !!clientId && previous?.clientId === clientId && previous.headRev === oldRev &&
     at >= previous.lastSavedAt && at - previous.lastSavedAt < PCF_HISTORY_COALESCE_MS &&
     validFilename && existsSync(path.join(directory, previous.filename));
-  const filename = coalesce ? previous!.filename : oldRev + '-' + at + '-' + randomUUID() + '.html';
+  const filename = coalesce ? previous!.filename : oldRev + '-' + at + '-' + randomUUID() + '.json';
   // Keep the earliest pre-edit image throughout a continuous client segment,
   // so restore can always return to the state BEFORE that segment started.
-  if (!coalesce) write(path.join(directory, filename), oldHTML);
+  if (!coalesce) write(path.join(directory, filename), oldJSON);
   return {
     rollback() { if (!coalesce && existsSync(path.join(directory, filename))) unlinkSync(path.join(directory, filename)); },
     commit(headRev: number) {

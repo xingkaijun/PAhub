@@ -1,40 +1,21 @@
-import { readFileSync, writeFileSync, mkdirSync, renameSync, readdirSync, unlinkSync, openSync, fsyncSync, closeSync, existsSync } from 'node:fs';
+import { readFileSync, readdirSync, unlinkSync, existsSync } from 'node:fs';
 import { randomUUID, createHash } from 'node:crypto';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
-import { ROOT_DIR } from './config.ts';
+import { currentTemplate } from './pcf-template.ts';
+import { parseHTML } from './pcf-html.ts';
+import { atomicWrite } from './atomic-write.ts';
+export { parseHTML, replaceData, scriptJSON } from './pcf-html.ts';
+export { atomicWrite } from './atomic-write.ts';
 import { historyEntries, prepareHistory } from './pcf-history.ts';
 import * as modelV26 from './pcf-v26.ts';
 import { validateJSON } from './pcf-schema.ts';
 import { initData, reconcile, roundNumber, roundLabel, registerFields, fail, type PcfData, type Actor, type Op, applyOps } from './pcf-model.ts';
 
-// Locate exactly one JSON script by attributes; independent of whitespace/attribute order.
-function dataBlock(html: string) {
-  const matches = [...html.matchAll(/<script\b([^>]*)>([\s\S]*?)<\/script\s*>/gi)].filter(m => /\bid\s*=\s*(['"])pcf-data\1/i.test(m[1]));
-  if (matches.length !== 1 || !/\btype\s*=\s*(['"])application\/json\1/i.test(matches[0][1])) fail('Expected one #pcf-data JSON script');
-  return matches[0];
-}
-export function parseHTML(html: string): PcfData {
-  try { return JSON.parse(dataBlock(html)[2]); } catch (e: any) { if (e.status) throw e; fail('Invalid pcf-data JSON'); }
-}
-export const scriptJSON = (value: unknown) => JSON.stringify(value).replace(/</g, '\\u003c').replace(/>/g, '\\u003e').replace(/&/g, '\\u0026');
-export function replaceData(html: string, data: PcfData) {
-  const m = dataBlock(html), start = m.index! + m[0].indexOf('>') + 1;
-  return html.slice(0, start) + scriptJSON(data) + html.slice(start + m[2].length);
-}
-export function atomicWrite(file: string, html: string) {
-  mkdirSync(path.dirname(file), { recursive: true });
-  const temp = file + '.' + randomUUID() + '.tmp';
-  try {
-    writeFileSync(temp, html, { encoding: 'utf8', flag: 'wx' });
-    const fd = openSync(temp, 'r+'); try { fsyncSync(fd); } finally { closeSync(fd); }
-    renameSync(temp, file);
-  } finally { if (existsSync(temp)) unlinkSync(temp); }
-}
 export class PcfStorage {
   private queues = new Map<string, Promise<unknown>>();
   constructor(readonly db: DatabaseSync, readonly dataDir: string, private readonly now: () => number = Date.now) {}
-  file(p: string, d: string) { return path.join(this.dataDir, 'pcf', p, d + '.html'); }
+  file(p: string, d: string) { return path.join(this.dataDir, 'pcf', p, d + '.json'); }
   historyDir(p: string, d: string) { return path.join(this.dataDir, 'pcf', p, '.history', d); }
   async serial<T>(p: string, d: string, task: () => T | Promise<T>): Promise<T> {
     const key = p + '/' + d, previous = this.queues.get(key) || Promise.resolve();
@@ -49,7 +30,7 @@ export class PcfStorage {
   index(p: string) {
     // Also repair a crash between file rename and SQLite commit on project listing.
     const dir = path.join(this.dataDir, 'pcf', p);
-    if (existsSync(dir)) for (const name of readdirSync(dir)) if (/^[A-Za-z0-9_-]+\.html$/.test(name)) {
+    if (existsSync(dir)) for (const name of readdirSync(dir)) if (/^[A-Za-z0-9_-]+\.json$/.test(name)) {
       const id = name.slice(0, -5); if (this.db.prepare('SELECT 1 FROM drawings WHERE project_id=? AND id=? AND COALESCE(_deleted,0)=0').get(p, id)) this.load(p, id);
     }
     return this.db.prepare("SELECT * FROM pcf_index WHERE project_id=? ORDER BY drawing_id").all(p);
@@ -57,23 +38,24 @@ export class PcfStorage {
   load(p: string, d: string) {
     this.drawing(p, d); const file = this.file(p, d);
     if (!existsSync(file)) fail('PCF not found', 404);
-    const html = readFileSync(file, 'utf8'), data = parseHTML(html), rev = Number(data.hub?.rev);
+    const data: PcfData = JSON.parse(readFileSync(file, 'utf8')), rev = Number(data.hub?.rev);
     if (!Number.isSafeInteger(rev) || rev < 1) fail('Invalid stored PCF revision', 500);
     const meta = this.db.prepare('SELECT rev FROM pcf_index WHERE project_id=? AND drawing_id=?').get(p, d);
     if (meta?.rev !== rev) {
       if (meta && Number(meta.rev) > rev) fail('PCF file/index revision mismatch; restore backup', 500);
       this.transaction(() => this.indexWrite(p, d, data));
     }
-    return { html, data, rev };
+    return { data, rev };
   }
   create(p: string, d: string, actor: Actor) {
     if (existsSync(this.file(p, d))) return this.meta(p, d);
-    const drawing = this.drawing(p, d), html = readFileSync(path.join(ROOT_DIR, 'pcf/template/PG-PCF-hub.html'), 'utf8');
+    if (existsSync(path.join(this.dataDir, 'pcf', p, d + '.html'))) fail('Legacy HTML storage: stop Hub and run hub:migrate-pcf-json', 503);
+    const drawing = this.drawing(p, d), html = currentTemplate();
     const data = parseHTML(html), n = roundNumber(drawing.current_round);
     Object.assign(data, { documentId: randomUUID(), comments: [], deleted: [], circulation: [], approvalHistory: [], roundRegister: [], hub: { rev: 0, entities: {} } });
     data.project = { name: drawing.project_name, planNo: drawing.drawing_no, planTitle: drawing.title, revision: drawing.version || '', folder: '', currentRound: n, approval: drawing.status === 'Approved' ? 'Approved' : drawing.status === 'Pending' ? 'Not submitted' : 'Under review' };
     delete data.approvalControl; initData(data);
-    this.save(p, d, html, data, actor, [{ type: 'document.create' }]); return this.meta(p, d);
+    this.save(p, d, data, actor, [{ type: 'document.create' }]); return this.meta(p, d);
   }
   private transaction(task: () => void) {
     this.db.exec('SAVEPOINT pcf_write');
@@ -90,12 +72,12 @@ export class PcfStorage {
     const inserted = this.db.prepare('INSERT OR IGNORE INTO pcf_changes(project_id,drawing_id,rev,client_id,client_name,ip,ops_json,created_at) VALUES(?,?,?,?,?,?,?,?)').run(p, d, data.hub.rev, change.clientId, change.clientName, change.ip, JSON.stringify(change.ops), data.updatedAt);
     if (inserted.changes) this.db.prepare("INSERT INTO audit_log(table_name,row_id,project_id,action,detail,created_at) VALUES('drawings',?,?,'COMMENTS',?,?)").run(d, p, JSON.stringify({ customId: before.custom_id, drawingNo: before.drawing_no, from: { total: before.manual_comments_count, open: before.manual_open_comments_count }, to: { total, open }, source: 'PCF', rev: data.hub.rev, round: { from: before.current_round, to: roundLabel(n) }, version: row?.revision || before.version }), data.updatedAt);
   }
-  private save(p: string, d: string, html: string, data: PcfData, actor: Actor, ops: unknown[], commit?: () => void) {
+  private save(p: string, d: string, data: PcfData, actor: Actor, ops: unknown[], commit?: () => void) {
     const file = this.file(p, d), old = existsSync(file) ? readFileSync(file, 'utf8') : null;
-    const oldRev = old ? parseHTML(old).hub.rev : 0;
+    const oldRev = old ? JSON.parse(old).hub.rev : 0;
     const at = this.now();
     reconcile(data); data.hub.rev = oldRev + 1; data.updatedAt = new Date(at).toISOString();
-    data.hub.lastChange = { ...actor, ops }; const next = replaceData(html, data);
+    data.hub.lastChange = { ...actor, ops }; const next = JSON.stringify(data);
     const history = old ? prepareHistory(this.historyDir(p, d), oldRev, old, actor.clientId, at, atomicWrite) : undefined;
     // Synchronous section: Worker cannot interleave in an open SQLite transaction.
     let renamed = false;
@@ -107,10 +89,10 @@ export class PcfStorage {
   }
   // Status transitions use the same document transaction, clocks and history as PCF edits.
   transitionRound(p: string, d: string, round: number, actor: Actor, commit: () => void) {
-    const { html, data, rev } = this.load(p, d);
+    const { data, rev } = this.load(p, d);
     const result = applyOps(data, [{ type: 'project.set', field: 'currentRound', value: round, baseRev: data.hub.entities['project:currentRound']?.rev || 0 }], actor, rev + 1);
     if (result.conflicts.length) fail('PCF round transition conflict', 409);
-    const nextRev = this.save(p, d, html, data, actor, result.applied, commit);
+    const nextRev = this.save(p, d, data, actor, result.applied, commit);
     return { rev: nextRev, ...result, data: this.publicData(data) };
   }
   publicData(data: PcfData) { const copy = structuredClone(data); delete copy.hub.receipts; return copy; }
@@ -118,7 +100,7 @@ export class PcfStorage {
   opsBatch(p: string, d: string, body: any, actor: Actor) {
     if (!Number.isSafeInteger(body.baseRev) || body.baseRev < 1 || !Array.isArray(body.ops) || body.ops.length > 10000) fail('Invalid ops request');
     if (body.batchId !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.batchId)) fail('batchId must be UUID');
-    const { html, data, rev } = this.load(p, d);
+    const { data, rev } = this.load(p, d);
     const hash = createHash('sha256').update(JSON.stringify({ clientId: actor.clientId, baseRev: body.baseRev, ops: body.ops })).digest('hex');
     const receipts = (data.hub.receipts || []).filter((r: any) => Date.now() - r.at < 86400000);
     const prior = body.batchId && receipts.find((r: any) => r.id === body.batchId);
@@ -131,18 +113,16 @@ export class PcfStorage {
     if (body.baseRev > rev) fail('Future document revision', 409);
     const result = applyOps(data, body.ops as Op[], actor, rev + 1);
     if (body.batchId) data.hub.receipts = [...receipts, { id: body.batchId, hash, at: Date.now(), result: { rev: result.applied.length ? rev + 1 : rev, ...result } }].slice(-1000);
-    const nextRev = result.applied.length ? this.save(p, d, html, data, actor, result.applied.map(({ entity: _e, entityRev: _r, ...summary }: any) => summary)) : rev;
-    // Receipt-only acknowledgement stays in the authoritative HTML, never in SQLite body columns.
-    if (!result.applied.length && body.batchId) atomicWrite(this.file(p, d), replaceData(html, data));
+    const nextRev = result.applied.length ? this.save(p, d, data, actor, result.applied.map(({ entity: _e, entityRev: _r, ...summary }: any) => summary)) : rev;
+    // Receipt-only acknowledgement stays in the authoritative JSON, never in SQLite body columns.
+    if (!result.applied.length && body.batchId) atomicWrite(this.file(p, d), JSON.stringify(data));
     return { replayed: false, result: { rev: nextRev, ...result, data: this.publicData(data) } };
   }
   replace(p: string, d: string, body: any, actor: Actor, historyRev?: number) {
     const latest = this.load(p, d); if (body.baseRev !== latest.rev) fail('Document revision conflict', 409);
-    let html = body.html || latest.html, data = body.data;
-    if (historyRev !== undefined) { const restored = this.historyData(p, d, historyRev); if (!restored) fail('History not found', 404); html = restored.html; data = restored.data; }
+    let data = body.data;
+    if (historyRev !== undefined) { const restored = this.historyData(p, d, historyRev); if (!restored) fail('History not found', 404); data = restored.data; }
     else if (body.html) data = parseHTML(body.html);
-    // Imported/migrated HTML must not retain a live page's capability.
-    html = html.replace(/<script\b[^>]*\bid\s*=\s*(['"])pahub-context\1[^>]*>[\s\S]*?<\/script\s*>/gi, '');
     if (!data) fail('Expected data or html');
     if (body.importJSON) { validateJSON(data); const { cleanupLegacyImport } = modelV26; cleanupLegacyImport(data); }
     data = initData(data);
@@ -166,12 +146,12 @@ export class PcfStorage {
       for (const r of c.rounds) { for (const field of ['owner', 'reply', 'record', 'initiator', 'responder', 'minHeight']) keys.add('round:' + r.id + ':' + field); r.rev = r.ownerRev = r.replyRev = latest.rev + 1; }
     }
     for (const key of keys) data.hub.entities[key] = { rev: latest.rev + 1, clientId: actor.clientId, clientName: actor.clientName, at: new Date().toISOString() };
-    const rev = this.save(p, d, html, data, actor, [{ type: historyRev === undefined ? 'document.replace' : 'history.restore' }]); return { rev, data: this.publicData(data) };
+    const rev = this.save(p, d, data, actor, [{ type: historyRev === undefined ? 'document.replace' : 'history.restore' }]); return { rev, data: this.publicData(data) };
   }
-  private historyData(p: string, d: string, rev: number): { html: string; data: PcfData } | undefined {
+  private historyData(p: string, d: string, rev: number): { data: PcfData } | undefined {
     const entry = historyEntries(this.historyDir(p, d)).find(item => item.rev === rev);
     if (!entry) return undefined;
-    try { const html = readFileSync(path.join(this.historyDir(p, d), entry.filename), 'utf8'); return { html, data: parseHTML(html) }; }
+    try { return { data: JSON.parse(readFileSync(path.join(this.historyDir(p, d), entry.filename), 'utf8')) }; }
     catch (error: any) { if (error.code === 'ENOENT') return undefined; throw error; }
   }
   history(p: string, d: string) {

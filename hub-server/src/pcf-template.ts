@@ -1,7 +1,8 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { ROOT_DIR } from './config.ts';
-import { parseHTML, replaceData, atomicWrite } from './pcf-storage.ts';
+import { parseHTML, replaceData } from './pcf-html.ts';
+import { atomicWrite } from './atomic-write.ts';
 import { cleanupLegacyImport, type PcfData } from './pcf-model.ts';
 
 export const TEMPLATE_VERSION = 6;

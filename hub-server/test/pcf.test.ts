@@ -98,10 +98,10 @@ test('PCF hosted API: create, entity concurrency, numbering, PAPC summary, histo
     const download = await fetch(base + endpoint + '/download').then(r => r.text()); assert.doesNotMatch(download, /id="pahub-context"/); assert.equal(parseHTML(download).hub, undefined);
     console.log('history list + restore -> new revision; tombstone delete/restore + document baseRev 409 + independent download OK');
     // Simulate crash after authoritative file rename but before SQLite commit; read repairs metadata + audit once.
-    const file = path.join(temp, 'pcf/proj-test-001/dwg-005.html');
-    const stored = await readFile(file, 'utf8'), crashData = parseHTML(stored); crashData.hub.rev++;
+    const file = path.join(temp, 'pcf/proj-test-001/dwg-005.json');
+    const stored = await readFile(file, 'utf8'), crashData = JSON.parse(stored); crashData.hub.rev++;
     crashData.hub.lastChange = { clientId: 'recovery', clientName: '', ip: '127.0.0.1', ops: [{ type: 'document.replace' }] };
-    await writeFile(file, replaceData(stored, crashData), 'utf8'); assert.equal((await api('meta')).value.rev, crashData.hub.rev);
+    await writeFile(file, JSON.stringify(crashData), 'utf8'); assert.equal((await api('meta')).value.rev, crashData.hub.rev);
     assert.equal(hub.db.sqlite.prepare("SELECT count(*) AS n FROM pcf_changes WHERE client_id='recovery'").get()!.n, 1);
     await api('meta'); assert.equal(hub.db.sqlite.prepare("SELECT count(*) AS n FROM pcf_changes WHERE client_id='recovery'").get()!.n, 1);
     await hub.close(); hub = undefined;
