@@ -24,8 +24,19 @@ dist-ssr
 *.sw?
 
 # Local environment & Database
-.env
+.env*
+!.env.example
+!**/.env.example
 .dev.vars
+*.db*
+*.sqlite*
+logs/
+output/
+artifacts/
+start-*.cmd
+start-*.ps1
+*.bak
+*.backup
 
 
 # D1 dumps / backups — contain live project data, never commit
