@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { lettersToRound, roundToLetters } from '../../lib/rounds.ts';
 import { countOpen, reconcileApproval, roundCleanupPlan, pruneRounds, cleanupLegacyImport, nextCommentNumber } from './pcf-v26.ts';
 export { countOpen, reconcileApproval, roundCleanupPlan, pruneRounds, cleanupLegacyImport, nextCommentNumber } from './pcf-v26.ts';
 export type PcfData = Record<string, any>;
@@ -12,10 +13,10 @@ export function safeId(value: unknown): string {
   return value;
 }
 export const blankContent = () => ({ text: '', html: '', fill: '', images: [] });
-export const roundLabel = (n: number): string => n > 0 ? roundLabel(Math.floor((n - 1) / 26)) + String.fromCharCode(65 + (n - 1) % 26) : '';
+export const roundLabel = (n: number): string => roundToLetters(n);
 export function roundNumber(value: unknown): number {
   const s = String(value || 'A').toUpperCase();
-  if (/^[A-Z]{1,3}$/.test(s)) return [...s].reduce((n, c) => n * 26 + c.charCodeAt(0) - 64, 0);
+  if (/^[A-Z]{1,3}$/.test(s)) return lettersToRound(s);
   return /^[1-9]\d{0,3}$/.test(s) ? Number(s) : 1;
 }
 export function ensureRound(d: PcfData, n: number) {

@@ -45,7 +45,7 @@ test('Builder export/offline save and authenticated three-way import through ops
     await ops([{type:'project.set',field:'folder',baseRev:0,value:'http://internal-owner-server/private-folder'}]);
     assert.equal((await api('exports',{},false)).status,401);assert.equal((await api('imports',{step:'preview',html:''},false)).status,401);
     const record=(await api('exports',{})).value;
-    assert.match(record.filename,/^DW-E-005_R02_PCF_\d{4}-\d{2}-\d{2}\.html$/);
+    assert.match(record.filename,/^DW-E-005_B_PCF_\d{4}-\d{2}-\d{2}\.html$/);
     const download=await fetch(origin+endpoint+'exports/'+record.exportId+'/download',{headers:{Authorization:'Bearer phase4-secret'}});
     assert.equal(download.status,200);const exported=await download.text(), data=parseHTML(exported);
     assert.match(data.export.ownerHmac,/^[a-f0-9]{64}$/);assert.equal(data.export.baseRev,live.rev);

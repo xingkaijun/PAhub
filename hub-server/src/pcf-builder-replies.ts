@@ -6,6 +6,8 @@ import type { PcfStorage } from './pcf-storage.ts';
 import type { PcfExchange } from './pcf-exchange.ts';
 import type { PcfRealtime } from './pcf-realtime.ts';
 import { parseHTML } from './pcf-storage.ts';
+import { nextRoundLabel } from '../../lib/rounds.ts';
+import { roundToLetters } from '../../lib/rounds.ts';
 
 const MAX_FILES = Number(process.env.MAX_BUILDER_REPLY_FILES || 50);
 const MAX_BYTES = Number(process.env.MAX_BUILDER_REPLY_BYTES || 50 * 1024 * 1024);
@@ -19,7 +21,7 @@ export function updateBuilderReplyPapcStatus(db: PcfStorage['db'], projectId: st
   if (row.status !== 'Waiting Reply') return `status unchanged (${row.status})`;
   const at = new Date(), atISO = at.toISOString();
   const currentRound = String(row.current_round || 'A');
-  const nextRound = currentRound.length === 1 && currentRound < 'Z' ? String.fromCharCode(currentRound.charCodeAt(0) + 1) : currentRound === 'Z' ? 'AA' : currentRound + 'A';
+  const nextRound = nextRoundLabel(currentRound);
   const cfg: any = db.prepare('SELECT conf_json FROM api_project_details WHERE id=?').get(projectId);
   const conf = cfg ? JSON.parse(cfg.conf_json) : {};
   const cycleDays = Number(nextRound.toUpperCase() === 'A' ? conf.roundACycle || 14 : conf.otherRoundsCycle || 7);
@@ -107,7 +109,7 @@ export class PcfBuilderReplies {
         const changed = [...preview.automatic, ...preview.conflicts];
         const replies = new Set(changed.map((item: any) => `${item.commentId}:${item.roundId}`)).size;
         const category = preview.repeated ? 'duplicate' : preview.conflicts.length ? 'conflict' : preview.ownerTampered && replies ? 'owner-tampered' : replies ? 'clean' : 'unchanged';
-        rows.push({ id, fileName: file.name, drawingId: rec.drawing_id, drawingNo: rec.drawing_no, title: rec.title, exportId: preview.exportId, round: preview.round, newReplies: replies, automatic: preview.automatic.length, conflicts: preview.conflicts.length, papcStatus: rec.papc_status, statusNote: rec.papc_status === 'Waiting Reply' ? 'will change to Reviewing' : `status unchanged (${rec.papc_status})`, category, previewToken: preview.previewToken, ownerTampered: preview.ownerTampered, reason: '', htmlPath: path.basename(target) });
+        rows.push({ id, fileName: file.name, drawingId: rec.drawing_id, drawingNo: rec.drawing_no, title: rec.title, exportId: preview.exportId, round: roundToLetters(preview.round), newReplies: replies, automatic: preview.automatic.length, conflicts: preview.conflicts.length, papcStatus: rec.papc_status, statusNote: rec.papc_status === 'Waiting Reply' ? 'will change to Reviewing' : `status unchanged (${rec.papc_status})`, category, previewToken: preview.previewToken, ownerTampered: preview.ownerTampered, reason: '', htmlPath: path.basename(target) });
       } catch (e: any) { rows.push({ id, fileName: file.name, category: 'unmatched', reason: e.message || 'Invalid PCF reply', htmlPath: path.basename(target) }); }
     }
     writeFileSync(path.join(root, 'manifest.json'), JSON.stringify({ projectId, setId, rows }, null, 2));

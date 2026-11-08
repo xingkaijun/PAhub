@@ -67,7 +67,13 @@ test('v5 without PAHUB matches v2.6 connect, auto-save, JSON apply/export and lo
       const json=JSON.parse(jsonText);assert.equal(json.comments[0].page,'auto');assert.equal(json.hub,undefined);assert.equal(json.schemaVersion,'1.0');
       results.push({jsonExport:{comments:json.comments.length,page:json.comments[0].page,settings:json.settings,name:(b.w as any).jsonName},writes,opens,permission,comments:parseHTML(saved).comments.length,page:parseHTML(saved).comments[0].page,stats:plain(b.w.eval('validateJSON(state).stats')),theme:b.w.eval('state.settings.theme'),connect:b.w.document.querySelector<HTMLButtonElement>('#connect-file-btn')!.disabled});assert.deepEqual(b.errors,[]);
     }finally{b.w.close();}
-  }assert.deepEqual(results[0],results[1]);
+  }
+  // The immutable v2.6 source keeps its legacy filename; the hosted v6 template
+  // applies the new display-only letter label without changing serialized rounds.
+  assert.equal(results[0].jsonExport.name, 'PCF-2LG260104S-R01.json');
+  assert.equal(results[1].jsonExport.name, 'PCF-2LG260104S-A.json');
+  const [sourceResult, templateResult] = results.map(result => ({ ...result, jsonExport: { ...result.jsonExport, name: '<round-label>' } }));
+  assert.deepEqual(sourceResult, templateResult);
 });
 test('v2.6 permanent deletion cascade, offline add-round conflict, atomic add-all and history clocks',()=>{
   const d=fixture(),actor={clientId:'A',clientName:'A',ip:'local'},old=structuredClone(d);

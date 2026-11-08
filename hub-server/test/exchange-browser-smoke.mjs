@@ -23,7 +23,7 @@ try {
   await host.locator('#save-btn').click(); await host.waitForFunction(() => document.querySelector('#save-state').textContent.includes('Saved to server'));
   const exportDownload = host.waitForEvent('download'); await host.locator('#pahub-export').click();
   const exported = await exportDownload, exportedPath = path.join(temp, exported.suggestedFilename()); await exported.saveAs(exportedPath);
-  assert.match(exported.suggestedFilename(), /^DW-E-005_R02_PCF_\d{4}-\d{2}-\d{2}\.html$/);
+  assert.match(exported.suggestedFilename(), /^DW-E-005_B_PCF_\d{4}-\d{2}-\d{2}\.html$/);
   assert.doesNotMatch(await readFile(exportedPath, 'utf8'), /X-PCF-Token|apiBase|pahub-context|clientId|\/api\//);
   const offlineContext = await browser.newContext({ viewport: { width: 1600, height: 1600 }, acceptDownloads: true, locale: 'en-US' });
   // Exercise the existing v1.9 download fallback, without automating an OS file picker.

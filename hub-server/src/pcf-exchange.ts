@@ -5,6 +5,7 @@ import { PcfStorage, parseHTML, atomicWrite } from './pcf-storage.ts';
 import { createZip } from './zip.ts';
 import { renderTemplate } from './pcf-template.ts';
 import { cleanContent, entity, applyOps, fail, safeId, cleanupLegacyImport, type Actor, type PcfData, type Op } from './pcf-model.ts';
+import { roundToLetters } from '../../lib/rounds.ts';
 
 function canonical(v: any): string {
   return JSON.stringify(v, (_k, x) => x && typeof x === 'object' && !Array.isArray(x) ? Object.fromEntries(Object.keys(x).sort().map(k => [k, x[k]])) : x);
@@ -72,7 +73,7 @@ export class PcfExchange {
     external.export.ownerHmac = this.mac(readonlyPart(external, round));
     // Remove the complete hosted adapter, not merely its live credential injection.
     const html = standaloneHTML(external);
-    const filename = String(data.project.planNo || d).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_') + '_R' + String(round).padStart(2, '0') + '_PCF_' + exportedAt.slice(0, 10) + '.html';
+    const filename = String(data.project.planNo || d).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_') + '_' + roundToLetters(round) + '_PCF_' + exportedAt.slice(0, 10) + '.html';
     const file = path.join(this.dir(p, d), exportId + '.html'); atomicWrite(file, html);
     this.storage.db.prepare('INSERT INTO pcf_exports VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').run(exportId, p, d, data.documentId, rev, round, exportedAt, actor.clientName, actor.ip, 'exported', filename, path.relative(this.storage.dataDir, file).split(path.sep).join('/'));
     return { exportId, filename, baseRev: rev, round, exportedAt, status: 'exported' };
@@ -115,7 +116,7 @@ export class PcfExchange {
           const exportId = randomUUID();
           files.push(path.join(this.dir(p, id), exportId + '.html'));
           const record = this.create(p, id, actor, exportId);
-          const base = safeName(drawing.drawing_no, id) + '_R' + String(record.round).padStart(2, '0') + '_PCF_' + date;
+          const base = safeName(drawing.drawing_no, id) + '_' + roundToLetters(record.round) + '_PCF_' + date;
           let file = base + '.html', suffix = 2;
           while (used.has(file.toLowerCase())) file = base + '_' + suffix++ + '.html';
           used.add(file.toLowerCase());
@@ -124,7 +125,7 @@ export class PcfExchange {
       }
       for (const row of rows) if (row.status === 'exported') entries.push({ name: row.file, data: this.download(p, row.drawingId, row.exportId).html });
       const columns = ['drawingNo','title','round','approval','total','open','baseRev','exportId','file','status','reason'] as const;
-      entries.push({ name: 'manifest.csv', data: '\uFEFF' + [columns.join(','), ...rows.map(row => columns.map(key => csvCell(row[key])).join(','))].join('\r\n') + '\r\n' });
+      entries.push({ name: 'manifest.csv', data: '\uFEFF' + [columns.join(','), ...rows.map(row => columns.map(key => csvCell(key === 'round' ? roundToLetters(row.round) : row[key])).join(','))].join('\r\n') + '\r\n' });
       const buffer = createZip(entries, stamp);
       if (!previous) this.storage.db.prepare('INSERT INTO pcf_export_batches(project_id,batch_id,request_hash,filename,manifest_json) VALUES(?,?,?,?,?)').run(p, batchId, requestHash, filename, JSON.stringify(rows));
       this.storage.db.exec('RELEASE pcf_export_batch');

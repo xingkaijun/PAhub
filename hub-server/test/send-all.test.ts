@@ -175,7 +175,7 @@ test('Send All authenticated batch ZIP, latest rev, skipped/collision manifest, 
     assert.match(response.headers.get('Content-Disposition')!, /filename\*=UTF-8''/);
     const entries = unzip(Buffer.from(await response.arrayBuffer())); assert.equal(entries.size, 3);
     const names = [...entries.keys()].filter(x => x.endsWith('.html'));
-    assert.match(names[0], /^中文-主图_R01_PCF_\d{8}\.html$/); assert.match(names[1], /_2\.html$/);
+    assert.match(names[0], /^中文-主图_A_PCF_\d{8}\.html$/); assert.match(names[1], /_2\.html$/);
     const bytes = entries.get('manifest.csv')!; assert.deepEqual([...bytes.subarray(0, 3)], [0xef, 0xbb, 0xbf]);
     assert.equal(bytes.toString('utf8').split('\r\n')[0].slice(1), 'drawingNo,title,round,approval,total,open,baseRev,exportId,file,status,reason');
     const manifest = csv(bytes.toString('utf8').slice(1));

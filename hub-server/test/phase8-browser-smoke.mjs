@@ -28,6 +28,9 @@ try {
   const b = await contextB.newPage(); b.on('pageerror', error => errors.push('B: ' + error.message));
   const base = 'http://127.0.0.1:' + hub.port;
   await b.goto(base + '/pcf/proj-test-001/dwg-005');
+  await b.locator('#round-badge').waitFor();
+  assert.match(await b.locator('#round-badge').innerText(), /^[A-Z]+$/);
+  await b.screenshot({ path: path.join(artifacts, 'phase8-rounds-pcf.png') });
   const presenceStart = Date.now();
   await a.waitForFunction(() => {
     const link = document.querySelector('a[href="/pcf/proj-test-001/dwg-005"]');
@@ -99,7 +102,7 @@ try {
   await a.getByRole('button', { name: 'Close' }).last().click();
 
   assert.deepEqual(errors, []);
-  console.log('Chrome phase 8: live presence/comment summaries, save-before-export and clean export, import button/drop filtering, banner measurements; pageerrors=0');
+  console.log('Chrome phase 8: live presence/comment summaries, A/B/C round label, save-before-export and clean export, import button/drop filtering, banner measurements; pageerrors=0');
   console.log('Screenshots stored in hub-server/test/artifacts/phase8-*.png and banner-*.png');
 } finally {
   await browser?.close(); await hub.close(); await rm(temp, { recursive: true, force: true });

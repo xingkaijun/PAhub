@@ -1,8 +1,9 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { DownloadCloud, FileArchive, Upload, X } from 'lucide-react';
 import { useStore } from '../store';
+import { roundToLetters } from '../lib/rounds';
 
-type ReplyRow = { id: string; fileName: string; importSetId?: string; drawingId?: string; drawingNo?: string; title?: string; round?: number; newReplies?: number; automatic?: number; conflicts?: number; papcStatus?: string; statusNote?: string; category: string; reason?: string; ownerTampered?: boolean };
+type ReplyRow = { id: string; fileName: string; importSetId?: string; drawingId?: string; drawingNo?: string; title?: string; round?: number | string; newReplies?: number; automatic?: number; conflicts?: number; papcStatus?: string; statusNote?: string; category: string; reason?: string; ownerTampered?: boolean };
 const label: Record<string,string> = { clean: 'Ready to apply', conflict: 'Conflict', unchanged: 'No changes', unmatched: 'Unable to match', 'owner-tampered': 'Owner changed', duplicate: 'Duplicate import', applied: 'Applied', failed: 'Failed', skipped: 'Skipped' };
 
 export type BuilderRepliesImportHandle = { openWithFiles: (files: File[]) => void };

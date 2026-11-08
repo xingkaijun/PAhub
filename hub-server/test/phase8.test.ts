@@ -9,9 +9,21 @@ import { currentTemplate, upgradeFile } from '../src/pcf-template.ts';
 import { parseHTML } from '../src/pcf-storage.ts';
 import { externalData, standaloneHTML } from '../src/pcf-exchange.ts';
 import { mergeProjectPreservingDirty } from '../../services/data/mergeProject.ts';
+import { lettersToRound, nextRoundLabel, roundToLetters } from '../../lib/rounds.ts';
+import { roundNumber, roundLabel } from '../src/pcf-model.ts';
 
 const actor = (clientId: string) => ({ clientId, clientName: clientId, ip: '127.0.0.1' });
 const eventState = new WeakMap<ReadableStreamDefaultReader<Uint8Array>, { decoder: TextDecoder; buffer: string }>();
+
+test('PCF rounds display PAPC letters while retaining numeric storage and Excel-compatible sequence', () => {
+  assert.deepEqual([1, 2, 26, 27].map(roundToLetters), ['A', 'B', 'Z', 'AA']);
+  assert.equal(nextRoundLabel('A'), 'B');
+  assert.equal(nextRoundLabel('Z'), 'AA');
+  assert.deepEqual(['A', 'B', 'Z', 'AA'].map(lettersToRound), [1, 2, 26, 27]);
+  // PAPC current_round=C initializes PCF's numeric round 3, whose display is C.
+  assert.equal(roundNumber('C'), 3);
+  assert.equal(roundLabel(roundNumber('C')), 'C');
+});
 async function nextEvent(reader: ReadableStreamDefaultReader<Uint8Array>, type: string, timeoutMs = 1500) {
   const state = eventState.get(reader) || { decoder: new TextDecoder(), buffer: '' }; eventState.set(reader, state);
   let timeout: ReturnType<typeof setTimeout> | undefined;

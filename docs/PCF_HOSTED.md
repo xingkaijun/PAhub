@@ -273,3 +273,8 @@ Apply all clean 只处理无新冲突文件。应用前重新计算合并：若 
 成功应用后对应导出记录标记为 `imported`，提交者记为 `Builder import (<exportId>)`。只有确有 Builder 回复变更被应用时，PAPC 当前状态为 `Waiting Reply` 才更新到 `Reviewing`，并写入 `Status: Waiting Reply -> Reviewing` 状态历史和 `STATUS` 日志；无变化或用户选择 Use Server 时不推进状态。不改 APR/PCF 认可，也绝不自动设为 Approved。其它当前状态保持原值并显示 `status unchanged (<状态>)`。PAPC 没有专用回复收到日期列，因此用 STATUS 日志时间作为收到时间，不增加数据库列。
 
 本期仍为单 Node 进程、局域网部署；多进程写互斥、共享 presence、Ubuntu 部署及 HTTPS 运维属于后续。导出/基线/历史/导入回执尚无自动保留期清理，管理员可作废但不删除文件；备份应包含全部 data/。
+## Round labels shown in PCF
+
+PCF round values remain numeric in the document schema, edit operations, and JSON backup. All user-facing round labels use the same spreadsheet-style letters as PAPC: 1 → A, 2 → B, …, 26 → Z, 27 → AA. This applies to the hosted page and offline Builder copy, round controls and history, print/PDF, Excel display columns and filenames, Builder import summaries, Send All filenames, and `manifest.csv`. The numeric round value in machine-readable JSON / manifest storage is intentionally retained for compatibility; `manifest.csv` formats its display column as a letter.
+
+When a hosted PCF is first created from a PAPC drawing, PAPC `current_round` is parsed into the unchanged numeric PCF `project.currentRound` value (for example, PAPC `C` becomes PCF number `3`) and displayed as `C`. An applied Builder reply advances the PAPC letter with the same mapping (for example, `A` → `B`).
