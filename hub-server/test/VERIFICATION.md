@@ -94,3 +94,13 @@ POST /api/pcf/:projectId/exports/batch，body 为 {drawingIds,batchId}。保存�
 - 所有服务验证使用临时端口和临时数据目录；未改真实 data/、PAhub-preview、8080/8081/8082 服务或 SGP0；认证仍为默认关闭的可选开关。
 - 阶段 1 新增相关验收：drawing-state 11/11、drawing-fields 7/7、deadline 7/7、drawing-ownership-ui 5/5，合计 30/30 通过。
 - 最终仅运行一次 npm run hub:build && npm run hub:test：构建成功；126 tests，126 pass，0 fail / skipped / cancelled，测试约 66 秒。
+
+## 架构优化阶段 2：JSON 存储（2026-11-08）
+
+- 范围：docs/ARCHITECTURE_PLAN.md 阶段 2 任务 1–5、7；可选任务 6 不做，其它阶段不做。
+- 权威 PCF/历史改为 JSON；原子写、串行队列、幂等回执、索引修复、编辑段历史保留不变。模板启动缓存，开发模式重载；往来 HTML 留存。
+- 数据库迁移用编号 001/002 与 PRAGMA user_version；002 仅由离线迁移脚本标记，启动不自动转换。
+- 副本 dry-run + 实跑：6 文档、8 快照、6 索引记录，HTML 5,492,258 字节 → JSON 320,614 字节，完整 data 备份和 pcf-html-backup-* 保留。计划394/220数据集不在此工作区，未操作其它服务去寻找。
+- 实际副本：6/6 打开、6/6 编辑、6/6 船厂导出；临时服务端口58944，已关闭。完整项目 ZIP 导出6份HTML（1,480,403字节），6/6离线DOM打开且无脚本错误。
+- 原data共29文件 SHA-256始终不变；没有推送GitHub，没有触碰8080/8081/8082、SGP0或PAhub-preview。
+- 相关回归（阶段中按文件执行）：存储/汇总/状态39/40首次集成通过，余下1项为模板脚本文本匹配断言（非运行错误），修正后单文件1/1通过、Send All/船厂/协作33/33、模板/phase8 12/12；新增 migrations 7/7、pcf-json-migration 6/6、template-cache 2/2、pcf-project-export 3/3。完整副本API（HTML+JSON）1/1通过；实际迁移副本6/6完整HTML离线编辑后导回，流转/审批历史完全保留，临时端口52860已关闭。最终全量结果在阶段全部完成后补记。迁移实际SQL失败回滚与未来schema拒绝恢复均已补测。
