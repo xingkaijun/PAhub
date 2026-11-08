@@ -81,11 +81,17 @@ function applyMigration(db: DatabaseSync, migration: Migration): void {
   }
 }
 
-function migrate(db: DatabaseSync): number {
-  let current = schemaVersion(db);
+// Reject databases written by a newer Hub before any destructive legacy step.
+function assertSupportedVersion(db: DatabaseSync): void {
+  const current = schemaVersion(db);
   if (current > KNOWN_SCHEMA_VERSION) {
     throw new Error('Database schema version ' + current + ' is newer than this Hub supports (' + KNOWN_SCHEMA_VERSION + ').');
   }
+}
+
+function migrate(db: DatabaseSync): number {
+  assertSupportedVersion(db);
+  let current = schemaVersion(db);
   for (const migration of MIGRATIONS) {
     if (migration.version <= current) continue;
     applyMigration(db, migration);
@@ -128,6 +134,9 @@ function removeLegacySnapshots(db: DatabaseSync): void {
 }
 
 export function initializeSchema(db: DatabaseSync): void {
+  // Check first: snapshot backup/removal and column renames must not touch a
+  // database this Hub cannot safely read.
+  assertSupportedVersion(db);
   removeLegacySnapshots(db);
   migrateLegacyProjectPath(db);
   migrate(db);

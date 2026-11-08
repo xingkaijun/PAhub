@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdtemp, readdir, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -100,6 +100,24 @@ test('a database from a future schema version is refused', () => {
     db.exec('PRAGMA user_version = ' + (KNOWN_SCHEMA_VERSION + 1));
     assert.throws(() => initializeSchema(db), /newer than this Hub supports/);
   } finally { db.close(); }
+});
+
+test('a future schema version is rejected before legacy snapshots or columns are touched', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pahub-future-schema-'));
+  const db = new DatabaseSync(path.join(directory, 'papc.db'));
+  try {
+    // Legacy shape plus a retired snapshots table; both would otherwise be mutated.
+    db.exec(`PRAGMA user_version = ${KNOWN_SCHEMA_VERSION + 1};
+      CREATE TABLE projects(id TEXT PRIMARY KEY, name TEXT NOT NULL, webdav_path TEXT, last_updated TEXT);
+      CREATE TABLE snapshots(id TEXT PRIMARY KEY, data_json TEXT);
+      INSERT INTO snapshots VALUES ('old', '{"preserved":true}');`);
+    assert.throws(() => initializeSchema(db), /newer than this Hub supports/);
+    assert.equal(schemaVersion(db), KNOWN_SCHEMA_VERSION + 1);
+    assert.equal(db.prepare('PRAGMA table_info(projects)').all().some(row => row.name === 'webdav_path'), true);
+    assert.equal(db.prepare('PRAGMA table_info(projects)').all().some(row => row.name === 'storage_path'), false);
+    assert.equal(db.prepare("SELECT data_json FROM snapshots WHERE id='old'").get()!.data_json, '{"preserved":true}');
+    assert.deepEqual(await readdir(path.join(directory, 'backups')).catch(() => []), []);
+  } finally { db.close(); await rm(directory, { recursive: true, force: true }); }
 });
 
 test('migration SQL resolves from the bundled dist copy or the source tree', () => {
