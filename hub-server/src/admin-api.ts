@@ -80,6 +80,7 @@ export class AdminApi {
       if (segments.length===4 && request.method==='POST') {
         const data=await body();validateColumns(data);
         if (table==='drawings') {
+          if (data.id && this.db.prepare('SELECT 1 FROM drawings WHERE id=?').get(data.id)) return errorResponse('Drawing already exists',409);
           await writeDrawing(this.writer.storage,this.writer.realtime,String(data.project_id),{id:data.id,changes:Object.fromEntries(Object.entries(data).filter(([key])=>key in drawingColumns).map(([key,value])=>[drawingColumns[key],value]))},'admin');
         } else transaction(this.db,'admin_insert',()=> {const keys=Object.keys(data);this.db.prepare('INSERT INTO '+table+' ('+keys.map(identifier).join(',')+') VALUES ('+keys.map(()=>'?').join(',')+')').run(...keys.map(key=>data[key] as SQLInputValue));});
         this.audit(table,'INSERT',data);this.notify(table,[data]);return Response.json({success:true});
@@ -89,10 +90,10 @@ export class AdminApi {
         const before=this.db.prepare('SELECT * FROM '+table+' WHERE '+pk+'=?').all(id);
         const update=Object.keys(data).filter(c=>c!==pk);
         if (table==='drawings' && before.length) {
+          if (update.includes('project_id') && data.project_id!==before[0].project_id) return errorResponse('Drawing belongs to another project',409);
           const metadata=Object.fromEntries(update.filter(c=>c in drawingColumns).map(c=>[drawingColumns[c],data[c]]));
           if (Object.keys(metadata).length) await writeDrawing(this.writer.storage,this.writer.realtime,String(before[0].project_id),{id,changes:metadata},'admin');
           const extra=update.filter(c=>!(c in drawingColumns));
-          if (extra.includes('project_id') && data.project_id!==before[0].project_id) return errorResponse('Drawing belongs to another project',409);
           if (extra.length) this.db.prepare('UPDATE '+table+' SET '+extra.map(c=>identifier(c)+'=?').join(',')+' WHERE id=?').run(...extra.map(c=>data[c] as SQLInputValue),id);
         } else if (update.length) this.db.prepare('UPDATE '+table+' SET '+update.map(c=>identifier(c)+'=?').join(',')+' WHERE '+pk+'=?').run(...update.map(c=>data[c] as SQLInputValue),id);
         this.audit(table,'UPDATE',{id,updates:data},id);this.notify(table,before);return Response.json({success:true});

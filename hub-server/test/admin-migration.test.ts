@@ -41,6 +41,11 @@ test('native admin matches frozen Worker for auth, schema, search, CRUD, SQL and
    if(oldWorker){const oldUrl=method==='POST'?'/admin/api/tables/reviewers':'/admin/api/tables/reviewers/legacy';const oldBody=method==='POST'?{id:'legacy',display_name:'Native'}:data;const response=await oldWorker.fetch(new Request('http://local'+oldUrl,{method,headers:{Authorization:'Bearer '+token,'Content-Type':'application/json'},body:oldBody===undefined?undefined:JSON.stringify(oldBody)}),env);assert.deepEqual(await response.json(),{success:true});}
   }
   const injection=await call('/api/tables/reviewers','POST',{'display_name) VALUES (\'bad\');--':'bad'},true,false);assert.equal(injection.status,400);
+  db.prepare("INSERT INTO projects(id,name) VALUES('other','Other')").run();
+  const before=db.prepare("SELECT title FROM drawings WHERE id='dwg-001'").get()!.title;
+  assert.equal((await call('/api/tables/drawings/dwg-001','PUT',{project_id:'other',title:'must not persist'},true,false)).status,409);
+  assert.equal(db.prepare("SELECT title FROM drawings WHERE id='dwg-001'").get()!.title,before);
+  assert.equal((await call('/api/tables/drawings','POST',{id:'dwg-001',project_id:'proj-test-001',title:'must not overwrite'},true,false)).status,409);
   const page=await router.handle(new Request('http://local/api/admin'));assert.match(await page.text(),/\/api\/admin\/auth/);
  }finally{realtime.close();db.close();await rm(dir,{recursive:true,force:true});}
 });
