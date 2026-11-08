@@ -3,6 +3,7 @@ import { transitionReviewState, type ReviewStatus } from '../../lib/drawing-stat
 import { lettersToRound } from '../../lib/rounds.ts';
 import { fail, type Actor } from './pcf-model.ts';
 import type { PcfStorage } from './pcf-storage.ts';
+import { getProjectConfiguration } from './project-read.ts';
 import type { PcfRealtime } from './pcf-realtime.ts';
 
 // Caller must hold storage.serial(projectId, drawingId). Builder imports already do.
@@ -13,9 +14,9 @@ export function transitionDrawingStatus(storage: PcfStorage, realtime: PcfRealti
   if (!row) fail('Drawing not found', 404);
   const hasPcf = !!db.prepare('SELECT 1 FROM pcf_index WHERE project_id=? AND drawing_id=?').get(projectId, drawingId);
   if (hasPcf) { storage.load(projectId, drawingId); row = db.prepare('SELECT * FROM drawings WHERE project_id=? AND id=?').get(projectId, drawingId); }
-  const cfg: any = db.prepare('SELECT conf_json FROM api_project_details WHERE id=?').get(projectId);
+  const cfg = getProjectConfiguration(db, projectId);
   const at = new Date();
-  const state = transitionReviewState({ status: row.status, currentRound: row.current_round, reviewDeadline: row.review_deadline }, status, cfg ? JSON.parse(cfg.conf_json) : {}, at);
+  const state = transitionReviewState({ status: row.status, currentRound: row.current_round, reviewDeadline: row.review_deadline }, status, { ...cfg, roundACycle: cfg.roundACycle ?? undefined, otherRoundsCycle: cfg.otherRoundsCycle ?? undefined }, at);
   if (row.status === status) return state;
   const commit = () => {
     // With PCF, indexWrite is the only writer of current_round.

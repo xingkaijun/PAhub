@@ -10,6 +10,8 @@ import { PcfApi } from './pcf-api.ts';
 import { writeDrawing } from './drawing-write.ts';
 import { Router, basicAuthResponse, caughtError, logRequest, errorResponse } from './router.ts';
 import { registerPcfRoutes } from './pcf-routes.ts';
+import { registerProjectRoutes } from './project-routes.ts';
+import { ProjectWriter } from './project-write.ts';
 import { readBody, sendFetch, serveStatic, type Middleware } from './http.ts';
 
 function readOnlyQuery(dbPath: string, sql: string): Record<string, unknown>[] {
@@ -28,16 +30,16 @@ export async function createHub(options: { middleware?: Middleware; host?: '127.
   const env = { ...config.env, PAPC_DB: db, ADMIN_SQL: (sql: string) => readOnlyQuery(config.dbPath,sql), DRAWING_WRITE: (p: string,d: any) => writeDrawing(pcf.storage,pcf.realtime,p,d) };
   const router = new Router(config.env);
   registerPcfRoutes(router,pcf,config.env.ADMIN_PASSWORD);
+  registerProjectRoutes(router,new ProjectWriter(pcf.storage,pcf.realtime));
   // Temporary fallback while modules are migrated in order.
   router.add({ pattern: /^\/api(?:\/|$)/, auth: 'none', handle: async ctx => {
     const url = new URL(ctx.request.url); url.pathname = url.pathname.slice(4) || '/';
     const notificationInput = ctx.request.clone();
     let response = await worker.fetch(new Request(url,ctx.request),env);
-    const projectWrite = url.pathname.match(/^\/projects\/([^/]+)(?:\/(.*))?$/);
-    if (projectWrite && ['PUT','PATCH','POST','DELETE'].includes(ctx.request.method) && response.ok) {
+    const projectWrite = url.pathname.match(/^\/projects\/([^/]+)\/review-tracker$/);
+    if (projectWrite && ctx.request.method === 'PUT' && response.ok) {
       const input = await notificationInput.text().then(text => text ? JSON.parse(text) : {}).catch(() => ({}));
-      const ids = projectWrite[2] === 'review-tracker' ? Object.keys(input) : ctx.request.method === 'PATCH' ? [...(input.updatedDrawings || []).map((d: any) => d.id),...Object.keys(input.reviewTracker || {})] : (input.project?.drawings || []).map((d: any) => d.id);
-      for (const id of new Set<string>(ids.filter((id: unknown) => typeof id === 'string'))) pcf.realtime.projectChanged(decodeURIComponent(projectWrite[1]),id,projectWrite[2] === 'review-tracker' ? ['reviewTracker'] : ['project-data']);
+      for (const id of Object.keys(input)) pcf.realtime.projectChanged(decodeURIComponent(projectWrite[1]),id,['reviewTracker']);
     }
     if (url.pathname === '/admin' && response.headers.get('Content-Type')?.includes('text/html')) {
       const html = (await response.text()).replaceAll('/admin/api','/api/admin/api').replaceAll('/admin/auth','/api/admin/auth');

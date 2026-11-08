@@ -18,7 +18,7 @@ function value(field: string, value: any) {
 }
 
 // First native drawing writer; project configuration/tracker routes remain in the Worker until phase 3.
-export async function writeDrawing(storage: PcfStorage, realtime: PcfRealtime, projectId: string, input: any) {
+export async function writeDrawing(storage: PcfStorage, realtime: PcfRealtime, projectId: string, input: any, source = 'app') {
   const id = safeId(input.id || randomUUID());
   safeId(projectId);
   return storage.serial(projectId, id, () => {
@@ -56,10 +56,10 @@ export async function writeDrawing(storage: PcfStorage, realtime: PcfRealtime, p
       }
       if (owner && !hasPcf && (changes.manualCommentsCount !== undefined || changes.manualOpenCommentsCount !== undefined)) {
         const after: any = db.prepare('SELECT manual_comments_count,manual_open_comments_count FROM drawings WHERE id=?').get(id);
-        if (owner.manual_comments_count !== after.manual_comments_count || owner.manual_open_comments_count !== after.manual_open_comments_count) db.prepare("INSERT INTO audit_log(table_name,row_id,project_id,action,detail,created_at) VALUES('drawings',?,?,'COMMENTS',?,?)").run(id, projectId, JSON.stringify({ customId: changes.customId ?? owner.custom_id, drawingNo: changes.drawingNo ?? owner.drawing_no, from: { total: owner.manual_comments_count, open: owner.manual_open_comments_count }, to: { total: after.manual_comments_count, open: after.manual_open_comments_count }, source: 'app' }), new Date().toISOString());
+        if (owner.manual_comments_count !== after.manual_comments_count || owner.manual_open_comments_count !== after.manual_open_comments_count) db.prepare("INSERT INTO audit_log(table_name,row_id,project_id,action,detail,created_at) VALUES('drawings',?,?,'COMMENTS',?,?)").run(id, projectId, JSON.stringify({ customId: changes.customId ?? owner.custom_id, drawingNo: changes.drawingNo ?? owner.drawing_no, from: { total: owner.manual_comments_count, open: owner.manual_open_comments_count }, to: { total: after.manual_comments_count, open: after.manual_open_comments_count }, source }), new Date().toISOString());
       }
       db.prepare('UPDATE projects SET last_updated=? WHERE id=?').run(new Date().toISOString(), projectId);
-      if (changes.status !== undefined) transitionDrawingStatus(storage, realtime, projectId, id, changes.status);
+      if (changes.status !== undefined) transitionDrawingStatus(storage, realtime, projectId, id, changes.status, source);
       db.exec('RELEASE native_drawing');
     } catch (e) { db.exec('ROLLBACK TO native_drawing; RELEASE native_drawing'); throw e; }
     realtime.projectChanged(projectId, id, input.changes === undefined ? ['project-data'] : Object.keys(changes).filter(f => f !== 'id' && f !== 'hasPcf'));
