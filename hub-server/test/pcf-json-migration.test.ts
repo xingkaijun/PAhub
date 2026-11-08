@@ -79,6 +79,23 @@ test('invalid HTML or an index ahead of its document aborts before any writes', 
   } finally { f.cleanup(); }
 });
 
+test('failed final index update rolls back installed JSON and leaves the HTML directory usable', () => {
+  const f = fixture(); try {
+    const db = openDatabase(path.join(f.dir, 'papc.db'));
+    db.sqlite.exec("CREATE TRIGGER reject_json BEFORE UPDATE OF file_path ON pcf_index WHEN NEW.file_path LIKE '%.json' BEGIN SELECT RAISE(ABORT,'simulated JSON index failure'); END");
+    db.sqlite.close();
+    assert.throws(() => migratePcfJson({ dataDir: f.dir, hubStopped: true }), /simulated JSON index failure/);
+    assert.equal(readFileSync(path.join(f.dir, 'pcf', f.p, f.d + '.html'), 'utf8'), f.html);
+    assert.equal(existsSync(path.join(f.dir, 'pcf', f.p, f.d + '.json')), false);
+    assert.equal(existsSync(path.join(f.dir, '.pcf-json-migration.json')), false);
+    const reopened = openDatabase(path.join(f.dir, 'papc.db'));
+    try {
+      assert.equal(reopened.sqlite.prepare('PRAGMA user_version').get()!.user_version, 1);
+      assert.equal(reopened.sqlite.prepare('SELECT file_path FROM pcf_index').get()!.file_path, 'pcf/' + f.p + '/' + f.d + '.html');
+    } finally { reopened.sqlite.close(); }
+  } finally { f.cleanup(); }
+});
+
 test('interrupted directory installation rolls back to HTML before retrying conversion', () => {
   const f = fixture(); try {
     const base = path.join(f.dir, 'pcf'), backupName = 'pcf-html-backup-test-' + randomUUID(), stageName = '.pcf-json-stage-' + randomUUID();
