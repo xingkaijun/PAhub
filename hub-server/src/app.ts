@@ -2,7 +2,7 @@ import { createServer } from 'node:http';
 import { stat } from 'node:fs/promises';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
-import worker from '@pahub/worker';
+import { AdminApi } from './admin-api.ts';
 import { readConfig } from './config.ts';
 import { openDatabase } from './database.ts';
 import { PcfStorage } from './pcf-storage.ts';
@@ -17,20 +17,12 @@ import { registerActivityRoutes } from './activity-routes.ts';
 import { registerSystemRoutes } from './system-routes.ts';
 import { readBody, sendFetch, serveStatic, type Middleware } from './http.ts';
 
-function readOnlyQuery(dbPath: string, sql: string): Record<string, unknown>[] {
-  const reader = new DatabaseSync(dbPath, { readOnly: true });
-  try {
-    reader.exec('PRAGMA query_only = ON');
-    return reader.prepare(sql).all().map(row => Object.fromEntries(Object.entries(row).map(([key,value]) => [key,value instanceof Uint8Array ? Array.from(value) : value])));
-  } finally { reader.close(); }
-}
 
 export async function createHub(options: { middleware?: Middleware; host?: '127.0.0.1' } = {}) {
   const config = readConfig();
   if (!options.middleware) await stat(path.join(config.distDir,'index.html'));
   const db = openDatabase(config.dbPath);
   const pcf = new PcfApi(new PcfStorage(db.sqlite,config.dataDir),config.env.API_TOKEN);
-  const env = { ...config.env, PAPC_DB: db, ADMIN_SQL: (sql: string) => readOnlyQuery(config.dbPath,sql), DRAWING_WRITE: (p: string,d: any) => writeDrawing(pcf.storage,pcf.realtime,p,d) };
   const router = new Router(config.env);
   registerPcfRoutes(router,pcf,config.env.ADMIN_PASSWORD);
   const writer = new ProjectWriter(pcf.storage,pcf.realtime);
@@ -38,17 +30,8 @@ export async function createHub(options: { middleware?: Middleware; host?: '127.
   registerTrackerRoutes(router,writer);
   registerActivityRoutes(router,db.sqlite);
   registerSystemRoutes(router,db.sqlite);
-  // Temporary fallback while modules are migrated in order.
-  router.add({ pattern: /^\/api(?:\/|$)/, auth: 'none', handle: async ctx => {
-    const url = new URL(ctx.request.url); url.pathname = url.pathname.slice(4) || '/';
-    let response = await worker.fetch(new Request(url,ctx.request),env);
-    if (url.pathname === '/admin' && response.headers.get('Content-Type')?.includes('text/html')) {
-      const html = (await response.text()).replaceAll('/admin/api','/api/admin/api').replaceAll('/admin/auth','/api/admin/auth');
-      const headers = new Headers(response.headers); headers.delete('Content-Length');
-      response = new Response(html,{ status:response.status,headers });
-    }
-    return response;
-  } });
+  const admin = new AdminApi(db.sqlite,config.dbPath,config.env.ADMIN_PASSWORD,writer);
+  router.add({ pattern: /^\/api\/admin(?:\/|$)/, auth: 'none', handle: ctx => admin.handle(ctx.request) });
   const server = createServer((req,res) => {
     logRequest(req,res);
     void (async () => {

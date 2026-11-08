@@ -2,10 +2,11 @@ import { DatabaseSync } from 'node:sqlite';
 import { constants } from 'node:fs';
 import { access, copyFile, mkdir, mkdtemp, readFile, rmdir, unlink } from 'node:fs/promises';
 import path from 'node:path';
-import worker from '@pahub/worker';
+import { ProjectWriter } from './project-write.ts';
+import { PcfStorage } from './pcf-storage.ts';
+import { PcfRealtime } from './pcf-realtime.ts';
 import { ROOT_DIR, readConfig } from './config.ts';
 import { initializeSchema } from './database.ts';
-import { D1Adapter } from './d1.ts';
 import { normalizeLegacySql, normalizeLegacyExport } from './import-legacy.ts';
 
 type ExportEntry = { project: { id: string; drawings: { id: string }[] }; reviewTracker?: Record<string, unknown> };
@@ -47,22 +48,18 @@ export async function importData(source: string, destination: string) {
       validateExport(data);
       sqlite.exec('PRAGMA foreign_keys = ON');
       initializeSchema(sqlite);
-      const adapter = new D1Adapter(sqlite);
-      // Reuse the existing import business logic, including configuration, tracker and journal.
-      const env = { PAPC_DB: adapter, ADMIN_PASSWORD: 'pahub-migration' };
-      const auth = await worker.fetch(new Request('http://pahub.local/admin/auth', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: env.ADMIN_PASSWORD }),
-      }), env);
-      const { token } = await auth.json() as { token: string };
+      const realtime = new PcfRealtime();
+      const writer = new ProjectWriter(new PcfStorage(sqlite,stageDir),realtime);
       sqlite.exec('SAVEPOINT pahub_import');
       try {
-        const response = await worker.fetch(new Request('http://pahub.local/admin/api/import', {
-          method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer ' + token }, body: JSON.stringify(data),
-        }), env);
-        const result = await response.json() as { success?: boolean; imported?: number };
-        if (!response.ok || !result.success || result.imported !== data.projects.length) throw new Error('Worker import failed: ' + JSON.stringify(result));
+        for (const entry of data.projects) {
+          const verification = await writer.save(entry.project.id,entry.project,entry.reviewTracker || {},'import');
+          if (!verification.ok) throw new Error('Project import verification failed: ' + JSON.stringify(verification));
+        }
+        sqlite.prepare("INSERT INTO audit_log(table_name,action,detail) VALUES('FULL_DB','IMPORT',?)").run(JSON.stringify({imported:data.projects.length}));
         sqlite.exec('RELEASE pahub_import');
       } catch (error) { sqlite.exec('ROLLBACK TO pahub_import; RELEASE pahub_import'); throw error; }
+      finally { realtime.close(); }
     } else {
       // A Wrangler full dump carries its own schema/transactions. A seed or data-only dump does not.
       const hasSchema = /\bCREATE\s+TABLE\b/i.test(content);

@@ -50,8 +50,9 @@ export async function writeDrawing(storage: PcfStorage, realtime: PcfRealtime, p
         for (const r of changes.remarks) db.prepare('INSERT INTO drawing_remarks(id,project_id,drawing_id,content,created_at,resolved) VALUES(?,?,?,?,?,?)').run(r.id || randomUUID(), projectId, id, r.content || '', r.createdAt || new Date().toISOString(), r.resolved ? 1 : 0);
       }
       // Do not replace authoritative status history from an old page. Append non-status local entries.
+      if (source === 'import' && !hasPcf && changes.statusHistory !== undefined) db.prepare('DELETE FROM drawing_status_history WHERE drawing_id=?').run(id);
       if (changes.statusHistory !== undefined) for (const h of changes.statusHistory) {
-        if (String(h.content || '').includes('Status:')) continue;
+        if (String(h.content || '').includes('Status:') && !(source === 'import' && !hasPcf)) continue;
         db.prepare('INSERT INTO drawing_status_history(id,drawing_id,content,created_at) VALUES(?,?,?,?) ON CONFLICT(id) DO NOTHING').run(h.id || randomUUID(), id, h.content || '', h.createdAt || new Date().toISOString());
       }
       if (owner && !hasPcf && (changes.manualCommentsCount !== undefined || changes.manualOpenCommentsCount !== undefined)) {
@@ -59,7 +60,10 @@ export async function writeDrawing(storage: PcfStorage, realtime: PcfRealtime, p
         if (owner.manual_comments_count !== after.manual_comments_count || owner.manual_open_comments_count !== after.manual_open_comments_count) db.prepare("INSERT INTO audit_log(table_name,row_id,project_id,action,detail,created_at) VALUES('drawings',?,?,'COMMENTS',?,?)").run(id, projectId, JSON.stringify({ customId: changes.customId ?? owner.custom_id, drawingNo: changes.drawingNo ?? owner.drawing_no, from: { total: owner.manual_comments_count, open: owner.manual_open_comments_count }, to: { total: after.manual_comments_count, open: after.manual_open_comments_count }, source }), new Date().toISOString());
       }
       db.prepare('UPDATE projects SET last_updated=? WHERE id=?').run(new Date().toISOString(), projectId);
-      if (changes.status !== undefined) transitionDrawingStatus(storage, realtime, projectId, id, changes.status, source);
+      if (changes.status !== undefined) {
+        if (source === 'import' && !owner && !hasPcf) db.prepare('UPDATE drawings SET status=? WHERE id=?').run(changes.status,id);
+        else transitionDrawingStatus(storage, realtime, projectId, id, changes.status, source);
+      }
       db.exec('RELEASE native_drawing');
     } catch (e) { db.exec('ROLLBACK TO native_drawing; RELEASE native_drawing'); throw e; }
     realtime.projectChanged(projectId, id, input.changes === undefined ? ['project-data'] : Object.keys(changes).filter(f => f !== 'id' && f !== 'hasPcf'));
