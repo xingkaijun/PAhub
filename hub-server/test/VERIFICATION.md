@@ -81,3 +81,14 @@ POST /api/pcf/:projectId/exports/batch，body 为 {drawingIds,batchId}。保存�
 - 新覆盖 ZIP 多文件分类与 3 份回复的自动应用/冲突处理、非 HTML 忽略、重复导入、同批次幂等、preview 后同意见变更、Approved/Pending 状态不变、Owner 篡改忽略、永久删除意见冲突、ZIP-slip/跨项目拒绝、展开大小上限、模拟 PCF 写入失败回滚、v4 风格回复兼容、单图导入状态更新，以及无实际回复变更时不推进状态。
 - PAPC Waiting Reply → Reviewing 的 `STATUS` 日志、三张图状态及非 Waiting Reply 状态保持均由隔离临时 SQLite 验证；未使用 `data/`、`logs/` 或 8080 服务。
 - Chrome 截图：`hub-server/test/artifacts/row-no-status.png`、`batch-import-preview.png`、`batch-import-conflict.png`、`batch-import-applied.png`。6a 文件名后无往来状态；批量导入 2 clean + 1 conflict，冲突使用原托管 PCF 预览处理；最终 PAPC 显示 3 张 Reviewing；页面错误 0。
+
+## 架构优化阶段 1（2026-11-08）
+
+- 仅执行 docs/ARCHITECTURE_PLAN.md 阶段 1；未做 JSON 存储迁移、Worker 全面并入或前端拆分。
+- 先写 A/B/C 复现测试，修复前 0/3 通过；C 确认存在（导入回复后关闭意见会回退轮次）。
+- 轮次统一 lib/rounds.ts；截止日期统一 lib/deadline.ts，PROJECT_TIME_ZONE=Asia/Shanghai。起始日不计入，跳过周末/节假日，按项目日历日计算，保存截止日上海零点对应的 ISO 时刻。
+- 有 PCF 的四列（意见总数/未关闭数/轮次/版本）只由 PCF 同步；旧 PATCH/PUT 整行保存与管理后台手改均忽略客户端这四列，写后校验同步排除。项目读取返回 hasPcf，输入框与命令栏不再允许手改。
+- 原生状态接口：POST /api/projects/:projectId/drawings/:drawingId/status，body={status}。与旧页面保存、单张/批量船厂回复导入共用 transitionDrawingStatus；有 PCF 时同一串行队列中更新 currentRound、实体时钟、历史和索引。
+- 新 PATCH 图纸格式：updatedDrawings:[{id,changes:{title,...}}]；未提交的列和关联表保留。仍接受旧整行格式。服务端返回 drawings 最终值，store 按字段合并，保存期间的新修改保持待保存。
+- 编辑模式本地修改后约 3 秒防抖自动保存；分钟定时器保留作失败重试兜底。
+- 所有服务验证使用临时端口和临时数据目录；未改真实 data/、PAhub-preview、8080/8081/8082 服务或 SGP0；认证仍为默认关闭的可选开关。
