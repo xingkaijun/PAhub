@@ -35,7 +35,7 @@ test('PAHUB_BASIC_AUTH set: static, API and SSE require Basic credentials', asyn
       const refused = await fetch(origin + url);
       assert.equal(refused.status, 401, 'unauthenticated ' + url);
       assert.match(refused.headers.get('www-authenticate') || '', /^Basic realm="PAhub"/);
-      assert.equal((await refused.text()), 'Unauthorized');
+      assert.deepEqual(await refused.json(), { error: 'Unauthorized' });
       assert.equal((await fetch(origin + url, { headers: credentials('pahub:wrong') })).status, 401, 'wrong password ' + url);
       assert.equal((await fetch(origin + url, { headers: credentials('other:s3cret') })).status, 401, 'wrong user ' + url);
       assert.equal((await fetch(origin + url, { headers: { Authorization: 'Bearer s3cret' } })).status, 401, 'bearer is not basic ' + url);
