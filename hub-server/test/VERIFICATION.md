@@ -13,10 +13,10 @@
 | hub-server/src/pcf-exchange.ts | 修正整批归属校验、持久化幂等、最新 rev、失败回滚与基线文件清理，复用单张导出。 |
 | store.ts | 保留原轮询次数并缓存 index；手动 APR 写 source；清空移除 APR；回读拒绝残存 APR。 |
 | types.ts | 保留 source 类型和兼容字段名称调整。 |
-| worker/sql/compat-views-d1.sql | 最小增加 source 并调整废弃路径元数据名；不删除视图。 |
-| worker/sql/compat-views-from-normalized.sql | 同步最小视图调整；保留原结构。 |
+| worker/sql/compat-views-d1.sql | 已删除（阶段 0 清理）：无代码引用。 |
+| worker/sql/compat-views-from-normalized.sql | 已删除（阶段 0 清理）：无代码引用。 |
 | worker/sql/init-local.sql | 增加新库 source，保留旧库由启动 ALTER 升级；清理旧运行命令。 |
-| worker/src/index.ts | 保留 source 读写；修正验证映射对象与布尔值比较；统一手动来源兼容。 |
+| worker/src/index.ts | 保留 source 读写；修正验证映射对象与布尔值比较；统一手动来源兼容；阶段 0 移除默认管理员密码。 |
 | hub-server/src/zip.ts | 保留内置 zlib 实现；核验 CRC32、deflateRaw 和 UTF-8 bit 11。 |
 | lib/pcf.ts | 保留并整理为统一 APR、状态选择、清空和标签 helper；补齐空标签隐藏测试。 |
 | 根目录原四个 tmp-*.mjs | 删除；临时执行脚本仅位于系统临时目录。 |
@@ -36,12 +36,12 @@
 | App.tsx | 删除失效的存储选择分支，保留同源项目加载。 |
 | package.json | 改名 PAhub，删除旧部署工具依赖。 |
 | package-lock.json | 按依赖清理更新，不额外升级其它依赖。 |
-| vite.config.ts | 删除旧存储环境变量注入。 |
+| vite.config.ts | 删除旧存储环境变量注入；阶段 0 删除无引用的 GEMINI_API_KEY / API_KEY / VITE_PUSH_PASSWORD define。 |
 | .env.example | 精简为当前 Hub / Vite 配置，补充 VITE_EDIT_PASSWORD。 |
 | vite-env.d.ts | 清理旧配置声明，补充编辑密码类型。 |
-| metadata.json | 改为 PAhub 本地 Hub 描述。 |
+| metadata.json | 已删除（阶段 0 清理）：Vercel / AI Studio 时期遗留。 |
 | .gitignore | 保留本地数据和测试产物保护，删除旧代理专属项。 |
-| worker/sql/read-model.sql | 同步兼容路径元数据列名。 |
+| worker/sql/read-model.sql | 已删除（阶段 0 清理）：无代码引用。 |
 | worker/sql/seed-test-data.sql | 同步当前 schema 列名；继续用于临时测试。 |
 | MANUAL.md | 重写简洁的启动、锁、列表、Tracker、在线 PCF、往来导入和备份说明。 |
 | README.md | 重写当前 PAhub 启动与功能说明。 |

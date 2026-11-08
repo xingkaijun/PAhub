@@ -2,7 +2,7 @@
 
 需要 Node.js 24.x。npm ci 后执行 npm run hub:build，npm run hub:start 启动；npm run hub:dev 提供同源开发模式。
 
-服务器只读取进程环境：PORT（默认 8080）、PAHUB_DATA_DIR（默认仓库 data）、PAPC_DB_PATH（默认数据目录/papc.db）、PAPC_DIST_DIR（默认 dist）、MAX_BODY_BYTES（默认 32 MiB）、API_TOKEN、ADMIN_PASSWORD、PAHUB_BASIC_AUTH、ALLOW_CORS_ORIGIN。不自动加载 .env；Vite 在构建时读取 VITE_DATA_API_TOKEN 与 VITE_PUSH_PASSWORD。
+服务器只读取进程环境：PORT（默认 8080）、PAHUB_DATA_DIR（默认仓库 data）、PAPC_DB_PATH（默认数据目录/papc.db）、PAPC_DIST_DIR（默认 dist）、MAX_BODY_BYTES（默认 32 MiB）、API_TOKEN、ADMIN_PASSWORD、PAHUB_BASIC_AUTH、ALLOW_CORS_ORIGIN。不自动加载 .env；Vite 在构建时读取 VITE_DATA_API_TOKEN 与 VITE_EDIT_PASSWORD。
 
 认证均为可选开关，未设置时不做任何校验：API_TOKEN 为共享 Bearer 凭据；PAHUB_BASIC_AUTH（`<用户名>:<密码>`）开启后所有 HTTP 请求（含静态资源和 SSE）都要先通过 Basic Auth，适合经 frp tcp 暴露公网时使用，详见根目录 README。ADMIN_PASSWORD 没有默认值：未设置时 `/api/admin` 管理后台整体不可用，也无法忽略被修改的 Owner 只读内容；设置后才可登录。管理后台的 SQL 控制台只用于查询，每次执行都使用只读连接，写入、DDL 和 ATTACH 都会被拒绝。
 

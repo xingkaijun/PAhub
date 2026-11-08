@@ -202,7 +202,7 @@ const App: React.FC = () => {
 
   // 3. Auto-Save Logic (Configurable Interval)
   useEffect(() => {
-    if (!true || !activeProjectId || showProjectSelector) return;
+    if (!activeProjectId || showProjectSelector) return;
 
     const activeProject = data.projects.find(p => p.id === activeProjectId);
     const configInterval = activeProject?.conf?.autoSyncInterval;

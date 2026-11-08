@@ -1,10 +1,9 @@
 import path from 'path';
-import { defineConfig, loadEnv } from 'vite';
+import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 import tailwindcss from '@tailwindcss/vite';
 
 export default defineConfig(({ mode }) => {
-  const env = loadEnv(mode, '.', '');
   // Runtime PCFs and import previews are data, not frontend source. Watching
   // their HTML files causes a full reload and sends users back to project selection.
   // Match the backend's process.env paths, including custom data/database locations.
@@ -31,9 +30,6 @@ export default defineConfig(({ mode }) => {
         'import.meta.env.VITE_DATA_API_BASE_URL': JSON.stringify('/api'),
         'import.meta.env.VITE_DATA_API_FALLBACK': JSON.stringify('false'),
       } : {}),
-      'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-      'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-      'import.meta.env.VITE_PUSH_PASSWORD': JSON.stringify(env.VITE_PUSH_PASSWORD || env.PUSH_PASSWORD)
     },
     resolve: {
       alias: {
