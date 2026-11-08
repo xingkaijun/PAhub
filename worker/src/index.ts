@@ -1327,68 +1327,6 @@ export default {
         return json(env, 200, await getSettings(db));
       }
 
-      if (segments[0] === 'projects' && segments[1]) {
-        const projectId = decodeURIComponent(segments[1]);
-
-        if (segments.length === 3 && segments[2] === 'audit' && request.method === 'GET') {
-          // from / to 是完整 ISO 时刻而非日期：客户端把「本地日」边界折算成 UTC 传上来，
-          // 否则 +08:00 的一天会被 UTC 日边界从早上 8 点切开
-          const from = url.searchParams.get('from') || '';
-          const to = url.searchParams.get('to') || '';
-          if (!from || !to) {
-            return json(env, 400, { error: 'Both `from` and `to` (ISO timestamps) are required.' });
-          }
-
-          const limit = AUDIT_QUERY_LIMIT;
-          const rows = await queryAll(
-            db,
-            `SELECT id, row_id, action, detail, created_at
-             FROM audit_log
-             WHERE project_id = ?
-               AND action IN ('STATUS','COMMENTS')
-               AND created_at >= ? AND created_at < ?
-             ORDER BY created_at DESC, id DESC
-             LIMIT ?`,
-            [projectId, from, to, limit]
-          );
-
-          const entries = rows.map(row => {
-            const detail = readJson<Record<string, JsonValue>>(toStringValue(row.detail), {});
-            return {
-              id: toStringValue(row.id) || '',
-              drawingId: toStringValue(row.row_id) || '',
-              action: toStringValue(row.action) || '',
-              createdAt: toStringValue(row.created_at) || '',
-              customId: toStringValue(detail.customId) || '',
-              drawingNo: toStringValue(detail.drawingNo) || '',
-              source: toStringValue(detail.source) || 'app',
-              detail: detail as JsonValue,
-            };
-          });
-
-          // 命中上限时明确告知，不静默截断
-          return json(env, 200, { entries: entries as unknown as JsonValue, truncated: rows.length >= limit });
-        }
-
-        if (segments.length === 3 && segments[2] === 'heartbeat') {
-          if (request.method === 'PUT') {
-            await db.prepare(
-              `INSERT INTO project_settings (project_id, setting_key, setting_value)
-               VALUES (?, 'admin_last_seen', ?)
-               ON CONFLICT(project_id, setting_key) DO UPDATE SET setting_value=excluded.setting_value`
-            ).bind(projectId, new Date().toISOString()).run();
-            return json(env, 200, { success: true });
-          }
-          if (request.method === 'GET') {
-            const row = await db.prepare(
-              `SELECT setting_value FROM project_settings WHERE project_id = ? AND setting_key = 'admin_last_seen'`
-            ).bind(projectId).first<{ setting_value: string }>();
-            return json(env, 200, { adminLastSeen: row?.setting_value || null });
-          }
-        }
-
-      }
-
       return notImplemented(env, request.method, path);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';

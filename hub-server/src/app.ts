@@ -13,6 +13,7 @@ import { registerPcfRoutes } from './pcf-routes.ts';
 import { registerProjectRoutes } from './project-routes.ts';
 import { ProjectWriter } from './project-write.ts';
 import { registerTrackerRoutes } from './tracker-routes.ts';
+import { registerActivityRoutes } from './activity-routes.ts';
 import { readBody, sendFetch, serveStatic, type Middleware } from './http.ts';
 
 function readOnlyQuery(dbPath: string, sql: string): Record<string, unknown>[] {
@@ -34,6 +35,7 @@ export async function createHub(options: { middleware?: Middleware; host?: '127.
   const writer = new ProjectWriter(pcf.storage,pcf.realtime);
   registerProjectRoutes(router,writer);
   registerTrackerRoutes(router,writer);
+  registerActivityRoutes(router,db.sqlite);
   // Temporary fallback while modules are migrated in order.
   router.add({ pattern: /^\/api(?:\/|$)/, auth: 'none', handle: async ctx => {
     const url = new URL(ctx.request.url); url.pathname = url.pathname.slice(4) || '/';
