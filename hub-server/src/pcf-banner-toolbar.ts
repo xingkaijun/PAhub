@@ -2,7 +2,7 @@ const ADAPTER_ID = 'pahub-banner-toolbar';
 
 // Hosted presentation only. Move the original nodes (never clone/rebind them)
 // so v2.6 menu state, click handlers, keyboard shortcuts and exports stay intact.
-// Layout: brand | centered capsules (Builder exchange, document tools) | personal capsule (nickname, guide, theme).
+// Layout: brand | centered document capsule | personal capsule (nickname, guide, theme).
 const TOOLBAR = `<script id="pahub-banner-toolbar">
 (() => {
   'use strict';
@@ -52,6 +52,16 @@ const TOOLBAR = `<script id="pahub-banner-toolbar">
       else if (e.key === 'ArrowDown') { e.preventDefault(); list[(i + 1) % list.length]?.focus(); }
       else if (e.key === 'ArrowUp') { e.preventDefault(); list[(i - 1 + list.length) % list.length]?.focus(); }
     });
+    // Keep the menu inside the viewport when the capsule sits near an edge.
+    const placePanel = () => {
+      panel.style.left = '0px'; panel.style.right = 'auto';
+      const rect = panel.getBoundingClientRect();
+      if (rect.right > window.innerWidth - 8) panel.style.left = Math.max(8 - rect.left, window.innerWidth - rect.right - 8) + 'px';
+      if (rect.left < 8) panel.style.left = (8 - rect.left) + 'px';
+    };
+    new MutationObserver(() => { if (!panel.hidden) placePanel(); }).observe(panel, { attributes:true, attributeFilter:['hidden'] });
+    window.addEventListener('resize', () => { if (!panel.hidden) placePanel(); });
+    window.addEventListener('scroll', () => { if (!panel.hidden) placePanel(); }, { passive:true });
     document.addEventListener('click', e => { if (!group.contains(e.target)) close(); });
     document.addEventListener('keydown', e => { if (e.key === 'Escape') close(); });
     return group;
@@ -68,20 +78,24 @@ const TOOLBAR = `<script id="pahub-banner-toolbar">
     const exportBtn = document.getElementById('pahub-export');
     const importBtn = document.getElementById('pahub-import');
     const exchange = document.getElementById('pahub-exchange');
+    const fileOptions = document.getElementById('more-btn');
     const actions = header.querySelector('.banner-actions');
-    if (!hosted || !nav || !theme || !name || !help || !exportBtn || !importBtn || !exchange || !actions) return false;
+    if (!hosted || !nav || !theme || !name || !help || !exportBtn || !importBtn || !exchange || !fileOptions || !actions) return false;
 
-    relabel(exchange, 'Shipyard Correspondence');
-    relabel(document.getElementById('more-btn'), 'File Options');
+    relabel(exportBtn, 'Export'); exportBtn.setAttribute('aria-label', 'Export to Builder'); exportBtn.title = 'Export to Builder';
+    relabel(exchange, 'History'); exchange.setAttribute('aria-label', 'Shipyard correspondence history'); exchange.title = 'Shipyard correspondence history';
+    relabel(fileOptions, 'File Options');
     relabel(importBtn, 'Import Builder Reply');
     if (name.textContent.trim() === 'Set nickname') name.textContent = 'Set Nickname';
 
     const toolbar = document.createElement('div');
     toolbar.className = 'pahub-toolbar'; toolbar.setAttribute('role', 'toolbar'); toolbar.setAttribute('aria-label', 'Hosted PCF tools');
-    hosted.classList.add('toolbar-group', 'capsule'); hosted.setAttribute('aria-label', 'Builder exchange');
-    hosted.replaceChildren(buildExchangeMenu(exportBtn, importBtn), exchange);
-    nav.classList.add('toolbar-group', 'capsule');
-    toolbar.append(hosted, nav);
+    hosted.classList.add('toolbar-group', 'capsule'); hosted.setAttribute('aria-label', 'Document tools');
+    nav.classList.add('toolbar-group', 'capsule'); nav.setAttribute('aria-label', 'Document tools');
+    const exchangeMenu = buildExchangeMenu(exportBtn, importBtn);
+    nav.append(exchangeMenu, exchange, fileOptions);
+    hosted.remove();
+    toolbar.append(nav);
     header.querySelector('.brand').after(toolbar);
 
     const personal = document.createElement('div');
@@ -118,7 +132,7 @@ const TOOLBAR = `<script id="pahub-banner-toolbar">
     header.banner.pahub-unified { display:grid; grid-template-columns:minmax(0,1fr) auto minmax(0,1fr); align-items:center; gap:16px; height:auto!important; min-height:79px; padding:14px 24px; overflow:visible; }
     header.banner.pahub-unified .brand { grid-column:1; grid-row:1; min-width:0; }
     header.banner.pahub-unified .brand .logo { width:32px; height:32px; }
-    header.banner.pahub-unified .pahub-toolbar { grid-column:2; grid-row:1; display:flex; align-items:center; justify-content:center; gap:10px; width:max-content; }
+    header.banner.pahub-unified .pahub-toolbar { grid-column:2; grid-row:1; display:flex; align-items:center; justify-content:center; gap:0; width:max-content; max-width:100%; min-width:0; }
     header.banner.pahub-unified .banner-actions { grid-column:3; grid-row:1; justify-self:end; display:flex; flex-direction:row; flex-wrap:nowrap; align-items:center; gap:12px; min-width:0; }
     header.banner.pahub-unified .banner-actions > .personal { order:2; }
     header.banner.pahub-unified .connection-status { order:1; display:flex; flex-direction:column; align-items:flex-end; justify-content:center; gap:3px; width:auto; max-width:240px; min-width:0; font-size:11px; line-height:1.25; text-align:right; }
@@ -143,10 +157,11 @@ const TOOLBAR = `<script id="pahub-banner-toolbar">
     header.banner.pahub-unified .capsule #save-menu-btn { width:28px; padding:0 8px 0 6px!important; border-radius:0 999px 999px 0!important; border-left:1px solid rgba(15,118,110,.18)!important; }
 
     /* Merged Builder exchange split button: Export is the default action. */
-    header.banner.pahub-unified .pahub-io { position:relative; display:flex; }
-    header.banner.pahub-unified .capsule #pahub-export { padding:0 6px 0 13px!important; border-radius:999px 0 0 999px!important; }
-    header.banner.pahub-unified .capsule #pahub-io-menu-btn { width:26px; padding:0 9px 0 4px!important; border-radius:0 999px 999px 0!important; }
-    header.banner.pahub-unified .pahub-io .io-panel { position:absolute; top:calc(100% + 9px); left:0; z-index:150; min-width:200px; padding:6px; border:1px solid var(--line); border-radius:12px; background:var(--surface); color:var(--ink); box-shadow:0 18px 40px -18px rgba(0,0,0,.45); display:flex; flex-direction:column; gap:2px; }
+    header.banner.pahub-unified .pahub-io { position:relative; display:flex; flex:0 0 auto; }
+    header.banner.pahub-unified .capsule #pahub-export { padding:0 6px 0 12px!important; border-radius:999px 0 0 999px!important; }
+    header.banner.pahub-unified .capsule #pahub-io-menu-btn { width:26px; padding:0 8px 0 3px!important; border-radius:0 999px 999px 0!important; }
+    header.banner.pahub-unified .capsule #pahub-exchange { padding:0 11px!important; }
+    header.banner.pahub-unified .pahub-io .io-panel { position:absolute; top:calc(100% + 9px); left:0; z-index:150; width:max-content; min-width:200px; max-width:calc(100vw - 16px); padding:6px; border:1px solid var(--line); border-radius:12px; background:var(--surface); color:var(--ink); box-shadow:0 18px 40px -18px rgba(0,0,0,.45); display:flex; flex-direction:column; gap:2px; }
     header.banner.pahub-unified .pahub-io .io-panel[hidden] { display:none; }
     header.banner.pahub-unified .pahub-io .io-panel button { display:flex!important; justify-content:flex-start!important; height:34px!important; padding:0 12px!important; border-radius:8px!important; color:var(--ink)!important; letter-spacing:.06em!important; }
     header.banner.pahub-unified .pahub-io .io-panel button:hover:not(:disabled) { background:var(--green-soft, rgba(15,118,110,.1))!important; color:var(--ink)!important; }
@@ -172,12 +187,13 @@ const TOOLBAR = `<script id="pahub-banner-toolbar">
   }
   @media screen and (max-width:900px) {
     header.banner.pahub-unified .pahub-toolbar { flex-wrap:wrap; width:auto; max-width:100%; }
-    header.banner.pahub-unified .capsule { flex-wrap:wrap; justify-content:center; max-width:100%; border-radius:20px!important; }
+    header.banner.pahub-unified .capsule { flex-wrap:wrap; justify-content:center; max-width:100%; min-width:0; border-radius:20px!important; }
   }
   @media screen and (max-width:600px) {
     header.banner.pahub-unified { grid-template-columns:1fr; padding:12px; }
     header.banner.pahub-unified .banner-actions { grid-column:1; grid-row:2; justify-self:center; align-items:center; }
-    header.banner.pahub-unified .pahub-toolbar { grid-row:3; }
+    header.banner.pahub-unified .pahub-toolbar { grid-row:3; max-width:calc(100vw - 24px); }
+    header.banner.pahub-unified .capsule { border-radius:16px!important; }
   }
   @media print { .pahub-toolbar, header.banner.pahub-unified .personal { display:none!important; } }
   \`;
