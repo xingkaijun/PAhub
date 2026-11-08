@@ -310,7 +310,7 @@ export class PcfExchange {
   }
   // Complete-copy receipts are committed in authoritative JSON with the data.
   // A lost response or process crash never applies the same merge twice.
-  private applyCompleteReceipt(p: string, d: string, body: any, returned: PcfData, requestedBy: Actor, afterApply?: () => void) {
+  private applyCompleteReceipt(p: string, d: string, body: any, returned: PcfData, requestedBy: Actor) {
     const batchId = uuid(body.batchId), file = path.join(this.storage.dataDir, 'pcf', p, d, 'imports', batchId + '.json');
     const { adminPassword: _password, ...safeBody } = body;
     const requestHash = hash({ body: safeBody, requestedBy: requestedBy.clientId });
@@ -331,7 +331,7 @@ export class PcfExchange {
   }
   apply(p: string, d: string, body: any, requestedBy: Actor, afterApply?: () => void) {
     const returned = this.returned(body);
-    if (returned.export?.mode === 'complete') return this.applyCompleteReceipt(p, d, body, returned, requestedBy, afterApply);
+    if (returned.export?.mode === 'complete') return this.applyCompleteReceipt(p, d, body, returned, requestedBy);
     const batchId = uuid(body.batchId), file = path.join(this.storage.dataDir, 'pcf', p, d, 'imports', batchId + '.json');
     // Do not persist the administrative password in the intent/receipt file.
     const { adminPassword: _password, ...safeBody } = body;

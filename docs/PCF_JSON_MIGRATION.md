@@ -46,7 +46,7 @@
 - `POST .../exports`：`{mode:"complete",clientId,clientName}` 建立完整基线；省略 mode 或 `mode:"builder"` 仍是船厂版。
 - `GET .../exports/:exportId/download?format=json`：下载该完整基线 JSON；普通 download 仍下载保存的 HTML。
 - `POST .../imports`：`{step:"preview",html}` 或 `{step:"preview",json}` 自动按 `export.mode` 区分 complete/builder；apply 携同一数据、previewToken、UUID batchId 和冲突 choices。完整副本 choices 使用 local/server/merge（以预览 allowed 为准），重复导回需显式允许，作废/未知基线拒绝。
-- 完整副本导回不触发船厂回复专用的 Reviewing 状态推进；作为文档修改保存、回写 PCF 摘要并通知在线页面。
+- 完整副本导回不触发船厂回复专用的 Reviewing 状态推进；作为文档修改保存、回写 PCF 摘要并通知在线页面。回执与数据一起原子写入 JSON，导出状态同事务更新，丢失响应/进程重启后按批次重放不重复合并；重放历史不再保留时明确要求重新加载。手动合并值也在写入前进行 schema 验证。
 
 ## 导出项目完整 HTML ZIP
 
