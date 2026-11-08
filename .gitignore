@@ -34,4 +34,5 @@ backup-*.sql
 
 # PAhub database, WAL/SHM and local imports
 /data/
+/data-p9/
 /hub-server/test/artifacts/

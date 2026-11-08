@@ -161,6 +161,16 @@ export const Manual: React.FC = () => {
               </ol>
             </Section>
 
+            <Section icon={<FileText size={18} />} title="Comments 意见汇总">
+              <ol className="space-y-2 text-[11px] font-medium text-slate-600 leading-relaxed list-decimal pl-5">
+                <li>打开当前项目的 <strong>Comments</strong>，跨图纸查看现存、未删除的 PCF 意见；每条意见一行，轮次显示最新轮次（A、B、…、AA），正文分别显示最近非空的船东意见和船厂回复，不计入内部备忘。</li>
+                <li>全文搜索覆盖所有轮次的意见与回复；组合图纸、专业、轮次、Open / Closed 等筛选后，列表与统计使用同一结果集。搜索命中旧轮次时，列表仍显示最近非空正文；打开 PCF 可查看完整往来。</li>
+                <li>点击意见链接打开托管 PCF，自动切换到对应意见所在页并高亮定位；被筛选隐藏时会重置 PCF 筛选。定位使用稳定的意见 ID，不依赖会重新编号的显示序号；意见已删除时不会报错。</li>
+                <li>收到图纸变更通知后，当前汇总标记为过期；点击 <strong>Refresh</strong> 重新读取并更新列表和统计。导出前先刷新，避免使用旧结果。</li>
+                <li><strong>Export Excel</strong> 导出当前筛选的完整结果（不只是当前页），包含 Comments 和 Statistics 两张表及读取警告。长正文通过同一 Record key 的 Part / Parts 续行完整保存，按 Part 顺序拼接各正文列即可还原；续行不是额外意见。</li>
+              </ol>
+            </Section>
+
             <Section icon={<FileText size={18} />} title="4. 图表快照说明">
               <ul className="space-y-3 text-[11px] font-medium text-slate-600 leading-relaxed">
                 <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-600" /> <strong>报表严谨性：</strong> Reports 中的总意见生成，严格基于你在表单或命令行（c:5/1）中填写的具体计数执行，不计入日常打卡记录的内部备注文本，保证数据一致。</li>
