@@ -12,6 +12,7 @@ import { PcfRealtime } from '../src/pcf-realtime.ts';
 import { writeDrawing } from '../src/drawing-write.ts';
 import { ProjectWriter } from '../src/project-write.ts';
 import { registerProjectRoutes } from '../src/project-routes.ts';
+import { registerTrackerRoutes } from '../src/tracker-routes.ts';
 import { Router } from '../src/router.ts';
 import { ROOT_DIR } from '../src/config.ts';
 import { getProjectDetail, getProjectList, getSettings, getReviewTracker } from '../src/project-read.ts';
@@ -44,7 +45,7 @@ test('same project requests match frozen Worker before route cutover', {skip:!ol
     dbs.forEach(db => {initializeSchema(db);db.exec(seed);});
     const stores = dbs.map((db,i) => new PcfStorage(db,path.join(dir,String(i))));
     const writer = new ProjectWriter(stores[1],realtime[1]);
-    const router = new Router();registerProjectRoutes(router,writer);
+    const router = new Router();registerProjectRoutes(router,writer);registerTrackerRoutes(router,writer);
     const env = {PAPC_DB:new D1Adapter(dbs[0]),DRAWING_WRITE:(p:string,d:any) => writeDrawing(stores[0],realtime[0],p,d)};
     const compare = async (url:string,method='GET',body?:any) => {
       const options = {method,headers:{'Content-Type':'application/json'},body:body===undefined?undefined:JSON.stringify(body)};
@@ -54,6 +55,11 @@ test('same project requests match frozen Worker before route cutover', {skip:!ol
       assert.deepEqual(await b.json(),await a.json(),method+' '+url);
     };
     await compare('/projects');await compare('/projects/proj-test-001','POST',{});
+    await compare('/projects/proj-test-001/review-tracker');
+    await compare('/projects/proj-test-001/review-tracker','PUT',{'dwg-001':{engineer_a:{done:'true',doneAt:'2026-11-08T12:00:00Z'},senior_eng_c:{done:false}},'dwg-002':{engineer_b:{done:1}}});
+    await compare('/projects/proj-test-001/review-tracker');
+    await compare('/projects/proj-test-001/review-tracker','PUT',{'dwg-001':{engineer_a:{done:false}}});
+    await compare('/projects/proj-test-001/review-tracker');
     await compare('/projects/proj-test-001','PATCH',{updatedDrawings:[{id:'dwg-001',changes:{title:'Native title'}}]});
     await compare('/projects/proj-test-001','PATCH',{conf:{displayName:'Display',defaultAssignees:{Hull:['A','B']},disciplineDefaults:{Hull:'B'}}});
     const project = getProjectDetail(dbs[1],'proj-test-001')!;

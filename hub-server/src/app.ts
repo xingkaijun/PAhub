@@ -12,6 +12,7 @@ import { Router, basicAuthResponse, caughtError, logRequest, errorResponse } fro
 import { registerPcfRoutes } from './pcf-routes.ts';
 import { registerProjectRoutes } from './project-routes.ts';
 import { ProjectWriter } from './project-write.ts';
+import { registerTrackerRoutes } from './tracker-routes.ts';
 import { readBody, sendFetch, serveStatic, type Middleware } from './http.ts';
 
 function readOnlyQuery(dbPath: string, sql: string): Record<string, unknown>[] {
@@ -30,17 +31,13 @@ export async function createHub(options: { middleware?: Middleware; host?: '127.
   const env = { ...config.env, PAPC_DB: db, ADMIN_SQL: (sql: string) => readOnlyQuery(config.dbPath,sql), DRAWING_WRITE: (p: string,d: any) => writeDrawing(pcf.storage,pcf.realtime,p,d) };
   const router = new Router(config.env);
   registerPcfRoutes(router,pcf,config.env.ADMIN_PASSWORD);
-  registerProjectRoutes(router,new ProjectWriter(pcf.storage,pcf.realtime));
+  const writer = new ProjectWriter(pcf.storage,pcf.realtime);
+  registerProjectRoutes(router,writer);
+  registerTrackerRoutes(router,writer);
   // Temporary fallback while modules are migrated in order.
   router.add({ pattern: /^\/api(?:\/|$)/, auth: 'none', handle: async ctx => {
     const url = new URL(ctx.request.url); url.pathname = url.pathname.slice(4) || '/';
-    const notificationInput = ctx.request.clone();
     let response = await worker.fetch(new Request(url,ctx.request),env);
-    const projectWrite = url.pathname.match(/^\/projects\/([^/]+)\/review-tracker$/);
-    if (projectWrite && ctx.request.method === 'PUT' && response.ok) {
-      const input = await notificationInput.text().then(text => text ? JSON.parse(text) : {}).catch(() => ({}));
-      for (const id of Object.keys(input)) pcf.realtime.projectChanged(decodeURIComponent(projectWrite[1]),id,['reviewTracker']);
-    }
     if (url.pathname === '/admin' && response.headers.get('Content-Type')?.includes('text/html')) {
       const html = (await response.text()).replaceAll('/admin/api','/api/admin/api').replaceAll('/admin/auth','/api/admin/auth');
       const headers = new Headers(response.headers); headers.delete('Content-Length');

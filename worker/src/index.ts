@@ -1330,17 +1330,6 @@ export default {
       if (segments[0] === 'projects' && segments[1]) {
         const projectId = decodeURIComponent(segments[1]);
 
-        if (segments.length === 3 && segments[2] === 'review-tracker') {
-          if (request.method === 'GET') {
-            return json(env, 200, await getReviewTracker(db, projectId));
-          }
-          if (request.method === 'PUT') {
-            const data = await request.json() as any;
-            const verification = await saveReviewTrackerData(db, projectId, data);
-            return json(env, 200, { success: true, verification: verification as unknown as JsonValue });
-          }
-        }
-
         if (segments.length === 3 && segments[2] === 'audit' && request.method === 'GET') {
           // from / to 是完整 ISO 时刻而非日期：客户端把「本地日」边界折算成 UTC 传上来，
           // 否则 +08:00 的一天会被 UTC 日边界从早上 8 点切开
