@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { HubApiRepository } from '../../services/data/HubApiRepository';
 import { createDebouncedSave, AUTO_SAVE_DELAY_MS } from '../../lib/auto-save';
-import { mergeProjectPreservingDirty } from '../../services/data/mergeProject';
+import { mergeProjectPreservingDirty } from '../../lib/merge-project';
 import type { Drawing, Project } from '../../types';
 
 const initial = { id: 'd', customId: '001', drawingNo: 'D1', title: 'original', discipline: 'Hull', assignees: ['A'], status: 'Waiting Reply', currentRound: 'AA', version: 'old', manualCommentsCount: 1, manualOpenCommentsCount: 1, logs: [], remarks: [], statusHistory: [] } as Drawing;

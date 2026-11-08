@@ -1,73 +1,23 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { AppData, Project, Drawing, DrawingStatus, Remark, AppSettings, ProjectConfig, ReviewTrackerData, ReviewTrackerEntry, DeltaPayload, AuditEntry, SaveResult, WriteVerification } from './types';
+import { AppData, Project, Drawing, AppSettings, ProjectConfig, ReviewTrackerData, DeltaPayload, AuditEntry } from './types';
 import { appRepository } from './services/data/AppRepository';
-import { mergeProjectPreservingDirty } from './services/data/mergeProject';
-import { calculateDeadline, projectDateKey, reviewCycleDays } from './lib/deadline';
-import { transitionReviewState } from './lib/drawing-status';
+import { mergeProjectPreservingDirty } from './lib/merge-project';
+import { calculateDeadline, projectDateKey } from './lib/deadline';
 import { changedDrawingFields, drawingFieldPatch, PCF_MANAGED_FIELDS, type DirtyDrawingFields } from './lib/drawing-fields';
+import { ensureDrawingHasId, normalizeProjectDrawingIds, stripProjectPayload, recalculateReviewDeadline } from './lib/project';
+import { editableDrawingUpdates, applyDrawingUpdates } from './lib/drawing-edit';
+import { describeVerification } from './lib/project-save';
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
-const ensureDrawingHasId = (drawing: Drawing): Drawing => {
-  if (drawing.id && String(drawing.id).trim() !== '') return drawing;
-  return { ...drawing, id: generateId() };
-};
-
-// statusHistory 必须按时间升序排列（旧→新）：全站多处逻辑（Wait days、Last Change 等）
-// 依赖 statusHistory[length - 1] 为最新记录，而后端视图返回顺序不保证有序
-const sortHistoryAsc = (history: Remark[] | undefined): Remark[] =>
-  [...(history || [])].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
-
-const normalizeProjectDrawingIds = (project: Project): Project => ({
-  ...project,
-  drawings: (project.drawings || []).map(d => ({
-    ...ensureDrawingHasId(d),
-    currentRound: d.currentRound || 'A',
-    statusHistory: sortHistoryAsc(d.statusHistory)
-  })),
-});
-
-const stripProjectPayload = (project: Project, keepPayload: boolean): Project => {
-  if (keepPayload) return project;
-  return {
-    ...project,
-    drawings: [],
-
-  };
-};
-
-// Send All 回读校验：发送前记录期望结果，保存后与服务器实际数据比对
-export interface SentDrawingExpectation {
-  id: string;
-  customId?: string;
-  status: DrawingStatus;
-}
-
-export interface SendVerification {
-  ok: boolean;
-  mismatchedDrawings: string[]; // 服务器上状态仍不对的图纸
-  mismatchedTracker: string[];  // 服务器上 check 仍未清空的图纸
-  error?: string;               // 回读本身失败（无法确认，不代表写入失败）
-}
+import { mergeReviewTracker, clearReviewTracker, verifySentState, type SentDrawingExpectation, type SendVerification } from './lib/review-tracker';
+export type { SentDrawingExpectation, SendVerification } from './lib/review-tracker';
 
 export interface AuditLogResult {
   entries: AuditEntry[];
   truncated: boolean;
   error?: string;
 }
-
-// 保存后应用服务端回读校验的结论。三种情形分开处理：
-//   ok            → 按正常流程清脏标记
-//   mismatched    → 只把没落库的图纸重新标脏，交给下次保存重试
-//   error（无法确认）→ 按成功处理。校验查询若永久性损坏，重新标脏会和 3 分钟
-//                     自动保存形成无限重试循环，代价远大于漏报
-const describeVerification = (verification: WriteVerification | undefined): string | null => {
-  if (!verification || verification.ok) return null;
-  if (verification.error) return null;
-  const labels = verification.mismatched.slice(0, 5).map(m => m.customId || m.id);
-  const suffix = verification.mismatched.length > labels.length ? ` 等 ${verification.mismatched.length} 张` : '';
-  return `服务器写入校验未通过：${labels.join(', ')}${suffix}。已重新标记为待保存。`;
-};
 
 interface AppState {
   data: AppData;
@@ -137,29 +87,6 @@ interface AppState {
   _heartbeatTimer: ReturnType<typeof setInterval> | null;
 }
 
-const getReviewStartDate = (drawing: Drawing) => {
-  const statusHistory = drawing.statusHistory || [];
-  const latestReviewingLog = [...statusHistory]
-    .reverse()
-    .find(log => log.content.includes('Status:') && log.content.includes('-> Reviewing'));
-  const parsed = latestReviewingLog?.createdAt ? new Date(latestReviewingLog.createdAt) : new Date();
-  return isNaN(parsed.getTime()) ? new Date() : parsed;
-};
-
-const recalculateReviewDeadline = (drawing: Drawing, conf: ProjectConfig, startDate?: Date): Drawing => {
-  if (drawing.status !== 'Reviewing') return drawing;
-  const round = drawing.currentRound || 'A';
-  const cycleDays = reviewCycleDays(round, conf);
-  
-  // 如果提供了明确的起始日期，使用它；否则从 statusHistory 中查找
-  const effectiveStartDate = startDate || getReviewStartDate(drawing);
-  
-  return {
-    ...drawing,
-    reviewDeadline: calculateDeadline(effectiveStartDate, cycleDays, conf.holidays || []).toISOString(),
-  };
-};
-
 const DEFAULT_DATA: AppData = {
   lastUpdated: new Date().toISOString(),
   projects: [],
@@ -214,7 +141,7 @@ export const useStore = create<AppState>()(
           appRepository.loadProject(initial.data.settings, stub, stub.conf?.password),
           appRepository.loadReviewTracker(initial.data.settings, stub).catch(() => ({})),
         ]);
-        const remote = normalizeProjectDrawingIds(rawProject);
+        const remote = normalizeProjectDrawingIds(rawProject, generateId);
         let changed = 0;
         set(state => {
           if (state.activeProjectId !== projectId) return state;
@@ -332,7 +259,7 @@ export const useStore = create<AppState>()(
       addDrawing: (drawing) => set((state) => {
         const { activeProjectId, data } = state;
         if (!activeProjectId) return state;
-        const drawingWithId = { ...ensureDrawingHasId(drawing), currentRound: drawing.currentRound || 'A' };
+        const drawingWithId = { ...ensureDrawingHasId(drawing, generateId), currentRound: drawing.currentRound || 'A' };
 
         const newDirty = new Set(state._dirtyDrawingIds);
         newDirty.add(drawingWithId.id);
@@ -369,9 +296,7 @@ export const useStore = create<AppState>()(
         const { activeProjectId } = state;
         if (!activeProjectId) return state;
         const current = state.data.projects.find(p => p.id === activeProjectId)?.drawings.find(d => d.id === id);
-        updates = { ...updates };
-        delete updates.currentRound;
-        if (current?.hasPcf) for (const field of PCF_MANAGED_FIELDS) delete updates[field];
+        updates = editableDrawingUpdates(current, updates);
         if (Object.keys(updates).length === 0) return state;
 
         const newDirty = new Set(state._dirtyDrawingIds);
@@ -398,101 +323,7 @@ export const useStore = create<AppState>()(
                 drawings: p.drawings.map(d => {
                   if (d.id !== id) return d;
 
-                  // Change Detection: Track important field changes
-                  const changedDrawing = { ...d, ...updates };
-                  const changeLogs: string[] = [];
-
-                  // Detect Status Change
-                  if (updates.status && d.status !== updates.status) {
-                    changeLogs.push(`Status: ${d.status} -> ${updates.status}`);
-
-                    const predicted = transitionReviewState(d, updates.status, p.conf || state.data.settings);
-                    changedDrawing.currentRound = predicted.currentRound;
-                    changedDrawing.reviewDeadline = predicted.reviewDeadline || undefined;
-                    if (predicted.currentRound !== d.currentRound) changeLogs.push(`Round: ${d.currentRound} -> ${predicted.currentRound}`);
-
-                  }
-
-                  // Detect Version Change
-                  if (updates.version && d.version !== updates.version) {
-                    changeLogs.push(`Version: ${d.version} -> ${updates.version}`);
-                  }
-
-                  // Detect Round Change
-                  if (updates.currentRound && d.currentRound !== updates.currentRound) {
-                    changeLogs.push(`Round: ${d.currentRound} -> ${updates.currentRound}`);
-                  }
-
-                  // Detect Comments Count Change
-                  if (
-                    (updates.manualCommentsCount !== undefined && d.manualCommentsCount !== updates.manualCommentsCount) ||
-                    (updates.manualOpenCommentsCount !== undefined && d.manualOpenCommentsCount !== updates.manualOpenCommentsCount)
-                  ) {
-                    const oldTotal = d.manualCommentsCount || 0;
-                    const oldOpen = d.manualOpenCommentsCount || 0;
-                    const newTotal = updates.manualCommentsCount !== undefined ? updates.manualCommentsCount : oldTotal;
-                    const newOpen = updates.manualOpenCommentsCount !== undefined ? updates.manualOpenCommentsCount : oldOpen;
-
-                    if (oldTotal !== newTotal || oldOpen !== newOpen) {
-                      changeLogs.push(`Comments: ${oldTotal}/${oldOpen} -> ${newTotal}/${newOpen}`);
-                    }
-                  }
-
-                  // Write to statusHistory if there are changes
-                  if (changeLogs.length > 0) {
-                    const newLogString = changeLogs.join(' | ');
-                    const now = new Date();
-                    const nowStr = now.toISOString();
-
-                    // ------ 防抖与合并逻辑 (针对连续输入的 Comments 变化) ------
-                    // 如果 changeLogs 里只包含 Comments 的变化 (不影响其他 Status/Round 等)
-                    const isOnlyCommentsChange = changeLogs.every(log => log.startsWith('Comments:'));
-                    
-                    if (isOnlyCommentsChange && d.statusHistory && d.statusHistory.length > 0) {
-                      const lastEntry = d.statusHistory[d.statusHistory.length - 1];
-                      
-                      // 检查最后一条记录是否也是 Comments 变化
-                      if (lastEntry.content.startsWith('Comments:')) {
-                        const lastTime = new Date(lastEntry.createdAt);
-                        // 如果距离上一次 Comments 变化在 2 分钟以内，进行合并
-                        if (now.getTime() - lastTime.getTime() < 2 * 60 * 1000) {
-                          // 解析旧日志的起点 (例如 "Comments: 0/0 -> 2/0" 提取出 "0/0")
-                          const oldMatch = lastEntry.content.match(/Comments:\s*([\d\/]+)\s*->/);
-                          // 提取新日志的终点 (例如 "Comments: 2/0 -> 26/2" 提取出 "26/2")
-                          const newMatch = newLogString.match(/->\s*([\d\/]+)/);
-                          
-                          if (oldMatch && newMatch) {
-                            const originalStart = oldMatch[1];
-                            const finalEnd = newMatch[1];
-                            
-                            // 更新最后一条历史记录的内容和时间
-                            const mergedContent = `Comments: ${originalStart} -> ${finalEnd}`;
-                            
-                            // 替换数组最后一条
-                            const newHistory = [...d.statusHistory];
-                            newHistory[newHistory.length - 1] = {
-                              ...lastEntry,
-                              content: mergedContent,
-                              createdAt: nowStr // 刷新时间
-                            };
-                            
-                            changedDrawing.statusHistory = newHistory;
-                            return changedDrawing; // 短路返回，不需要新建记录
-                          }
-                        }
-                      }
-                    }
-                    // ------ 结束：防抖合并逻辑 ------
-
-                    const newHistoryEntry = {
-                      id: Math.random().toString(36).substr(2, 9),
-                      content: newLogString,
-                      createdAt: nowStr
-                    };
-                    changedDrawing.statusHistory = [...(d.statusHistory || []), newHistoryEntry];
-                  }
-
-                  return changedDrawing;
+                  return applyDrawingUpdates(d, updates, p.conf || state.data.settings, new Date(), generateId());
                 })
               };
             })
@@ -601,7 +432,7 @@ export const useStore = create<AppState>()(
       bulkImportDrawings: (drawings) => set((state) => {
         const { activeProjectId } = state;
         if (!activeProjectId) return state;
-        const normalizedDrawings = drawings.map(ensureDrawingHasId);
+        const normalizedDrawings = drawings.map(d => ensureDrawingHasId(d, generateId));
         const newDirty = new Set(state._dirtyDrawingIds);
         normalizedDrawings.forEach(d => newDirty.add(d.id));
         return {
@@ -796,7 +627,7 @@ export const useStore = create<AppState>()(
 
         set({ isLoading: true });
         try {
-          const fullProject = normalizeProjectDrawingIds(await appRepository.loadProject(data.settings, projectStub, passwordInput));
+          const fullProject = normalizeProjectDrawingIds(await appRepository.loadProject(data.settings, projectStub, passwordInput), generateId);
 
           // Inject defaults
           const globalSettings = data.settings;
@@ -869,7 +700,7 @@ export const useStore = create<AppState>()(
                 ? p.drawings.map(d => {
                     if (d.status !== 'Reviewing') return d;
                     newDirty.add(d.id);
-                    return recalculateReviewDeadline(d, nextConf);
+                    return recalculateReviewDeadline(d, nextConf, new Date());
                   })
                 : p.drawings;
 
@@ -941,13 +772,7 @@ export const useStore = create<AppState>()(
         if (!project) return;
         try {
           const remote = await appRepository.loadReviewTracker(data.settings, project);
-          // 只有 dirty drawing 本地优先；非 dirty drawing 接受远端最新值
-          const merged: ReviewTrackerData = { ...(remote || {}) };
-          for (const id of _dirtyTrackerDrawingIds) {
-            if (localTracker[id]) {
-              merged[id] = { ...(remote?.[id] || {}), ...localTracker[id] };
-            }
-          }
+          const merged = mergeReviewTracker(localTracker, remote || {}, _dirtyTrackerDrawingIds);
           set({ reviewTracker: merged });
         } catch (e) { console.warn('loadReviewTracker failed', e); }
       },
@@ -1007,26 +832,12 @@ export const useStore = create<AppState>()(
       clearTrackerForDrawings: (drawingIds: string[]) => {
         if (!drawingIds || drawingIds.length === 0) return;
         set(state => {
-          const nextTracker: ReviewTrackerData = { ...state.reviewTracker };
+          const cleared = clearReviewTracker(state.reviewTracker, drawingIds);
+          if (!cleared.changedIds.length) return state;
           const nextDirtyIds = new Set(state._dirtyTrackerDrawingIds);
-          let changed = false;
-
-          drawingIds.forEach(id => {
-            const entry = state.reviewTracker[id];
-            if (!entry) return;
-            const keys = Object.keys(entry);
-            if (keys.length === 0 || keys.every(key => !entry[key]?.done)) return;
-
-            const cleared: Record<string, ReviewTrackerEntry> = {};
-            keys.forEach(key => { cleared[key] = { done: false }; });
-            nextTracker[id] = cleared;
-            nextDirtyIds.add(id);
-            changed = true;
-          });
-
-          if (!changed) return state;
+          cleared.changedIds.forEach(id => nextDirtyIds.add(id));
           return {
-            reviewTracker: nextTracker,
+            reviewTracker: cleared.tracker,
             _dirtyTracker: true,
             _dirtyTrackerDrawingIds: nextDirtyIds,
           };
@@ -1060,29 +871,7 @@ export const useStore = create<AppState>()(
           return { ...empty, ok: false, error: 'Project missing on server' };
         }
 
-        const remoteById = new Map(
-          (remoteProject.drawings || []).map(d => [String(d.id), d])
-        );
-        const mismatchedDrawings: string[] = [];
-        const mismatchedTracker: string[] = [];
-        const failedIds: string[] = [];
-
-        expected.forEach(({ id, customId, status }) => {
-          const label = customId || id;
-          const remote = remoteById.get(String(id));
-          let failed = false;
-
-          if (!remote || remote.status !== status) {
-            mismatchedDrawings.push(label);
-            failed = true;
-          }
-          const entry = remoteTracker?.[id] || {};
-          if (Object.values(entry).some(v => v?.done)) {
-            mismatchedTracker.push(label);
-            failed = true;
-          }
-          if (failed) failedIds.push(id);
-        });
+        const { failedIds, ...verification } = verifySentState(remoteProject, remoteTracker, expected);
 
         if (failedIds.length > 0) {
           set(state => {
@@ -1097,7 +886,7 @@ export const useStore = create<AppState>()(
           });
         }
 
-        return { ok: failedIds.length === 0, mismatchedDrawings, mismatchedTracker };
+        return verification;
       },
 
       // 服务端写入日志。报表查询，结果直接返回不进 state——进了 state 会被
@@ -1139,7 +928,7 @@ export const useStore = create<AppState>()(
           ...persistedState,
           data: {
             ...persistedState.data,
-            projects: persistedState.data.projects.map((p: Project) => normalizeProjectDrawingIds(p)),
+            projects: persistedState.data.projects.map((p: Project) => normalizeProjectDrawingIds(p, generateId)),
           },
           // 兼容历史持久化格式，确保运行态始终拿到 Set
           _dirtyTrackerDrawingIds: dirtyTrackerDrawingIds instanceof Set
@@ -1155,7 +944,7 @@ export const useStore = create<AppState>()(
               ...currentState.data,
               ...persistedState.data,
               projects: Array.isArray(persistedState.data.projects)
-                ? persistedState.data.projects.map((p: Project) => normalizeProjectDrawingIds(p))
+                ? persistedState.data.projects.map((p: Project) => normalizeProjectDrawingIds(p, generateId))
                 : currentState.data.projects,
             }
           : currentState.data,

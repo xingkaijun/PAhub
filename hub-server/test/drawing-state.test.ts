@@ -8,7 +8,7 @@ import { createHub } from '../src/app.ts';
 import { ROOT_DIR } from '../src/config.ts';
 import { parseHTML, replaceData } from '../src/pcf-storage.ts';
 import { blankContent } from '../src/pcf-model.ts';
-import { mergeProjectPreservingDirty } from '../../services/data/mergeProject';
+import { mergeProjectPreservingDirty } from '../../lib/merge-project';
 
 async function fixture() {
   const dir = await mkdtemp(path.join(tmpdir(), 'pahub-drawing-state-'));

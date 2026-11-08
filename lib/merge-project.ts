@@ -1,5 +1,6 @@
-import type { Project, ReviewTrackerData } from '../../types';
-import { PCF_MANAGED_FIELDS, type DirtyDrawingFields } from '../../lib/drawing-fields';
+import type { Project, ReviewTrackerData } from '../types';
+import { mergeReviewTracker } from './review-tracker';
+import { PCF_MANAGED_FIELDS, type DirtyDrawingFields } from './drawing-fields';
 
 export function mergeProjectPreservingDirty(
   local: Project,
@@ -35,9 +36,7 @@ export function mergeProjectPreservingDirty(
     const current = localById.get(id);
     if (current && !remoteIds.has(id)) drawings.push(current);
   }
-  const tracker: ReviewTrackerData = { ...(remoteTracker || {}) };
-  for (const id of dirtyTrackerDrawingIds) tracker[id] = { ...(remoteTracker?.[id] || {}), ...(localTracker[id] || {}) };
-  if (dirtyTracker && dirtyTrackerDrawingIds.size === 0) Object.assign(tracker, localTracker);
+  const tracker = mergeReviewTracker(localTracker, remoteTracker || {}, dirtyTrackerDrawingIds, dirtyTracker);
   return {
     project: { ...local, ...remote, id: local.id, conf: dirtyConf ? local.conf : remote.conf, drawings },
     reviewTracker: tracker,

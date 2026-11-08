@@ -8,7 +8,7 @@ import { PcfRealtime } from '../src/pcf-realtime.ts';
 import { currentTemplate, upgradeFile } from '../src/pcf-template.ts';
 import { parseHTML } from '../src/pcf-storage.ts';
 import { externalData, standaloneHTML } from '../src/pcf-exchange.ts';
-import { mergeProjectPreservingDirty } from '../../services/data/mergeProject.ts';
+import { mergeProjectPreservingDirty } from '../../lib/merge-project.ts';
 import { lettersToRound, nextRoundLabel, roundToLetters } from '../../lib/rounds.ts';
 import { roundNumber, roundLabel } from '../src/pcf-model.ts';
 
