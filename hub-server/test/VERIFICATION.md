@@ -146,3 +146,45 @@ POST /api/pcf/:projectId/exports/batch，body 为 {drawingIds,batchId}。保存�
 - 前几轮 integration 沿用旧脚手架，只隔离 DB、未设置 PAHUB_DATA_DIR，因此 PcfExchange 构造函数会读取真实 data/.pcf-export-key。该文件已有，核对修改时间仍为 2026-11-07T08:54:47.731Z，未改写；78a06c6 已补齐隔离，后续及全量使用临时数据目录。
 - 数据库启动删除视图仅在临时数据库验证；正式数据副本/生产启用留待用户安排。历史 SQL 001 不改写以保持既有迁移可审计，不再使用其兼容视图作为读路径。
 - 辅助任务因额度限制提前终止，未产生代码，后续直接实施。没有执行阶段 4，也没有需要产品决策的阻塞项。
+
+## 架构优化阶段 4：前端整理（2026-11-08）
+
+仅执行 ARCHITECTURE_PLAN.md 阶段 4 任务 1–3；任务 4（移动前端目录、开启前端 strict）未执行。
+
+### 完成项与提交
+
+| 提交 | 对应任务 | 内容 |
+|---|---|---|
+| 07cbd0c | 4.2 | 提取图纸编辑/日志合并、项目标准化与截止日期重算、保存校验描述、tracker 清空/合并/Send All 校验；纯项目合并移到 lib/ |
+| f5008a4 | 4.2、4.3 | project、reviewTracker、ui、presence 四个 slice；组合入口和独立持久化配置；保留 pahub-storage v2 格式；lib/*.test.ts 纳入 hub:test，支持指定文件 |
+| 1ab0e37 | 4.1 | apiClient 统一 URL、可选 token、JSON/text 错误、AbortSignal、multipart/下载；四个领域 API；替换组件/App/store 请求；删除旧转发 repository 与 comments 请求层 |
+
+- 请求鉴权默认关闭；未设置 token 时不写 Authorization，不覆盖浏览器 Basic Auth。
+- API 静态守卫禁止组件、App 与 slice 出现直接 fetch 或重复 API 环境配置。
+- 在线 slice 管理 heartbeat 生命周期，忽略切换项目/进入编辑后迟到的在线查询；脏字段、服务端权威 PCF 字段与保存期间的新编辑继续保持原规则。
+- 纯函数接收时间/ID，覆盖轮次、项目日历、Comments 两分钟合并、tracker APR 清空、回读失败重标脏和持久化 Set 兼容。
+
+### 相关测试（均为指定文件，不反复全量）
+
+- lib/core、lib/project：13/13。
+- drawing-fields、store-slices：15/15。
+- api-client：12/12（含静态守卫）。
+- deadline：7/7。
+- router、integration、send-all：11/11。
+- drawing-ownership-ui、builder-replies：17/17。
+- 以上相关文件共 75 个不同测试通过；分批运行存在重复，未将重复计入总数。
+- 中途清理测试旧类型时发现 send-all 剩余 AppSettings 引用导致 typecheck 失败，删除无用变量后相关测试与全量均通过。
+
+### 本阶段唯一一次全量验证
+
+- npm run hub:build && npm run hub:test：退出 0；前端 2681 modules；Hub 三入口构建成功；服务端 strict 类型检查通过。
+- 全量 194 tests，193 pass，0 fail，1 skipped，0 cancelled；测试约 80.1 秒。
+- 跳过的是需 PAHUB_WORKER_BASELINE 的历史 Worker 项目对比；随后只跑 node hub-server/scripts/test-parity.mjs project，2/2 通过，无跳过，补齐该项。
+- 原有 Recharts Bar 跨 chunk 循环依赖警告仍存在，本次未越界修改分包。Node store 单测的 localStorage 不可用警告不影响断言。
+
+### 边界与推送检查
+
+- 所有起服务的测试使用 PORT=0 与临时数据目录，结束关闭；未触碰 8080/8081/8082、SGP0、PAhub-preview 或真实 data/。
+- 未执行数据迁移；未移动前端目录、未改变前端 strict 设置；没有产品决策阻塞。
+- 推送前检查阶段提交和从远端 main 基准起的待推送文件：不包含真实 data/、运行 .env、密钥或截图产物；唯一受跟踪的 .env.example 为无凭据配置示例。
+- 按本次用户明确授权，在全量与跳过项补验成功后推送 pahub-main 到 origin/main，并同步 origin/pahub-main；最终远端 SHA 由 git ls-remote 核对并在结束汇报中记录。
