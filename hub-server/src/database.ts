@@ -1,14 +1,118 @@
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
-import { SQL_DIR } from './config.ts';
+import { ROOT_DIR, SQL_DIR } from './config.ts';
 import { D1Adapter } from './d1.ts';
-import { initializePcfSchema } from './pcf-schema.ts';
 import { migrateLegacyProjectPath } from './import-legacy.ts';
+
+// Numbered migrations live next to the source. The build copies them to dist so
+// the bundled hub and standalone scripts resolve the same files.
+const SOURCE_MIGRATION_DIR = path.join(ROOT_DIR, 'hub-server/sql/migrations');
+const BUNDLED_MIGRATION_DIR = path.join(SQL_DIR, 'migrations');
+
+export function migrationSql(name: string): string {
+  for (const directory of [BUNDLED_MIGRATION_DIR, SOURCE_MIGRATION_DIR]) {
+    const file = path.join(directory, name);
+    if (existsSync(file)) return readFileSync(file, 'utf8');
+  }
+  throw new Error('Migration file not found: ' + name);
+}
+
+// Version 1 is the baseline schema, applied automatically to every database.
+export const BASELINE_SCHEMA_VERSION = 1;
+// Version 2 is reserved for the offline PCF HTML -> JSON conversion. It is
+// never applied at startup: the explicit migration script verifies the JSON
+// files and rewrites the index first, then calls applyPcfJsonMigration().
+export const PCF_JSON_STORAGE_VERSION = 2;
+export const KNOWN_SCHEMA_VERSION = PCF_JSON_STORAGE_VERSION;
 
 function columns(db: DatabaseSync, table: string): string[] {
   return db.prepare('PRAGMA table_info("' + table + '")').all().map(row => String(row.name));
+}
+
+export function schemaVersion(db: DatabaseSync): number {
+  return Number(db.prepare('PRAGMA user_version').get()!.user_version);
+}
+
+// Pre-baseline databases (D1 dumps, old local files) predate these columns.
+// Only runs while the database is below version 1; fresh and current databases
+// never see a runtime ALTER.
+function adoptLegacySchema(db: DatabaseSync): void {
+  const expected: Record<string, string[]> = {
+    projects: ['id', 'name', 'storage_path', 'last_updated'],
+    drawings: ['id', 'project_id', 'custom_id', 'drawing_no', 'discipline', 'title', 'status', 'version',
+      'current_round', 'review_deadline', 'manual_comments_count', 'manual_open_comments_count',
+      'checked', 'checked_synced', 'received_date', 'category', 'deadline'],
+    review_tracker: ['project_id', 'drawing_id', 'raw_drawing_ref', 'reviewer_id', 'done', 'done_at'],
+  };
+  for (const [table, required] of Object.entries(expected)) {
+    const found = columns(db, table);
+    if (found.length && required.some(column => !found.includes(column))) {
+      throw new Error('Unsupported legacy schema in ' + table + '; use /admin/api/export JSON instead.');
+    }
+  }
+  for (const [table, column, type] of [
+    ['audit_log', 'project_id', 'TEXT'],
+    ['drawings', '_deleted', 'INTEGER DEFAULT 0'],
+    ['review_tracker', '_deleted', 'INTEGER DEFAULT 0'],
+  ]) {
+    const found = columns(db, table);
+    if (found.length && !found.includes(column)) db.exec('ALTER TABLE ' + table + ' ADD COLUMN ' + column + ' ' + type);
+  }
+}
+
+type Migration = { version: number; name: string; prepare?: (db: DatabaseSync) => void };
+
+const MIGRATIONS: Migration[] = [
+  { version: 1, name: '001_schema.sql', prepare: adoptLegacySchema },
+];
+
+function applyMigration(db: DatabaseSync, migration: Migration): void {
+  db.exec('SAVEPOINT pahub_migration');
+  try {
+    migration.prepare?.(db);
+    db.exec(migrationSql(migration.name));
+    db.exec('PRAGMA user_version = ' + migration.version);
+    db.exec('RELEASE pahub_migration');
+  } catch (error) {
+    db.exec('ROLLBACK TO pahub_migration; RELEASE pahub_migration');
+    throw error;
+  }
+}
+
+function migrate(db: DatabaseSync): number {
+  let current = schemaVersion(db);
+  if (current > KNOWN_SCHEMA_VERSION) {
+    throw new Error('Database schema version ' + current + ' is newer than this Hub supports (' + KNOWN_SCHEMA_VERSION + ').');
+  }
+  for (const migration of MIGRATIONS) {
+    if (migration.version <= current) continue;
+    applyMigration(db, migration);
+    current = migration.version;
+  }
+  return current;
+}
+
+// Explicit PCF HTML -> JSON conversion step. Runs inside the caller's
+// transaction (e.g. BEGIN EXCLUSIVE) and uses a savepoint, never BEGIN.
+// The conversion script must have written and verified the JSON files before
+// calling this; renaming .html pointers is the final, atomic index step.
+export function applyPcfJsonMigration(db: DatabaseSync): void {
+  const current = schemaVersion(db);
+  if (current < BASELINE_SCHEMA_VERSION) {
+    throw new Error('PCF JSON migration requires schema version ' + BASELINE_SCHEMA_VERSION + '; open the database once first.');
+  }
+  if (current >= PCF_JSON_STORAGE_VERSION) return;
+  db.exec('SAVEPOINT pahub_pcf_json_migration');
+  try {
+    db.exec(migrationSql('002_pcf_json_storage.sql'));
+    db.exec('PRAGMA user_version = ' + PCF_JSON_STORAGE_VERSION);
+    db.exec('RELEASE pahub_pcf_json_migration');
+  } catch (error) {
+    db.exec('ROLLBACK TO pahub_pcf_json_migration; RELEASE pahub_pcf_json_migration');
+    throw error;
+  }
 }
 
 // Legacy project snapshots are retired. Back up before deleting, outside a transaction.
@@ -26,48 +130,12 @@ function removeLegacySnapshots(db: DatabaseSync): void {
 export function initializeSchema(db: DatabaseSync): void {
   removeLegacySnapshots(db);
   migrateLegacyProjectPath(db);
-  const expected: Record<string, string[]> = {
-    projects: ['id', 'name', 'storage_path', 'last_updated'],
-    drawings: ['id', 'project_id', 'custom_id', 'drawing_no', 'discipline', 'title', 'status', 'version',
-      'current_round', 'review_deadline', 'manual_comments_count', 'manual_open_comments_count',
-      'checked', 'checked_synced', 'received_date', 'category', 'deadline'],
-    review_tracker: ['project_id', 'drawing_id', 'raw_drawing_ref', 'reviewer_id', 'done', 'done_at'],
-  };
-  for (const [table, required] of Object.entries(expected)) {
-    const found = columns(db, table);
-    if (found.length && required.some(col => !found.includes(col))) {
-      throw new Error('Unsupported legacy schema in ' + table + '; use /admin/api/export JSON instead.');
-    }
+  migrate(db);
+  for (const view of ['api_settings', 'api_projects', 'api_project_details', 'api_review_trackers']) {
+    db.prepare('SELECT * FROM ' + view + ' LIMIT 1').all();
   }
-  db.exec('SAVEPOINT pahub_schema');
-  try {
-    for (const [table, column, type] of [
-      ['audit_log', 'project_id', 'TEXT'],
-      ['drawings', '_deleted', 'INTEGER DEFAULT 0'],
-      ['review_tracker', '_deleted', 'INTEGER DEFAULT 0'],
-    ]) {
-      const found = columns(db, table);
-      if (found.length && !found.includes(column)) db.exec('ALTER TABLE ' + table + ' ADD COLUMN ' + column + ' ' + type);
-    }
-    const init = readFileSync(path.join(SQL_DIR, 'init-local.sql'), 'utf8');
-    const marker = '-- ========== 兼容视图（Worker API 读取用） ==========';
-    const split = init.indexOf(marker);
-    if (split < 0) throw new Error('init-local.sql schema marker missing');
-    db.exec(init.slice(0, split));
-    db.exec(readFileSync(path.join(SQL_DIR, 'audit-journal.sql'), 'utf8')
-      .replace(/^ALTER TABLE audit_log ADD COLUMN project_id TEXT;\s*$/m, ''));
-    db.exec(init.slice(split));
-    initializePcfSchema(db);
-    for (const view of ['api_settings', 'api_projects', 'api_project_details', 'api_review_trackers']) {
-      db.prepare('SELECT * FROM ' + view + ' LIMIT 1').all();
-    }
-    const violations = db.prepare('PRAGMA foreign_key_check').all();
-    if (violations.length) throw new Error('Foreign-key violations: ' + JSON.stringify(violations.slice(0, 5)));
-    db.exec('RELEASE pahub_schema');
-  } catch (error) {
-    db.exec('ROLLBACK TO pahub_schema; RELEASE pahub_schema');
-    throw error;
-  }
+  const violations = db.prepare('PRAGMA foreign_key_check').all();
+  if (violations.length) throw new Error('Foreign-key violations: ' + JSON.stringify(violations.slice(0, 5)));
 }
 
 export function openDatabase(dbPath: string): D1Adapter {

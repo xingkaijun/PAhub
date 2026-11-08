@@ -7,10 +7,10 @@ import { randomUUID } from 'node:crypto';
 import { inflateRawSync } from 'node:zlib';
 import { DatabaseSync } from 'node:sqlite';
 import { createHub } from '../src/app.ts';
-import { ROOT_DIR, SQL_DIR } from '../src/config.ts';
+import { ROOT_DIR } from '../src/config.ts';
 import { parseHTML } from '../src/pcf-storage.ts';
 import { crc32 } from '../src/zip.ts';
-import { openDatabase } from '../src/database.ts';
+import { openDatabase, migrationSql } from '../src/database.ts';
 import { importData } from '../src/importer.ts';
 import { normalizeLegacySql } from '../src/import-legacy.ts';
 import { HubApiRepository } from '../../services/data/HubApiRepository';
@@ -213,7 +213,7 @@ test('import-d1 and existing databases preserve legacy paths and APR without add
   assert.equal(normalizeLegacySql("INSERT INTO projects(webdav_path) VALUES('webdav_path'); -- webdav_path"), "INSERT INTO projects(storage_path) VALUES('webdav_path'); -- webdav_path");
   const temp = await mkdtemp(path.join(tmpdir(), 'pahub-send-all-legacy-'));
   try {
-    const schema = (await readFile(path.join(SQL_DIR,'init-local.sql'),'utf8')).split('-- ========== 兼容视图（Worker API 读取用） ==========')[0].replaceAll('storage_path','webdav_path');
+    const schema = migrationSql('001_schema.sql').replaceAll('storage_path','webdav_path');
     const seed = (await readFile(path.join(ROOT_DIR,'worker/sql/seed-test-data.sql'),'utf8')).replaceAll('storage_path','webdav_path');
     const legacy = schema + '\n' + seed + "\nINSERT INTO review_tracker(project_id,drawing_id,raw_drawing_ref,reviewer_id,done) VALUES('proj-test-001','dwg-001','dwg-001','__approved__',0);";
     const existingFile = path.join(temp,'existing.db'), sqlite = new DatabaseSync(existingFile); sqlite.exec(legacy); sqlite.close();

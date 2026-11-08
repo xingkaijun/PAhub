@@ -1,6 +1,6 @@
 import { build as viteBuild } from 'vite';
 import { build as esbuild } from 'esbuild';
-import { copyFile, mkdir } from 'node:fs/promises';
+import { copyFile, mkdir, readdir } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { spawn } from 'node:child_process';
@@ -13,9 +13,11 @@ export const bundleOptions = {
 };
 
 export async function copySchema() {
-  await mkdir(path.join(outdir, 'sql'), { recursive: true });
-  for (const name of ['init-local.sql', 'audit-journal.sql']) {
-    await copyFile(path.join(root, 'worker/sql', name), path.join(outdir, 'sql', name));
+  // Numbered migrations are the schema source of truth; the server reads them from dist.
+  const migrations = path.join(outdir, 'sql', 'migrations');
+  await mkdir(migrations, { recursive: true });
+  for (const name of await readdir(path.join(root, 'hub-server/sql/migrations'))) {
+    await copyFile(path.join(root, 'hub-server/sql/migrations', name), path.join(migrations, name));
   }
 }
 

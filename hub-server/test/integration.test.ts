@@ -6,8 +6,8 @@ import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { createHub } from '../src/app.ts';
 import { importData } from '../src/importer.ts';
-import { initializeSchema } from '../src/database.ts';
-import { ROOT_DIR, SQL_DIR } from '../src/config.ts';
+import { initializeSchema, migrationSql } from '../src/database.ts';
+import { ROOT_DIR } from '../src/config.ts';
 import { HubApiRepository } from '../../services/data/HubApiRepository';
 import type { AppSettings, Project } from '../../types';
 
@@ -93,7 +93,7 @@ test('hub end-to-end: real frontend repository, persisted PATCH/PUT, audit logs,
     await assert.rejects(importData(badPath, badDb), /Invalid project entry/);
     assert.equal(await access(badDb).then(() => true, () => false), false);
     const dumpPath = path.join(temp, 'full-export.sql');
-    const schema = await readFile(path.join(SQL_DIR, 'init-local.sql'), 'utf8');
+    const schema = migrationSql('001_schema.sql');
     const seed = await readFile(path.join(ROOT_DIR, 'worker/sql/seed-test-data.sql'), 'utf8');
     await writeFile(dumpPath, 'PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;\n' + schema + '\n' + seed + '\nCOMMIT;');
     const dumpDb = path.join(temp, 'dump.db');
@@ -140,8 +140,7 @@ test('retired project snapshot migration backs up data before DROP and runs once
 test('schema initialization is idempotent and upgrades guarded audit/_deleted columns', async () => {
   const sqlite = new DatabaseSync(':memory:');
   try {
-    const schema = await readFile(path.join(SQL_DIR, 'init-local.sql'), 'utf8');
-    const base = schema.split('-- ========== 兼容视图（Worker API 读取用） ==========')[0]
+    const base = migrationSql('001_schema.sql')
       .replaceAll('  _deleted INTEGER DEFAULT 0,\n', '').replace('  project_id TEXT,\n', '')
       .replace('CREATE INDEX IF NOT EXISTS idx_audit_log_project_created ON audit_log(project_id, created_at);', '');
     sqlite.exec(base);
