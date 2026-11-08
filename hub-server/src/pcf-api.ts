@@ -2,7 +2,7 @@ import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { PcfStorage, scriptJSON, parseHTML } from './pcf-storage.ts';
 import { safeId, fail, type Actor } from './pcf-model.ts';
 import { PcfRealtime } from './pcf-realtime.ts';
-import { PcfExchange, externalData, standaloneHTML } from './pcf-exchange.ts';
+import { PcfExchange } from './pcf-exchange.ts';
 import { TEMPLATE_VERSION, renderTemplate } from './pcf-template.ts';
 import { updateBuilderReplyPapcStatus } from './pcf-builder-replies.ts';
 import { commentFocusHTML } from './pcf-comment-focus.ts';
@@ -125,27 +125,46 @@ export class PcfApi {
           return json(outcome.result);
         }
         case 'PUT document': {
+          const imported = body.html ? parseHTML(body.html) : body.data;
+          if (imported?.export) fail('Exported copies must use baseline three-way import, not document replacement', 409);
           const actor = this.actor(body, ip);
           if (body.importJSON && this.realtime.list(p + '/' + d).some(x => x.clientId !== actor.clientId && x.entity)) fail('JSON import blocked: another editor is editing', 409);
           const result = this.storage.replace(p, d, body, actor);
           this.realtime.changed(p + '/' + d, result, actor, true); return json(result);
         }
         case 'GET exports': return json(this.exchange.list(p, d));
-        case 'POST exports': return json(this.exchange.create(p, d, this.actor(body, ip)));
+        case 'POST exports': {
+          if (body.mode !== undefined && !['builder', 'complete'].includes(body.mode)) fail('Export mode must be builder or complete');
+          return json(body.mode === 'complete' ? this.exchange.createComplete(p, d, this.actor(body, ip)) : this.exchange.create(p, d, this.actor(body, ip)));
+        }
         case 'POST imports': {
           if (body.step === 'preview') return json(this.exchange.preview(p, d, body));
           if (body.step !== 'apply') fail('Import step must be preview or apply');
-          const exportId = parseHTML(body.html).export?.exportId;
-          const outcome = this.exchange.apply(p, d, body, this.actor(body, ip), () => { if (exportId) updateBuilderReplyPapcStatus(this.storage, this.realtime, p, d, exportId); });
-          if (!outcome.replayed && outcome.result.applied.length) this.realtime.changed(p + '/' + d, outcome.result, outcome.actor);
+          const metadata = (body.html ? parseHTML(body.html) : body.json)?.export;
+          const outcome = this.exchange.apply(p, d, body, this.actor(body, ip), () => { if (metadata?.mode === 'builder' && metadata.exportId) updateBuilderReplyPapcStatus(this.storage, this.realtime, p, d, metadata.exportId); });
+          if (!outcome.replayed && (outcome.result.applied?.length || metadata?.mode === 'complete')) this.realtime.changed(p + '/' + d, outcome.result, outcome.actor, metadata?.mode === 'complete');
           return json(outcome.result);
         }
         case 'GET history': return json(this.storage.history(p, d));
-        case 'GET download': return new Response(standaloneHTML(externalData(this.storage.load(p, d).data)), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Content-Disposition': 'attachment; filename="' + d + '.html"', 'Cache-Control': 'no-store' } });
+        case 'GET download': {
+          if (url.searchParams.has('format') && !['html', 'json'].includes(url.searchParams.get('format')!)) fail('Download format must be html or json');
+          const exported = this.exchange.createComplete(p, d, this.actor({}, ip));
+          if (url.searchParams.get('format') === 'json') {
+            const { data, record } = this.exchange.downloadCompleteJSON(p, d, exported.exportId);
+            return new Response(JSON.stringify(data, null, 2), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': "attachment; filename=\"PCF.json\"; filename*=UTF-8''" + encodeURIComponent(String(record.filename).replace(/\.html$/, '.json')), 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
+          }
+          const { html, record } = this.exchange.download(p, d, exported.exportId);
+          return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Content-Disposition': "attachment; filename=\"PCF.html\"; filename*=UTF-8''" + encodeURIComponent(String(record.filename)), 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
+        }
         default: {
           const exportMatch = tail.match(/^exports\/([a-f0-9-]+)\/(download|void)$/i);
           if (exportMatch?.[2] === 'void' && request.method === 'POST') return json(this.exchange.void(p, d, exportMatch[1]));
           if (exportMatch?.[2] === 'download' && request.method === 'GET') {
+            if (url.searchParams.has('format') && !['html', 'json'].includes(url.searchParams.get('format')!)) fail('Download format must be html or json');
+            if (url.searchParams.get('format') === 'json') {
+              const { data, record } = this.exchange.downloadCompleteJSON(p, d, exportMatch[1]);
+              return new Response(JSON.stringify(data, null, 2), { headers: { 'Content-Type': 'application/json; charset=utf-8', 'Content-Disposition': "attachment; filename=\"PCF.json\"; filename*=UTF-8''" + encodeURIComponent(String(record.filename).replace(/\.html$/, '.json')), 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
+            }
             const { html, record } = this.exchange.download(p, d, exportMatch[1]);
             return new Response(html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Content-Disposition': "attachment; filename=\"PCF.html\"; filename*=UTF-8''" + encodeURIComponent(record.filename), 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
           }
