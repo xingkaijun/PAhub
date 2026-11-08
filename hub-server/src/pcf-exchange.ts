@@ -4,7 +4,9 @@ import path from 'node:path';
 import { PcfStorage, parseHTML, atomicWrite } from './pcf-storage.ts';
 import { createZip } from './zip.ts';
 import { renderTemplate } from './pcf-template.ts';
-import { cleanContent, entity, applyOps, fail, safeId, cleanupLegacyImport, type Actor, type PcfData, type Op } from './pcf-model.ts';
+import { cleanContent, entity, applyOps, fail, safeId, cleanupLegacyImport, initData, type Actor, type PcfData, type Op } from './pcf-model.ts';
+import { validateJSON } from './pcf-schema.ts';
+import { completeData, completeExport, mergeComplete, restoreServerClocks } from './pcf-complete-merge.ts';
 import { roundToLetters } from '../../lib/rounds.ts';
 
 function canonical(v: any): string {
@@ -64,8 +66,18 @@ export class PcfExchange {
     if (!row) fail('exportId does not belong to this drawing', 409); return row;
   }
   private dir(p: string, d: string) { return path.join(this.storage.dataDir, 'pcf', p, d, 'exports'); }
-  download(p: string, d: string, id: string) { const record = this.record(p, d, id); return { record, html: readFileSync(path.join(this.dir(p, d), id + '.html'), 'utf8') }; }
+  private file(p: string, d: string, id: string) { return path.join(this.dir(p, d), id + '.html'); }
+  download(p: string, d: string, id: string) { const record = this.record(p, d, id); return { record, html: readFileSync(this.file(p, d, id), 'utf8') }; }
   void(p: string, d: string, id: string) { this.record(p, d, id); this.storage.db.prepare("UPDATE pcf_exports SET status='void' WHERE export_id=?").run(id); return { exportId: id, status: 'void' }; }
+  // Completes the caller's own transaction: removes an unimported or void baseline.
+  discard(p: string, d: string, id: string) {
+    const record = this.record(p, d, id);
+    if (record.status === 'imported') fail('Imported exports cannot be discarded', 409);
+    this.storage.db.prepare('DELETE FROM pcf_exports WHERE export_id=?').run(id);
+    const file = this.file(p, d, id);
+    if (existsSync(file)) unlinkSync(file);
+    return { exportId: id, status: 'discarded' };
+  }
   create(p: string, d: string, actor: Actor, exportId = randomUUID()) {
     const { data, rev } = this.storage.load(p, d), exportedAt = new Date().toISOString(), round = data.project.currentRound;
     const external = externalData(data);
@@ -74,9 +86,39 @@ export class PcfExchange {
     // Remove the complete hosted adapter, not merely its live credential injection.
     const html = standaloneHTML(external);
     const filename = String(data.project.planNo || d).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_') + '_' + roundToLetters(round) + '_PCF_' + exportedAt.slice(0, 10) + '.html';
-    const file = path.join(this.dir(p, d), exportId + '.html'); atomicWrite(file, html);
+    const file = this.file(p, d, exportId); atomicWrite(file, html);
     this.storage.db.prepare('INSERT INTO pcf_exports VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').run(exportId, p, d, data.documentId, rev, round, exportedAt, actor.clientName, actor.ip, 'exported', filename, path.relative(this.storage.dataDir, file).split(path.sep).join('/'));
     return { exportId, filename, baseRev: rev, round, exportedAt, status: 'exported' };
+  }
+  // Complete offline copy: every business field is preserved; Hub clocks,
+  // receipts, client IDs and IPs are removed. The baseline is kept under the
+  // ordinary pcf_exports row so a return can be merged three ways.
+  createComplete(p: string, d: string, actor: Actor, exportId = randomUUID()) {
+    uuid(exportId);
+    if (this.storage.db.prepare('SELECT 1 FROM pcf_exports WHERE export_id=?').get(exportId)) fail('exportId already exists', 409);
+    const { data, rev } = this.storage.load(p, d), exportedAt = new Date().toISOString(), round = data.project.currentRound;
+    const complete = completeExport(data, { exportId, documentId: data.documentId, baseRev: rev, round, exportedAt, mode: 'complete' });
+    const html = standaloneHTML(complete);
+    const filename = String(data.project.planNo || d).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_') + '_' + roundToLetters(round) + '_PCF_' + exportedAt.slice(0, 10) + '_complete.html';
+    const file = this.file(p, d, exportId);
+    if (existsSync(file)) fail('exportId already exists', 409);
+    atomicWrite(file, html);
+    try {
+      this.storage.db.prepare('INSERT INTO pcf_exports VALUES(?,?,?,?,?,?,?,?,?,?,?,?)').run(exportId, p, d, data.documentId, rev, round, exportedAt, actor.clientName, actor.ip, 'exported', filename, path.relative(this.storage.dataDir, file).split(path.sep).join('/'));
+    } catch (error) {
+      // Do not leave a baseline file without its export row.
+      if (existsSync(file)) unlinkSync(file);
+      throw error;
+    }
+    return { exportId, filename, baseRev: rev, round, exportedAt, status: 'exported', mode: 'complete' };
+  }
+  downloadCompleteJSON(p: string, d: string, id: string) {
+    const { record, html } = this.download(p, d, id);
+    return { record, data: parseHTML(html) };
+  }
+  completeHTML(p: string, d: string, actor: Actor) {
+    const record = this.createComplete(p, d, actor);
+    return { record, html: this.download(p, d, record.exportId).html };
   }
   batch(p: string, rawIds: unknown, rawBatchId: unknown, actor: Actor) {
     const batchId = uuid(rawBatchId);
@@ -136,9 +178,18 @@ export class PcfExchange {
       for (const file of files) if (existsSync(file)) unlinkSync(file);
       throw error;
     }
-  }  preview(p: string, d: string, body: any) {
+  }
+  private returned(body: any): PcfData {
+    if (typeof body.html === 'string') return parseHTML(body.html);
+    if (body.json && typeof body.json === 'object' && !Array.isArray(body.json)) return structuredClone(body.json);
+    fail('Expected returned HTML or complete JSON');
+  }
+  private returnedHash(body: any) { return hash(body.html ?? body.json); }
+  preview(p: string, d: string, body: any): any {
+    const returned = this.returned(body);
+    if (returned.export?.mode === 'complete') return this.previewComplete(p, d, returned, this.returnedHash(body));
     if (typeof body.html !== 'string') fail('Expected returned HTML');
-    const returned = parseHTML(body.html), live = this.storage.load(p, d);
+    const live = this.storage.load(p, d);
     // Legacy trash is not part of the reply exchange; do not change signed read-only round history.
     const cleaned = structuredClone(returned); cleaned.deleted ??= []; cleaned.roundRegister ??= []; cleaned.circulation ??= []; cleaned.approvalHistory ??= []; cleanupLegacyImport(cleaned); returned.deleted = cleaned.deleted;
     if (returned.documentId !== live.data.documentId) fail('documentId does not match this drawing', 409);
@@ -176,7 +227,109 @@ export class PcfExchange {
     const token = Buffer.from(JSON.stringify(payload)).toString('base64url');
     return { exportId: record.export_id, baseRev: record.base_rev, serverRev: live.rev, round, ownerTampered, repeated: record.status === 'imported', automatic, conflicts, ignored, previewToken: token + '.' + this.mac(payload) };
   }
+  private completeBaseline(p: string, d: string, returned: PcfData, live: { data: PcfData; rev: number }) {
+    if (returned.documentId !== live.data.documentId) fail('documentId does not match this drawing', 409);
+    const exportId = returned.export?.exportId;
+    if (!exportId || returned.export.mode !== 'complete' || returned.export.documentId !== live.data.documentId) fail('Missing or mismatched complete export metadata', 409);
+    const record = this.record(p, d, exportId);
+    if (record.document_id !== live.data.documentId) fail('Export documentId no longer matches this drawing', 409);
+    if (record.status === 'void') fail('This export has been voided', 409);
+    const base = parseHTML(this.download(p, d, record.export_id).html);
+    if (base.export?.mode !== 'complete') fail('Stored baseline is not a complete copy', 500);
+    return { record, base };
+  }
+  // Returns a complete copy merged three ways against its baseline. Local and
+  // server sides are compared without Hub internals so clocks never register
+  // as business changes. Server tombstones are applied afterwards.
+  private completeResult(p: string, d: string, returned: PcfData, choices?: Record<string, any>) {
+    const live = this.storage.load(p, d);
+    const { record, base } = this.completeBaseline(p, d, returned, live);
+    const local = completeData(this.validateComplete(returned));
+    const server = completeData(live.data);
+    const tombstones: any[] = (live.data.hub?.tombstones || []);
+    const tombstoned = new Set<string>();
+    for (const t of tombstones) {
+      tombstoned.add(t.id);
+      if (t.type === 'comment') for (const round of (t.data?.rounds || [])) tombstoned.add(round.id);
+    }
+    // Server tombstones are final. Any difference touching one is resolved to
+    // the server copy instead of asking the user to resurrect the record.
+    const decisions = { ...(choices || {}) };
+    const preliminary = mergeComplete({ base: completeData(base), local, server });
+    for (const conflict of preliminary.conflicts) {
+      if (tombstoned.has(conflict.commentId || '') || tombstoned.has(conflict.roundId || '')) decisions[conflict.id] = { choice: 'server' };
+    }
+    const result = mergeComplete({ base: completeData(base), local, server, ...(choices ? { choices: decisions } : {}) });
+    // Deleted records must not come back through a stale complete copy.
+    const stripDeleted = (value: any) => {
+      if (Array.isArray(value)) {
+        for (let i = value.length - 1; i >= 0; i--) if (value[i] && typeof value[i].id === 'string' && tombstoned.has(value[i].id)) value.splice(i, 1); else stripDeleted(value[i]);
+      } else if (value && typeof value === 'object') for (const key of Object.keys(value)) stripDeleted(value[key]);
+    };
+    stripDeleted(result.data.comments || []);
+    stripDeleted(result.data.deleted || []);
+    return { result, record, live, tombstoned };
+  }
+  private validateComplete(returned: PcfData) {
+    // Untrusted complete copies are validated before structural merging. No
+    // cleanupLegacyImport: deleted records and empty-round history must survive.
+    const copy = structuredClone(returned);
+    delete copy.export;
+    validateJSON(copy);
+    return copy;
+  }
+  previewComplete(p: string, d: string, returned: PcfData, requestHash: string) {
+    const { result, record, live, tombstoned } = this.completeResult(p, d, returned);
+    // Tombstoned records are not business differences; the server copy wins.
+    const conflicts = result.conflicts
+      .filter(conflict => !tombstoned.has(conflict.commentId || '') && !tombstoned.has(conflict.roundId || ''))
+      .map(conflict => ({ ...conflict, resolution: conflict.serverMissing ? null : conflict.server }));
+    const payload = { p, d, exportId: record.export_id, rev: live.rev, hash: requestHash, expires: Date.now() + 30 * 60000 };
+    const token = Buffer.from(JSON.stringify(payload)).toString('base64url');
+    return {
+      mode: 'complete', exportId: record.export_id, baseRev: record.base_rev, serverRev: live.rev, round: Number(record.round),
+      ownerTampered: false, repeated: record.status === 'imported', automatic: [], conflicts, ignored: [],
+      previewToken: token + '.' + this.mac(payload),
+    };
+  }
+  private applyComplete(p: string, d: string, body: any, returned: PcfData, requestedBy: Actor, afterApply?: () => void) {
+    const { result, record } = this.completeResult(p, d, returned, body.choices || {});
+    if (record.status === 'imported' && body.overwrite !== true) fail('This complete copy was already imported; explicitly allow another merge', 409);
+    const live = this.storage.load(p, d);
+    const data = restoreServerClocks(result.data, live.data);
+    if (data.documentId !== live.data.documentId) fail('documentId mismatch', 409);
+    const actor = { clientId: requestedBy.clientId, clientName: 'Complete copy import (' + record.export_id + ')', ip: requestedBy.ip };
+    const applied = this.storage.replace(p, d, { baseRev: live.rev, data: initData(data) }, actor);
+    if (afterApply) afterApply();
+    this.storage.db.prepare("UPDATE pcf_exports SET status='imported' WHERE export_id=? AND status!='void'").run(record.export_id);
+    // Same acknowledgement shape as ops imports so callers can use one path.
+    return { replayed: false, result: { ...applied, applied: [{ type: 'document.merge' }], conflicts: [], assigned: {} }, actor };
+  }
+  // Complete copies keep a receipt so a lost acknowledgement can be replayed.
+  // The preview token pins the server revision, so a crash after the document
+  // commit surfaces as a clear "preview again" conflict, never a second merge.
+  private applyCompleteReceipt(p: string, d: string, body: any, returned: PcfData, requestedBy: Actor, afterApply?: () => void) {
+    const batchId = uuid(body.batchId), file = path.join(this.storage.dataDir, 'pcf', p, d, 'imports', batchId + '.json');
+    const { adminPassword: _password, ...safeBody } = body;
+    const requestHash = hash({ body: safeBody, requestedBy: requestedBy.clientId });
+    if (existsSync(file)) {
+      const prepared = JSON.parse(readFileSync(file, 'utf8'));
+      if (prepared.hash !== requestHash) fail('batchId reused with a different import', 409);
+      if (prepared.result) return { replayed: true, result: prepared.result, actor: prepared.actor };
+    }
+    const preview = this.preview(p, d, body);
+    try {
+      const [value, signature] = String(body.previewToken || '').split('.'), payload = JSON.parse(Buffer.from(value, 'base64url').toString('utf8'));
+      if (!this.matches(signature, this.mac(payload)) || payload.p !== p || payload.d !== d || payload.exportId !== preview.exportId || payload.hash !== this.returnedHash(body) || payload.rev !== preview.serverRev || payload.expires <= Date.now()) fail('Preview expired or server changed; preview again', 409);
+    } catch (e: any) { if (e.status) throw e; fail('Invalid preview token', 409); }
+    if (preview.repeated && body.overwrite !== true) fail('This complete copy was already imported; explicitly allow another merge', 409);
+    const outcome = this.applyComplete(p, d, body, returned, requestedBy, afterApply);
+    atomicWrite(file, JSON.stringify({ hash: requestHash, exportId: preview.exportId, actor: outcome.actor, result: outcome.result }));
+    return outcome;
+  }
   apply(p: string, d: string, body: any, requestedBy: Actor, afterApply?: () => void) {
+    const returned = this.returned(body);
+    if (returned.export?.mode === 'complete') return this.applyCompleteReceipt(p, d, body, returned, requestedBy, afterApply);
     const batchId = uuid(body.batchId), file = path.join(this.storage.dataDir, 'pcf', p, d, 'imports', batchId + '.json');
     // Do not persist the administrative password in the intent/receipt file.
     const { adminPassword: _password, ...safeBody } = body;
@@ -199,9 +352,9 @@ export class PcfExchange {
         if (!adminPassword) fail('Owner content overrides are disabled: ADMIN_PASSWORD is not set', 403);
         if (body.adminPassword !== adminPassword) fail('Administrator password required to ignore tampered Owner content', 403);
       }
-      const choices = body.choices || {}, valid = new Set(preview.conflicts.map(x => x.id));
+      const choices = body.choices || {}, valid = new Set(preview.conflicts.map((x: any) => x.id));
       if (Object.keys(choices).some(k => !valid.has(k))) fail('Unknown conflict choice');
-      const selected = [...preview.automatic.map(item => ({ item, value: item.builder })), ...preview.conflicts.flatMap(item => {
+      const selected = [...preview.automatic.map((item: any) => ({ item, value: item.builder })), ...preview.conflicts.flatMap((item: any) => {
         const choice = choices[item.id]; if (!choice || !['builder','server','merge'].includes(choice.choice)) fail('Every conflict needs a decision');
         if (choice.choice === 'server') return [];
         return [{ item, value: choice.choice === 'merge' ? choice.value : item.builder }];
