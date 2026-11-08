@@ -5,6 +5,7 @@ import { PcfRealtime } from './pcf-realtime.ts';
 import { PcfExchange, externalData, standaloneHTML } from './pcf-exchange.ts';
 import { templateVersion, TEMPLATE_VERSION, renderTemplate } from './pcf-template.ts';
 import { updateBuilderReplyPapcStatus } from './pcf-builder-replies.ts';
+import { commentFocusHTML } from './pcf-comment-focus.ts';
 
 export class PcfApi {
   readonly realtime = new PcfRealtime();
@@ -83,7 +84,7 @@ export class PcfApi {
         const handoff = replySet && replyFile ? '<script id="pahub-builder-reply-handoff">document.addEventListener("DOMContentLoaded",async()=>{const nativeFetch=window.fetch.bind(window);window.fetch=async(...args)=>{const init=args[1]||{},response=await nativeFetch(...args);try{if(String(args[0]).includes("/imports")&&init.method==="POST"&&JSON.parse(init.body).step==="apply"&&response.ok)window.opener?.postMessage({type:"builder-reply-applied",fileId:' + scriptJSON(replyFile) + '},location.origin);}catch{}return response;};try{const input=document.getElementById("pahub-import-file");if(!input)return;const url="/api/projects/"+' + scriptJSON(encodeURIComponent(p)) + '+"/builder-replies/"+' + scriptJSON(encodeURIComponent(replySet)) + '+"/file/"+' + scriptJSON(encodeURIComponent(replyFile)) + ';const response=await nativeFetch(url,{headers:{"X-PCF-Token":window.PAHUB.credential}});if(!response.ok)throw Error("Unable to load saved Builder reply ("+response.status+")");const blob=await response.blob(),file=new File([blob],"builder-reply.html",{type:"text/html"}),transfer=new DataTransfer();transfer.items.add(file);input.files=transfer.files;input.dispatchEvent(new Event("change",{bubbles:true}));}catch(error){alert(error.message);}});</script>' : '';
         const injection = '<script id="pahub-context">window.PAHUB=' + scriptJSON({ projectId: p, drawingId: d, rev, apiBase: '/api', credential: grant, templateVersion: version, currentTemplateVersion: TEMPLATE_VERSION }) + '</script>' + note + handoff;
         if (!/<\/head\s*>/i.test(html)) fail('Template missing head', 500);
-        return new Response(html.replace(/<\/head\s*>/i, injection + '</head>'), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' } });
+        return new Response(commentFocusHTML(html.replace(/<\/head\s*>/i, injection + '</head>')), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' } });
       });
     }
     if (tail === 'session' && request.method === 'POST') {
