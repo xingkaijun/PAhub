@@ -92,3 +92,5 @@ POST /api/pcf/:projectId/exports/batch，body 为 {drawingIds,batchId}。保存�
 - 新 PATCH 图纸格式：updatedDrawings:[{id,changes:{title,...}}]；未提交的列和关联表保留。仍接受旧整行格式。服务端返回 drawings 最终值，store 按字段合并，保存期间的新修改保持待保存。
 - 编辑模式本地修改后约 3 秒防抖自动保存；分钟定时器保留作失败重试兜底。
 - 所有服务验证使用临时端口和临时数据目录；未改真实 data/、PAhub-preview、8080/8081/8082 服务或 SGP0；认证仍为默认关闭的可选开关。
+- 阶段 1 新增相关验收：drawing-state 11/11、drawing-fields 7/7、deadline 7/7、drawing-ownership-ui 5/5，合计 30/30 通过。
+- 最终仅运行一次 npm run hub:build && npm run hub:test：构建成功；126 tests，126 pass，0 fail / skipped / cancelled，测试约 66 秒。
