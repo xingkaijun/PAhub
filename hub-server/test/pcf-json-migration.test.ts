@@ -96,6 +96,18 @@ test('failed final index update rolls back installed JSON and leaves the HTML di
   } finally { f.cleanup(); }
 });
 
+test('future database version leaves interrupted migration directories and journal untouched', () => {
+  const f = fixture(); try {
+    const stageName = '.pcf-json-stage-' + randomUUID(), backupName = 'pcf-html-backup-test-' + randomUUID();
+    mkdirSync(path.join(f.dir, stageName)); writeFileSync(path.join(f.dir, stageName, 'keep.txt'), 'KEEP');
+    writeFileSync(path.join(f.dir, '.pcf-json-migration.json'), JSON.stringify({ stage: stageName, htmlBackup: backupName }));
+    const db = openDatabase(path.join(f.dir, 'papc.db')); db.sqlite.exec('PRAGMA user_version=3'); db.sqlite.close();
+    const before = tree(f.dir);
+    assert.throws(() => migratePcfJson({ dataDir: f.dir, hubStopped: true }), /newer/);
+    assert.equal(tree(f.dir), before);
+  } finally { f.cleanup(); }
+});
+
 test('interrupted directory installation rolls back to HTML before retrying conversion', () => {
   const f = fixture(); try {
     const base = path.join(f.dir, 'pcf'), backupName = 'pcf-html-backup-test-' + randomUUID(), stageName = '.pcf-json-stage-' + randomUUID();

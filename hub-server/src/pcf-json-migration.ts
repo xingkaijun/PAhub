@@ -62,6 +62,7 @@ export function migratePcfJson(options: { dataDir: string; dbPath?: string; dryR
     // Only operate on the exact private staging/backup names written by us.
     if (!/^\.pcf-json-stage-[a-f0-9-]+$/.test(intent.stage) || !/^pcf-html-backup-[\w-]+$/.test(intent.htmlBackup)) throw Error('Invalid migration recovery paths');
     let version = 0; inspectDatabase(dbPath, db => { version = Number(db.prepare('PRAGMA user_version').get()!.user_version); });
+    if (version > 2) throw Error('Database is newer than this migration tool; interrupted migration left untouched');
     const backup = path.join(dataDir, intent.htmlBackup), stage = path.join(dataDir, intent.stage);
     if (version < 2 && existsSync(backup)) {
       if (existsSync(base)) rmSync(base, { recursive: true });
