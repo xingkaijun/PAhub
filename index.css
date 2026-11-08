@@ -11,3 +11,10 @@
 .builder-replies-dialog :is(.text-slate-400, .text-slate-500) { color: var(--hub-modal-muted); }
 .builder-replies-dialog :is(.bg-slate-50, .bg-white) { background: var(--hub-modal-well); }
 .builder-replies-dialog :is(.border-slate-100, .border-slate-200) { border-color: var(--hub-modal-line); }
+
+:root { --cost-affect-bg: #ffedd5; --cost-affect-ink: #9a3412; --cost-affect-line: #fdba74; }
+:root.dark, :root[data-theme="dark"] { --cost-affect-bg: #64340f; --cost-affect-ink: #ffd5a3; --cost-affect-line: #c9792b; }
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not(.light) { --cost-affect-bg: #64340f; --cost-affect-ink: #ffd5a3; --cost-affect-line: #c9792b; }
+}
+.cost-affect-badge { background: var(--cost-affect-bg); color: var(--cost-affect-ink); border: 1px solid var(--cost-affect-line); }

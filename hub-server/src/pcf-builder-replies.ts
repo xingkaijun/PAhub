@@ -106,10 +106,12 @@ export class PcfBuilderReplies {
         const rec: any = this.storage.db.prepare('SELECT e.*,d.drawing_no,d.title,d.status AS papc_status FROM pcf_exports e JOIN drawings d ON d.project_id=e.project_id AND d.id=e.drawing_id WHERE e.project_id=? AND e.export_id=?').get(projectId, exp.exportId);
         if (!rec || rec.document_id !== exp.documentId || rec.document_id !== data.documentId) throw Error('No matching documentId/exportId in this project');
         const preview = this.exchange.preview(projectId, rec.drawing_id, { html });
+        // Summary properties come from the authoritative document, not returned Owner metadata.
+        const tags = [...new Set<string>(this.storage.load(projectId, rec.drawing_id).data.comments.flatMap((c: any) => c.tags || []))];
         const changed = [...preview.automatic, ...preview.conflicts];
         const replies = new Set(changed.map((item: any) => `${item.commentId}:${item.roundId}`)).size;
         const category = preview.repeated ? 'duplicate' : preview.conflicts.length ? 'conflict' : preview.ownerTampered && replies ? 'owner-tampered' : replies ? 'clean' : 'unchanged';
-        rows.push({ id, fileName: file.name, drawingId: rec.drawing_id, drawingNo: rec.drawing_no, title: rec.title, exportId: preview.exportId, round: roundToLetters(preview.round), newReplies: replies, automatic: preview.automatic.length, conflicts: preview.conflicts.length, papcStatus: rec.papc_status, statusNote: rec.papc_status === 'Waiting Reply' ? 'will change to Reviewing' : `status unchanged (${rec.papc_status})`, category, previewToken: preview.previewToken, ownerTampered: preview.ownerTampered, reason: '', htmlPath: path.basename(target) });
+        rows.push({ id, fileName: file.name, drawingId: rec.drawing_id, drawingNo: rec.drawing_no, title: rec.title, tags, exportId: preview.exportId, round: roundToLetters(preview.round), newReplies: replies, automatic: preview.automatic.length, conflicts: preview.conflicts.length, papcStatus: rec.papc_status, statusNote: rec.papc_status === 'Waiting Reply' ? 'will change to Reviewing' : `status unchanged (${rec.papc_status})`, category, previewToken: preview.previewToken, ownerTampered: preview.ownerTampered, reason: '', htmlPath: path.basename(target) });
       } catch (e: any) { rows.push({ id, fileName: file.name, category: 'unmatched', reason: e.message || 'Invalid PCF reply', htmlPath: path.basename(target) }); }
     }
     writeFileSync(path.join(root, 'manifest.json'), JSON.stringify({ projectId, setId, rows }, null, 2));
