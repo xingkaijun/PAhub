@@ -127,13 +127,13 @@ export class PcfBuilderReplies {
       const html = readFileSync(path.join(this.dir(projectId, setId), row.id + '.html'), 'utf8');
       try {
         await this.storage.serial(projectId, row.drawingId, () => {
-        const fresh = this.exchange.preview(projectId, row.drawingId, { html });
-        if (fresh.repeated) throw Error('duplicate');
-        if (fresh.conflicts.length) { row.category = 'conflict'; row.conflicts = fresh.conflicts.length; row.previewToken = fresh.previewToken; results.push({ id, category: 'conflict', conflicts: fresh.conflicts.length }); return; }
-        const outcome = this.exchange.apply(projectId, row.drawingId, { step: 'apply', html, previewToken: fresh.previewToken, batchId, ignoreOwner: true, adminPassword: this.adminPassword }, { clientId: 'builder-import', clientName: `Builder import (${fresh.exportId})`, ip: '127.0.0.1' });
-        const state = outcome.result.applied.length
-          ? updateBuilderReplyPapcStatus(this.storage, this.realtime, projectId, row.drawingId, fresh.exportId)
-          : `status unchanged (${row.papcStatus})`;
+          const fresh = this.exchange.preview(projectId, row.drawingId, { html });
+          if (fresh.repeated) throw Error('duplicate');
+          if (fresh.conflicts.length) { row.category = 'conflict'; row.conflicts = fresh.conflicts.length; row.previewToken = fresh.previewToken; results.push({ id, category: 'conflict', conflicts: fresh.conflicts.length }); return; }
+          let state = `status unchanged (${row.papcStatus})`;
+          const outcome = this.exchange.apply(projectId, row.drawingId, { step: 'apply', html, previewToken: fresh.previewToken, batchId, ignoreOwner: true, adminPassword: this.adminPassword }, { clientId: 'builder-import', clientName: `Builder import (${fresh.exportId})`, ip: '127.0.0.1' }, () => {
+            state = updateBuilderReplyPapcStatus(this.storage, this.realtime, projectId, row.drawingId, fresh.exportId);
+        });
         if (!outcome.replayed && outcome.result.applied.length) {
           const latest = this.storage.load(projectId, row.drawingId);
           this.realtime.changed(projectId + '/' + row.drawingId, { ...outcome.result, rev: latest.rev, data: this.storage.publicData(latest.data) }, outcome.actor);

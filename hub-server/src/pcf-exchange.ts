@@ -176,7 +176,7 @@ export class PcfExchange {
     const token = Buffer.from(JSON.stringify(payload)).toString('base64url');
     return { exportId: record.export_id, baseRev: record.base_rev, serverRev: live.rev, round, ownerTampered, repeated: record.status === 'imported', automatic, conflicts, ignored, previewToken: token + '.' + this.mac(payload) };
   }
-  apply(p: string, d: string, body: any, requestedBy: Actor) {
+  apply(p: string, d: string, body: any, requestedBy: Actor, afterApply?: () => void) {
     const batchId = uuid(body.batchId), file = path.join(this.storage.dataDir, 'pcf', p, d, 'imports', batchId + '.json');
     // Do not persist the administrative password in the intent/receipt file.
     const { adminPassword: _password, ...safeBody } = body;
@@ -235,6 +235,11 @@ export class PcfExchange {
     }
     const outcome = this.storage.opsBatch(p, d, prepared.body, prepared.actor);
     if (outcome.result.conflicts.length) fail('Server changed while recovering import; manual recovery required', 409);
+    if (outcome.result.applied.length && afterApply) {
+      afterApply();
+      const latest = this.storage.load(p, d);
+      outcome.result = { ...outcome.result, rev: latest.rev, data: this.storage.publicData(latest.data) };
+    }
     this.storage.db.prepare("UPDATE pcf_exports SET status='imported' WHERE export_id=? AND status!='void'").run(prepared.exportId);
     prepared.result = outcome.result; atomicWrite(file, JSON.stringify(prepared));
     return { ...outcome, actor: prepared.actor };

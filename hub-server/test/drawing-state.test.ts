@@ -128,10 +128,13 @@ test('scenario C: importing a Builder reply then closing a comment retains the n
     const html = replaceData(download, reply);
     f.hub.db.sqlite.prepare("UPDATE drawings SET status='Waiting Reply' WHERE id='dwg-001'").run();
     const preview = await f.request(f.base + 'imports', 'POST', { step: 'preview', html });
-    await f.request(f.base + 'imports', 'POST', { step: 'apply', html, previewToken: preview.previewToken, batchId: randomUUID() });
+    const batchId = randomUUID();
+    const imported = await f.request(f.base + 'imports', 'POST', { step: 'apply', html, previewToken: preview.previewToken, batchId });
+    assert.equal(imported.data.project.currentRound, 2);
     assert.equal((await f.project()).drawings.find((d: any) => d.id === 'dwg-001').currentRound, 'B');
     await f.ops([{ type: 'comment.status', commentId: 'comment1', baseRev: 0, value: 'closed' }]);
     assert.equal((await f.live()).data.project.currentRound, 2);
     assert.equal((await f.project()).drawings.find((d: any) => d.id === 'dwg-001').currentRound, 'B');
+    assert.deepEqual(await f.request(f.base + 'imports', 'POST', { step: 'apply', html, previewToken: preview.previewToken, batchId }), imported);
   } finally { await f.cleanup(); }
 });
