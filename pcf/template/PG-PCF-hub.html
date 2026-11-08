@@ -276,7 +276,6 @@ header.banner{display:grid;grid-template-columns:minmax(245px,auto) minmax(0,1fr
 .banner .connection-status{max-width:108px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .banner .connection-status{width:96px;min-width:0;flex:0 1 96px}
 .banner .banner-nav{width:auto;flex:1 1 380px;min-width:0}
-.banner #pahub-export,.banner #pahub-import,.banner #pahub-exchange{flex:0 0 auto;padding:7px 8px;font-size:9px;letter-spacing:.15px;white-space:nowrap}
 .banner .banner-nav{display:flex;align-items:center;justify-content:center;justify-self:center;gap:3px;width:max-content;max-width:100%;padding:4px;border:1px solid #ffffff14;border-radius:999px;background:#125f5b99;box-shadow:inset 0 1px 3px #084d4c20}
 .banner .banner-nav button,.banner #theme-btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;height:32px;min-height:32px;margin:0;padding:0 11px;border:1px solid transparent;border-radius:999px;background:transparent;color:#e0f0eb;font-family:"Segoe UI",Arial,sans-serif;font-size:10px;line-height:1;font-weight:650;letter-spacing:.8px;text-transform:uppercase;white-space:nowrap;box-shadow:none;transition:background-color .14s,color .14s,border-color .14s}
 .banner .banner-nav button::before{content:"";width:14px;height:14px;flex:0 0 14px;background:currentColor;mask:var(--banner-icon) center/contain no-repeat;-webkit-mask:var(--banner-icon) center/contain no-repeat;opacity:.9}
@@ -372,18 +371,35 @@ header.banner{padding:16px;gap:14px}
 </style>
 <style id="pahub-banner-v6">
 @media screen {
-  header.banner { min-height:79px; padding:16px 24px; gap:16px; }
+  header.banner { display:grid; grid-template-columns:minmax(245px,auto) minmax(0,1fr) minmax(max-content,auto); min-height:79px; height:79px; padding:16px 24px; gap:16px; }
   header.banner .brand { gap:16px; min-width:0; }
   header.banner .logo { width:auto; height:32px; max-width:160px; }
   header.banner .brand h1 { font:1000 18px/1.1 Aptos,"Segoe UI","Microsoft YaHei",sans-serif; margin:0; letter-spacing:-.025em; white-space:nowrap; }
   header.banner .brand p { font-size:8px; line-height:10px; margin:4px 0 0; }
-  header.banner .banner-actions { min-width:0; max-width:100%; gap:8px; flex-wrap:wrap; }
+  header.banner .pahub-hosted-actions { grid-column:2; display:flex; flex-wrap:nowrap; align-items:center; justify-content:center; justify-self:center; gap:4px; min-width:0; max-width:100%; }
+  header.banner .pahub-hosted-actions button { display:inline-flex; align-items:center; justify-content:center; gap:4px; height:32px; min-height:32px; margin:0; padding:0 7px; border:1px solid var(--line); border-radius:999px; background:var(--surface); color:var(--ink); font:650 9px/1 "Segoe UI",Arial,sans-serif; letter-spacing:.15px; white-space:nowrap; box-shadow:none; transition:background-color .14s,color .14s,border-color .14s; }
+  header.banner .pahub-hosted-actions button:hover { background:var(--accent-soft); border-color:var(--accent); color:var(--ink); }
+  header.banner .pahub-hosted-actions button:disabled { opacity:.5; cursor:default; }
+  header.banner .pahub-hosted-actions button:focus-visible { outline:2px solid var(--accent); outline-offset:2px; }
+  header.banner .pahub-hosted-actions svg { display:block; width:12px; height:12px; flex:0 0 12px; }
+  header.banner .banner-actions { grid-column:3; justify-self:end; min-width:0; max-width:100%; gap:8px; flex-wrap:nowrap; }
+  header.banner .banner-nav button { gap:4px; padding-right:7px; padding-left:7px; font-size:9px; letter-spacing:.25px; }
+  header.banner #theme-btn { min-width:72px; padding-right:8px; padding-left:8px; font-size:9px; letter-spacing:.4px; }
+  :root[data-theme="dark"] header.banner .pahub-hosted-actions button { background:var(--surface); color:var(--ink); border-color:var(--line); }
+  :root[data-theme="dark"] header.banner .pahub-hosted-actions button:hover { background:var(--accent-soft); border-color:var(--accent); color:var(--ink); }
+  @media(max-width:1300px) {
+    header.banner { grid-template-columns:minmax(0,1fr); height:auto; min-height:79px; }
+    header.banner .brand, header.banner .pahub-hosted-actions, header.banner .banner-actions { grid-column:1; justify-self:stretch; }
+    header.banner .pahub-hosted-actions { justify-content:center; }
+    header.banner .banner-actions { justify-content:flex-start; flex-wrap:wrap; }
+  }
   @media(max-width:760px) {
-    header.banner { min-height:79px; padding:16px 20px; flex-direction:column; align-items:flex-start; gap:12px; }
+    header.banner { grid-template-columns:minmax(0,1fr); height:auto; min-height:79px; padding:16px 20px; align-items:start; gap:12px; }
     header.banner .brand h1 { white-space:normal; font-size:18px; }
-    header.banner .banner-actions { justify-content:flex-start; }
+    header.banner .pahub-hosted-actions, header.banner .banner-actions { grid-column:1; justify-self:stretch; justify-content:flex-start; flex-wrap:wrap; }
   }
 }
+@media print { header.banner .pahub-hosted-actions { display:none!important; } }
 </style>
 </head>
 <body>
@@ -1148,7 +1164,10 @@ async function hubImportApply(){
   }catch(e){toast(e.message);}finally{button.disabled=false;}
 }
 function hubExchangeInit(){
-  const actions=$('.banner-actions');for(const [id,label,action]of [['pahub-export','Export to Builder',hubExport],['pahub-import','Import Builder Reply',()=>$('#pahub-import-file').click()],['pahub-exchange','Shipyard correspondence',hubExchangePanel]]){const b=document.createElement('button');b.id=id;b.textContent=label;b.onclick=action;actions.append(b);}
+  const actions=$('.banner-actions'),hosted=document.createElement('div');hosted.id='pahub-hosted-actions';hosted.className='pahub-hosted-actions';hosted.setAttribute('aria-label','Hosted PCF actions');
+  const icons={export:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3m-4 4 4-4 4 4"/><path d="M5 12v8h14v-8"/></svg>',import:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4"/><path d="M5 15v5h14v-5"/></svg>',exchange:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h15l-3-3m4 13H5l3 3"/></svg>'};
+  for(const [id,label,action,icon]of [['pahub-export','Export to Builder',hubExport,icons.export],['pahub-import','Import Builder Reply',()=>$('#pahub-import-file').click(),icons.import],['pahub-exchange','Shipyard correspondence',hubExchangePanel,icons.exchange]]){const b=document.createElement('button');b.id=id;b.className='hosted-action';b.type='button';b.innerHTML=icon+'<span>'+label+'</span>';b.onclick=action;hosted.append(b);}
+  actions.before(hosted);
   const input=document.createElement('input');input.id='pahub-import-file';input.type='file';input.accept='.html,.htm,text/html';input.hidden=true;input.onchange=async()=>{const file=input.files[0];input.value='';if(!file)return;try{await hubImportPreview(await file.text());}catch(e){toast(e.message);}};document.body.append(input);
   if((window.PAHUB.templateVersion||0)<window.PAHUB.currentTemplateVersion){const note=document.createElement('small');note.id='pahub-template-note';note.textContent='Template upgrade available';$('#save-state').after(note);}
 }

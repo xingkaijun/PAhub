@@ -45,7 +45,7 @@ try {
   await b.goto(base + '/pcf/proj-test-001/dwg-005');
   await b.locator('#pahub-export').waitFor({ state: 'attached' });
   assert.equal(await b.locator('#pahub-import').innerText(), 'Import Builder Reply');
-  assert.equal((await b.locator('.banner-actions').innerText()).includes('Export to Builder'), true);
+  assert.equal((await b.locator('.pahub-hosted-actions').innerText()).includes('Export to Builder'), true);
 
   // An unsaved edit must be saved before the export baseline is created.
   await b.locator('#add-btn').click();
@@ -73,15 +73,44 @@ try {
     await a.setViewportSize(viewport); await b.setViewportSize(viewport);
     const papcHeader = a.locator('header').first(), pcfHeader = b.locator('header.banner');
     const papcHeight = await papcHeader.evaluate(el => el.getBoundingClientRect().height);
-    const pcfHeight = await pcfHeader.evaluate(el => el.getBoundingClientRect().height);
     const papcStyle = await papcHeader.evaluate(el => ({ paddingTop: getComputedStyle(el).paddingTop, paddingBottom: getComputedStyle(el).paddingBottom, titleSize: getComputedStyle(el.querySelector('h1')).fontSize, logoHeight: getComputedStyle(el.querySelector('img')).height }));
-    const pcfStyle = await pcfHeader.evaluate(el => ({ paddingTop: getComputedStyle(el).paddingTop, paddingBottom: getComputedStyle(el).paddingBottom, titleSize: getComputedStyle(el.querySelector('.brand h1')).fontSize, logoHeight: getComputedStyle(el.querySelector('.logo')).height }));
-    bannerMeasurements.push({ viewport: viewport.width + 'x' + viewport.height, papcHeight, pcfHeight, difference: Math.abs(papcHeight - pcfHeight), papcStyle, pcfStyle });
     await papcHeader.screenshot({ path: path.join(artifacts, `banner-papc-${viewport.width}.png`) });
-    await pcfHeader.screenshot({ path: path.join(artifacts, `banner-pcf-${viewport.width}.png`) });
+    for (const theme of ['light', 'dark']) {
+      if (await b.locator('html').getAttribute('data-theme') !== theme) await b.locator('#theme-btn').click();
+      await b.waitForFunction(value => document.documentElement.dataset.theme === value, theme);
+      await b.mouse.move(0, 0);
+      await pcfHeader.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      const metrics = await pcfHeader.evaluate(el => {
+        const box = node => node.getBoundingClientRect(), brand = box(el.querySelector('.brand')),
+          hosted = box(el.querySelector('.pahub-hosted-actions')), tools = box(el.querySelector('.banner-actions')),
+          actionBoxes = [...el.querySelectorAll('.pahub-hosted-actions button')].map(box),
+          actionButton = el.querySelector('.pahub-hosted-actions button:nth-child(2)'), style = getComputedStyle(actionButton);
+        return { theme: document.documentElement.dataset.theme, height: box(el).height, paddingTop: getComputedStyle(el).paddingTop, paddingBottom: getComputedStyle(el).paddingBottom,
+          titleSize: getComputedStyle(el.querySelector('.brand h1')).fontSize, logoHeight: getComputedStyle(el.querySelector('.logo')).height,
+          hostedCenter: (hosted.left + hosted.right) / 2, availableCenter: (brand.right + tools.left) / 2,
+          singleLine: actionBoxes.every(item => Math.abs(item.top - actionBoxes[0].top) <= 1),
+          hostedButton: { color: style.color, background: style.backgroundColor, borderRadius: style.borderRadius, height: style.height, disabled: actionButton.disabled },
+          overflow: el.scrollWidth > el.clientWidth };
+      });
+      assert.ok(Math.abs(metrics.hostedCenter - metrics.availableCenter) <= 2, 'hosted actions must be centered between title and tools');
+      assert.equal(metrics.overflow, false, 'banner must not overflow horizontally at desktop viewport');
+      assert.equal(metrics.singleLine, true, 'desktop hosted actions must remain on one line');
+      assert.equal(metrics.logoHeight, '32px');
+      assert.equal(metrics.hostedButton.disabled, false);
+      bannerMeasurements.push({ viewport: viewport.width + 'x' + viewport.height, theme, papcHeight, pcfHeight: metrics.height,
+        difference: Math.abs(papcHeight - metrics.height), papcStyle, pcfStyle: metrics });
+      await pcfHeader.screenshot({ path: path.join(artifacts, `phase8-banner-${theme}-${viewport.width}.png`) });
+    }
   }
   console.log('banner measurements:', JSON.stringify(bannerMeasurements));
-  assert.ok(bannerMeasurements.every(x => x.difference <= 2), 'PAPC/PCF banner height difference must be <= 2 px at both viewports');
+  assert.ok(bannerMeasurements.every(x => x.difference <= 2), 'PAPC/PCF banner height difference must be <= 2 px at both viewports and themes');
+  await b.setViewportSize({ width: 900, height: 900 });
+  const narrowBanner = await b.locator('header.banner').evaluate(el => ({ overflow: el.scrollWidth > el.clientWidth, height: el.getBoundingClientRect().height, actionCount: el.querySelectorAll('.pahub-hosted-actions button').length }));
+  assert.equal(narrowBanner.overflow, false, 'narrow banner must wrap without horizontal overflow');
+  assert.equal(narrowBanner.actionCount, 3);
+  await b.emulateMedia({ media: 'print' });
+  assert.equal(await b.locator('#pahub-hosted-actions').evaluate(el => getComputedStyle(el).display), 'none', 'hosted actions must not print');
+  await b.emulateMedia({ media: 'screen' });
 
   // The main list entry uses the same dialog. Only ZIP / HTML drops may open it.
   await a.getByRole('button', { name: 'Import Builder Replies' }).click();
