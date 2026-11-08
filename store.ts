@@ -1,8 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
 import { AppData, Project, Drawing, DrawingStatus, Remark, AppSettings, ProjectConfig, ReviewTrackerData, ReviewTrackerEntry, DeltaPayload, AuditEntry, SaveResult, WriteVerification } from './types';
-// Fix: Removed missing isWeekend from date-fns imports
-import { addDays, format, isSameDay } from 'date-fns';
 import { appRepository } from './services/data/AppRepository';
 import { mergeProjectPreservingDirty } from './services/data/mergeProject';
 import { calculateDeadline, projectDateKey, reviewCycleDays } from './lib/deadline';
@@ -634,7 +632,6 @@ export const useStore = create<AppState>()(
         const dirtyConfSnapshot = _dirtyConf;
         const dirtyTrackerSnapshotFlag = _dirtyTracker;
         const dirtyCount = dirtyDrawingSnapshot.size + deletedDrawingSnapshot.size;
-        const totalDrawings = project.drawings.length;
         const hasDirty = dirtyCount > 0 || dirtyConfSnapshot || dirtyTrackerSnapshotFlag;
 
         // 无任何变更时跳过

@@ -346,6 +346,12 @@ class StatementGroups {
     this.mark();
     return this.groups;
   }
+
+  drain() {
+    const groups = this.all();
+    this.groups = [];
+    return groups;
+  }
 }
 
 // 按组打包执行，单批上限 chunkSize；单组超过上限时独立成批，保证组内原子性
@@ -758,7 +764,7 @@ const saveProjectData = async (
   ).bind(projectId, projectName, storagePath));
   stmts.mark();
 
-  if (drawingWrite) await runStatementGroups(db, stmts.all());
+  if (drawingWrite) await runStatementGroups(db, stmts.drain());
 
   // Extract valid drawing IDs to delete removed ones
   // 这次读取同时兼作写入日志的 baseline —— 全量路径因此没有额外查询
@@ -779,7 +785,7 @@ const saveProjectData = async (
   const writtenDrawings: any[] = [];
   // Upsert drawings and their relations
   for (const drawing of project.drawings) {
-    if (drawingWrite) { writtenDrawings.push(await drawingWrite(projectId, drawing)); continue; }
+    if (drawingWrite) continue;
     const id = toStringValue(drawing.id) || crypto.randomUUID();
     stmts.push(db.prepare(DRAWING_UPSERT_SQL).bind(...drawingBindValues(id, projectId, normalizeDrawingRow(drawing))));
 
@@ -894,6 +900,11 @@ const saveProjectData = async (
       }
       stmts.mark();
     }
+  }
+
+  if (drawingWrite) {
+    await runStatementGroups(db, stmts.drain());
+    for (const drawing of project.drawings) writtenDrawings.push(await drawingWrite(projectId, drawing));
   }
 
   // Full save owns the entire tracker state for this project：按图纸逐张重建，
@@ -1362,7 +1373,7 @@ export default {
           // 1. Upsert only the changed drawings
           if (Array.isArray(body.updatedDrawings)) {
             for (const drawing of body.updatedDrawings) {
-              if (env.DRAWING_WRITE) { writtenDrawings.push(await env.DRAWING_WRITE(projectId, drawing)); continue; }
+              if (env.DRAWING_WRITE) continue;
               const id = toStringValue(drawing.id) || crypto.randomUUID();
               stmts.push(db.prepare(DRAWING_UPSERT_SQL).bind(...drawingBindValues(id, projectId, normalizeDrawingRow(drawing))));
 
@@ -1475,6 +1486,11 @@ export default {
               }
               stmts.mark();
             }
+          }
+
+          if (env.DRAWING_WRITE) {
+            await runStatementGroups(db, stmts.drain());
+            for (const drawing of body.updatedDrawings || []) writtenDrawings.push(await env.DRAWING_WRITE(projectId, drawing));
           }
 
           // 4. Incremental review tracker update (merge, not full replace)

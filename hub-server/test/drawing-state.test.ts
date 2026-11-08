@@ -95,6 +95,29 @@ test('native status endpoint owns AA -> AB and repeated status requests do not a
   } finally { await f.cleanup(); }
 });
 
+test('native Reviewing transition and a simultaneous PCF edit share the same queue', async () => {
+  const f = await fixture(); try {
+    await f.create(); f.hub.db.sqlite.prepare("UPDATE drawings SET status='Waiting Reply' WHERE id='dwg-001'").run();
+    await Promise.all([
+      f.request('/api/projects/proj-test-001/drawings/dwg-001/status', 'POST', { status: 'Reviewing' }),
+      f.ops([{ type: 'comment.add', id: 'concurrent-comment', roundIdNew: 'concurrent-reply' }]),
+    ]);
+    const live = await f.live();
+    const d = (await f.project()).drawings.find((d: any) => d.id === 'dwg-001');
+    assert.equal(live.data.project.currentRound, 2); assert.equal(d.currentRound, 'B'); assert.equal(d.manualCommentsCount, 2);
+    const result = await f.request('/api/projects/proj-test-001', 'PATCH', { updatedDrawings: [{ id: d.id, changes: { version: 'override', manualCommentsCount: 999, currentRound: 'ZZ' } }] });
+    assert.equal(result.verification.ok, true); assert.equal(result.drawings[0].manualCommentsCount, 2); assert.equal(result.drawings[0].currentRound, 'B');
+  } finally { await f.cleanup(); }
+});
+
+test('field PATCH can create a project and drawing without falling back to a whole-project PUT', async () => {
+  const f = await fixture(); try {
+    await f.request('/api/projects/new-project', 'PATCH', { projectName: 'New project', updatedDrawings: [{ id: 'new-drawing', changes: { title: 'New drawing', manualCommentsCount: 3, version: '0', status: 'Reviewing' } }], conf: { roundACycle: 1 } });
+    const project = await f.request('/api/projects/new-project', 'POST', {});
+    assert.equal(project.name, 'New project'); assert.equal(project.drawings[0].status, 'Reviewing'); assert.equal(project.drawings[0].manualCommentsCount, 3);
+  } finally { await f.cleanup(); }
+});
+
 test('failed PCF round write rolls back status, summary, metadata and document', async () => {
   const f = await fixture(); try {
     await f.create(); f.hub.db.sqlite.prepare("UPDATE drawings SET status='Waiting Reply' WHERE id='dwg-001'").run();
