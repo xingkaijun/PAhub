@@ -1,7 +1,8 @@
 import { existsSync, readFileSync, readdirSync, unlinkSync } from 'node:fs';
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { PCF_HISTORY_COALESCE_MS, PCF_HISTORY_RECENT_LIMIT, PCF_HISTORY_TIME_ZONE } from './config.ts';
+import { PCF_HISTORY_COALESCE_MS, PCF_HISTORY_RECENT_LIMIT } from './config.ts';
+import { projectDateKey } from '../../lib/deadline.ts';
 
 export function historyEntries(directory: string) {
   if (!existsSync(directory)) return [];
@@ -11,8 +12,7 @@ export function historyEntries(directory: string) {
   }).sort((a, b) => b.rev - a.rev);
 }
 
-const calendar = new Intl.DateTimeFormat('en-CA', { timeZone: PCF_HISTORY_TIME_ZONE, year: 'numeric', month: '2-digit', day: '2-digit' });
-export function historyDay(savedAt: string) { return calendar.format(new Date(savedAt)); }
+export function historyDay(savedAt: string) { return projectDateKey(savedAt); }
 export function pruneHistory(directory: string) {
   const entries = historyEntries(directory).sort((a, b) => Date.parse(b.savedAt) - Date.parse(a.savedAt) || b.rev - a.rev);
   const keep = new Set(entries.slice(0, PCF_HISTORY_RECENT_LIMIT).map(entry => entry.filename));

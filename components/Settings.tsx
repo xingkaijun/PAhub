@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { format } from 'date-fns';
 import { downloadProjectBackup, parseProjectBackup } from '../services/data/localProjectFile';
+import { calculateDeadline, reviewCycleDays } from '../lib/deadline';
 
 export const Settings: React.FC = () => {
   const { data, updateSettings, updateProjectConfig, saveActiveProject, loadProject, fetchProjectList, isLoading, activeProjectId, error, clearError, restoreProject, reviewTracker } = useStore();
@@ -270,30 +271,7 @@ export const Settings: React.FC = () => {
                         
                         if (latestReviewingLog) {
                           const startDate = new Date(latestReviewingLog.createdAt);
-                          const round = drawing.currentRound || 'A';
-                          const cycleDays = round.toUpperCase() === 'A'
-                            ? (conf.roundACycle || 14)
-                            : (conf.otherRoundsCycle || 7);
-
-                          // 计算工作日（排除周末和节假日）
-                          const calculateDeadline = (start: Date, workingDays: number, holidays: string[] = []) => {
-                            let count = 0;
-                            let currentDate = start;
-                            const holidaySet = new Set(holidays);
-
-                            while (count < workingDays) {
-                              currentDate = new Date(currentDate.getTime() + 24 * 60 * 60 * 1000);
-                              const dayOfWeek = currentDate.getDay();
-                              const dateStr = currentDate.toISOString().split('T')[0];
-                              
-                              // 跳过周末和节假日
-                              if (dayOfWeek !== 0 && dayOfWeek !== 6 && !holidaySet.has(dateStr)) {
-                                count++;
-                              }
-                            }
-                            return currentDate;
-                          };
-
+                          const cycleDays = reviewCycleDays(drawing.currentRound || 'A', conf);
                           const newDeadline = calculateDeadline(startDate, cycleDays, conf.holidays || []);
                           
                           // 更新 drawing

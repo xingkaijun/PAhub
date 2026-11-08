@@ -5,6 +5,8 @@ import { AppData, Project, Drawing, DrawingStatus, Remark, AppSettings, ProjectC
 import { addDays, format, isSameDay } from 'date-fns';
 import { appRepository } from './services/data/AppRepository';
 import { mergeProjectPreservingDirty } from './services/data/mergeProject';
+import { calculateDeadline, projectDateKey, reviewCycleDays } from './lib/deadline';
+import { transitionReviewState } from './lib/drawing-status';
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
 const ensureDrawingHasId = (drawing: Drawing): Drawing => {
@@ -33,12 +35,6 @@ const stripProjectPayload = (project: Project, keepPayload: boolean): Project =>
     drawings: [],
 
   };
-};
-
-// Fix: Local implementation of isWeekend to resolve missing export error from date-fns
-const isWeekend = (date: Date) => {
-  const day = date.getDay();
-  return day === 0 || day === 6;
 };
 
 // Send All 回读校验：发送前记录期望结果，保存后与服务器实际数据比对
@@ -141,38 +137,6 @@ interface AppState {
   _heartbeatTimer: ReturnType<typeof setInterval> | null;
 }
 
-const normalizeHolidaySet = (holidays: string[] = []) => new Set(
-  holidays
-    .filter(Boolean)
-    .map(h => {
-      // input[type=date] stores YYYY-MM-DD; persisted/imported data may contain ISO strings.
-      if (/^\d{4}-\d{2}-\d{2}$/.test(h)) return h;
-      const parsed = new Date(h);
-      return isNaN(parsed.getTime()) ? h : format(parsed, 'yyyy-MM-dd');
-    })
-);
-
-const calculateDeadline = (startDate: Date, workingDays: number, holidays: string[] = []) => {
-  let count = 0;
-  let currentDate = startDate;
-  const holidaySet = normalizeHolidaySet(holidays);
-
-  // Safety break
-  let loops = 0;
-  while (count < workingDays && loops < 365) {
-    loops++;
-    currentDate = addDays(currentDate, 1);
-    if (!isWeekend(currentDate)) {
-      // Check holiday string match (simplified YYYY-MM-DD)
-      const dateStr = format(currentDate, 'yyyy-MM-dd');
-      if (!holidaySet.has(dateStr)) {
-        count++;
-      }
-    }
-  }
-  return currentDate;
-};
-
 const getReviewStartDate = (drawing: Drawing) => {
   const statusHistory = drawing.statusHistory || [];
   const latestReviewingLog = [...statusHistory]
@@ -185,9 +149,7 @@ const getReviewStartDate = (drawing: Drawing) => {
 const recalculateReviewDeadline = (drawing: Drawing, conf: ProjectConfig, startDate?: Date): Drawing => {
   if (drawing.status !== 'Reviewing') return drawing;
   const round = drawing.currentRound || 'A';
-  const cycleDays = round.toUpperCase() === 'A'
-    ? (conf.roundACycle || 14)
-    : (conf.otherRoundsCycle || 7);
+  const cycleDays = reviewCycleDays(round, conf);
   
   // 如果提供了明确的起始日期，使用它；否则从 statusHistory 中查找
   const effectiveStartDate = startDate || getReviewStartDate(drawing);
@@ -392,7 +354,7 @@ export const useStore = create<AppState>()(
                   const startDate = new Date(drawingWithId.receivedDate);
                   const days = drawingWithId.category === 'A' ? p.conf.roundACycle : p.conf.otherRoundsCycle;
                   const deadline = calculateDeadline(startDate, days, p.conf.holidays);
-                  drawingWithId.deadline = format(deadline, 'yyyy-MM-dd');
+                  drawingWithId.deadline = projectDateKey(deadline);
                 }
               }
 
@@ -438,38 +400,11 @@ export const useStore = create<AppState>()(
                   if (updates.status && d.status !== updates.status) {
                     changeLogs.push(`Status: ${d.status} -> ${updates.status}`);
 
-                    // 从 Waiting Reply 再次进入 Reviewing 时：先递增轮次，再计算新轮次的 Deadline
-                    if (updates.status === 'Reviewing' && d.status === 'Waiting Reply') {
-                      // 轮次自动递增: A -> B -> C -> ... -> Z -> AA -> AB -> ...
-                      const currentRound = changedDrawing.currentRound || 'A';
-                      const nextRound = currentRound.length === 1 && currentRound < 'Z'
-                        ? String.fromCharCode(currentRound.charCodeAt(0) + 1)
-                        : currentRound === 'Z' ? 'AA' : currentRound + 'A';
-                      changedDrawing.currentRound = nextRound;
-                      changeLogs.push(`Round: ${currentRound} -> ${nextRound}`);
+                    const predicted = transitionReviewState(d, updates.status, p.conf || state.data.settings);
+                    changedDrawing.currentRound = predicted.currentRound;
+                    changedDrawing.reviewDeadline = predicted.reviewDeadline || undefined;
+                    if (predicted.currentRound !== d.currentRound) changeLogs.push(`Round: ${d.currentRound} -> ${predicted.currentRound}`);
 
-                      // 用递增后的轮次计算 Deadline，使用当前时间作为起始日期
-                      const now = new Date();
-                      changedDrawing.reviewDeadline = recalculateReviewDeadline(changedDrawing, p.conf || state.data.settings, now).reviewDeadline;
-                    }
-                    // 从 Pending 首次进入 Reviewing 时：仅计算 Deadline，不递增轮次
-                    else if (updates.status === 'Reviewing' && d.status !== 'Reviewing') {
-                      // 确保 currentRound 有初始值
-                      if (!changedDrawing.currentRound) {
-                        changedDrawing.currentRound = 'A';
-                      }
-                      // 使用当前时间作为起始日期
-                      const now = new Date();
-                      changedDrawing.reviewDeadline = recalculateReviewDeadline(changedDrawing, p.conf || state.data.settings, now).reviewDeadline;
-                    }
-                    // 从 Reviewing 变为 Waiting Reply 或 Approved 时：仅清除 Deadline，不递增轮次
-                    else if (d.status === 'Reviewing' && (updates.status === 'Waiting Reply' || updates.status === 'Approved')) {
-                      changedDrawing.reviewDeadline = undefined;
-                    }
-                    // 从 Reviewing 变为 Pending 时：仅清除 Deadline
-                    else if (d.status === 'Reviewing' && updates.status === 'Pending') {
-                      changedDrawing.reviewDeadline = undefined;
-                    }
                   }
 
                   // Detect Version Change
