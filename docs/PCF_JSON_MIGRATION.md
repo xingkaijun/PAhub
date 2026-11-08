@@ -79,3 +79,10 @@ npm run hub:export-pcf -- --project <项目ID> --data-dir <数据目录> --outpu
 - 实跑后原 `data/` 29 文件 SHA-256 全部不变。
 
 **未满足的现场验收**：394/220 数据集不在本工作区，需要操作者提供其完整副本后，按相同步骤补验。不能以当前 6/8 结果冒充 394/220 验收。
+
+## 2026-11-08 阶段2最终验证
+
+- 相关测试（pcf-complete-ui/pcf/v26/pcf-complete-copy/api/receipt/exchange/phase8）：32/32 通过；新增 pcf-complete-ui.test.ts 单独 2/2。
+- tsc --noEmit：7 个错误全部预存在于 HEAD（未修改文件），与本次改动无关。
+- 提交 e1571cc（完整副本 UI 收尾）后全量：npm run hub:build 成功（8.05s）；npm run hub:test **153/153 通过，0 失败**。
+- 394/220 数据集仍未提供，副本预演记录见上文。
