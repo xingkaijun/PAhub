@@ -143,10 +143,13 @@ export class PcfBuilderReplies {
         if (fresh.repeated) throw Error('duplicate');
         if (fresh.conflicts.length) { row.category = 'conflict'; row.conflicts = fresh.conflicts.length; row.previewToken = fresh.previewToken; results.push({ id, category: 'conflict', conflicts: fresh.conflicts.length }); continue; }
         const outcome = this.exchange.apply(projectId, row.drawingId, { step: 'apply', html, previewToken: fresh.previewToken, batchId, ignoreOwner: true, adminPassword: this.adminPassword || 'papc-admin-2026' }, { clientId: 'builder-import', clientName: `Builder import (${fresh.exportId})`, ip: '127.0.0.1' });
-        if (!outcome.replayed && outcome.result.applied.length) this.realtime.changed(projectId + '/' + row.drawingId, outcome.result, outcome.actor);
         const state = outcome.result.applied.length
           ? updateBuilderReplyPapcStatus(this.storage.db, projectId, row.drawingId, fresh.exportId)
           : `status unchanged (${row.papcStatus})`;
+        if (!outcome.replayed && outcome.result.applied.length) {
+          this.realtime.changed(projectId + '/' + row.drawingId, outcome.result, outcome.actor);
+          this.realtime.projectChanged(projectId, row.drawingId, ['builder-reply', 'status']);
+        }
         row.category = 'applied'; row.result = state; results.push({ id, category: 'applied', applied: outcome.result.applied.length, status: state });
       } catch (e: any) { results.push({ id, category: e.message === 'duplicate' ? 'duplicate' : 'failed', reason: e.message || 'Apply failed' }); }
     }

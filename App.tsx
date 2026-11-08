@@ -98,6 +98,7 @@ const App: React.FC = () => {
   );
 
   const [showProjectSelector, setShowProjectSelector] = useState(true);
+  const [remoteUpdateCount, setRemoteUpdateCount] = useState(0);
 
   // 1. Startup Logic: Server First - FETCH LIST ONLY
   useEffect(() => {
@@ -235,6 +236,88 @@ const App: React.FC = () => {
 
     return () => clearInterval(interval);
   }, [activeProjectId, showProjectSelector, data.settings.autoSyncInterval, currentProject?.conf?.autoSyncInterval, currentProject?.conf?.password, isEditMode, loadProject, saveProject]);
+
+  useEffect(() => {
+    if (import.meta.env.MODE !== 'hub' || !activeProjectId || showProjectSelector || !['drawings', 'tracker'].includes(activeTab)) return;
+    const projectId = activeProjectId;
+    const token = import.meta.env.VITE_DATA_API_TOKEN?.trim();
+    const url = '/api/projects/' + encodeURIComponent(projectId) + '/events';
+    let closed = false, retryDelay = 1000, retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let pollTimer: ReturnType<typeof setInterval> | undefined, mergeTimer: ReturnType<typeof setTimeout> | undefined;
+    let controller: AbortController | undefined, source: EventSource | undefined;
+    const changedIds = new Set<string>();
+    const refreshPresence = () => { if (!document.hidden) void useStore.getState().refreshPcfPresence(projectId); };
+    const enablePoll = () => {
+      if (pollTimer || closed) return;
+      pollTimer = setInterval(refreshPresence, document.hidden ? 60000 : 15000);
+    };
+    const stopPoll = () => { if (pollTimer) clearInterval(pollTimer); pollTimer = undefined; };
+    const fullRefresh = () => {
+      void useStore.getState().refreshProjectPreservingDirty(projectId).catch(() => {});
+      refreshPresence();
+    };
+    const event = (name: string, data: any) => {
+      if (closed) return;
+      if (name === 'presence' && data?.drawings) {
+        if (useStore.getState().activeProjectId === projectId) useStore.setState({ pcfPresence: data.drawings });
+      } else if (name === 'drawing-changed' && typeof data?.drawingId === 'string') {
+        changedIds.add(data.drawingId);
+        if (!mergeTimer) mergeTimer = setTimeout(async () => {
+          mergeTimer = undefined;
+          const count = changedIds.size; changedIds.clear();
+          const merged = await useStore.getState().refreshProjectPreservingDirty(projectId).catch(() => 0);
+          if (!closed && count > 0 && merged >= 0) setRemoteUpdateCount(count);
+        }, 100);
+      }
+    };
+    const reconnect = () => {
+      if (closed || retryTimer) return;
+      enablePoll();
+      retryTimer = setTimeout(() => { retryTimer = undefined; connect(); }, retryDelay);
+      retryDelay = Math.min(30000, retryDelay * 2);
+    };
+    const connectFetch = async () => {
+      controller = new AbortController();
+      try {
+        const response = await fetch(url, { headers: { Authorization: 'Bearer ' + token }, signal: controller.signal });
+        if (!response.ok || !response.body) throw Error('Project event stream unavailable');
+        retryDelay = 1000; stopPoll(); fullRefresh();
+        const reader = response.body.getReader(), decoder = new TextDecoder(); let buffer = '';
+        while (!closed) {
+          const part = await reader.read(); if (part.done) break;
+          buffer += decoder.decode(part.value, { stream: true });
+          let boundary;
+          while ((boundary = buffer.indexOf('\n\n')) >= 0) {
+            const frame = buffer.slice(0, boundary); buffer = buffer.slice(boundary + 2);
+            const type = frame.match(/^event: (.+)$/m)?.[1]; const payload = frame.match(/^data: (.+)$/m)?.[1];
+            if (type && payload) { try { event(type, JSON.parse(payload)); } catch {} }
+          }
+        }
+        if (!closed) throw Error('Project event stream ended');
+      } catch { if (!closed) reconnect(); }
+    };
+    function connect() {
+      if (closed) return;
+      if (token) { void connectFetch(); return; }
+      source = new EventSource(url);
+      source.addEventListener('presence', e => { try { event('presence', JSON.parse((e as MessageEvent).data)); } catch {} });
+      source.addEventListener('drawing-changed', e => { try { event('drawing-changed', JSON.parse((e as MessageEvent).data)); } catch {} });
+      source.onopen = () => { retryDelay = 1000; stopPoll(); fullRefresh(); };
+      source.onerror = () => { source?.close(); source = undefined; reconnect(); };
+    }
+    const onVisibility = () => {
+      if (document.hidden) {
+        if (pollTimer) { clearInterval(pollTimer); pollTimer = setInterval(refreshPresence, 60000); }
+      } else { fullRefresh(); if (pollTimer) { clearInterval(pollTimer); pollTimer = setInterval(refreshPresence, 15000); } }
+    };
+    document.addEventListener('visibilitychange', onVisibility);
+    fullRefresh(); connect();
+    return () => {
+      closed = true; source?.close(); controller?.abort(); stopPoll();
+      if (retryTimer) clearTimeout(retryTimer); if (mergeTimer) clearTimeout(mergeTimer);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [activeProjectId, activeTab, showProjectSelector]);
 
 
   const handleGlobalRefresh = async () => {
@@ -573,6 +656,12 @@ const App: React.FC = () => {
       {/* Main Container */}
       <main className="flex-1 flex flex-col overflow-auto px-6 py-4">
         <div className="max-w-[1800px] mx-auto w-full flex-1 flex flex-col gap-4">
+          {remoteUpdateCount > 0 && ['drawings', 'tracker'].includes(activeTab) && (
+            <div className="flex items-center justify-between rounded-xl border border-teal-100 bg-teal-50/80 px-4 py-2 text-xs font-semibold text-teal-800">
+              <span>Updated by others · {remoteUpdateCount} drawings</span>
+              <button className="rounded px-2 py-1 text-teal-700 hover:bg-white/70" onClick={() => setRemoteUpdateCount(0)} aria-label="Dismiss update notice">×</button>
+            </div>
+          )}
           {activeTab === 'drawings' && <CommandBar />}
 
           <div className="flex-1 bg-white/92 backdrop-blur-xl rounded-[2rem] border border-white/70 shadow-[0_24px_80px_-28px_rgba(15,118,110,0.28)] overflow-hidden flex flex-col">

@@ -4,6 +4,7 @@ import { AppData, Project, Drawing, DrawingStatus, Remark, AppSettings, ProjectS
 // Fix: Removed missing isWeekend from date-fns imports
 import { addDays, format, isSameDay } from 'date-fns';
 import { appRepository } from './services/data/AppRepository';
+import { mergeProjectPreservingDirty } from './services/data/mergeProject';
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
 const ensureDrawingHasId = (drawing: Drawing): Drawing => {
@@ -101,6 +102,7 @@ interface AppState {
   fetchGlobalSettings: () => Promise<void>;
   fetchProjectList: () => Promise<void>;
   loadProject: (projectId: string, passwordInput?: string) => Promise<void>;
+  refreshProjectPreservingDirty: (projectId: string) => Promise<number>;
   refreshSnapshots: (projectId: string) => Promise<void>;
   refreshAllSnapshots: (projectId: string) => Promise<void>;
   testConnection: (url: string, user: string, pass: string, proxyUrl?: string) => Promise<{ success: boolean; message: string }>;
@@ -245,6 +247,30 @@ export const useStore = create<AppState>()(
             pcfPresence: Object.fromEntries(Object.entries(result.drawings).map(([id, people]) => [id, (people as unknown[]).length])),
           });
         } catch { if (get().activeProjectId === projectId) set({ pcfPresence: {} }); }
+      },
+      refreshProjectPreservingDirty: async (projectId: string) => {
+        const initial = get();
+        const stub = initial.data.projects.find(p => p.id === projectId);
+        if (!stub) return 0;
+        const [rawProject, remoteTracker] = await Promise.all([
+          appRepository.loadProject(initial.data.settings, stub, stub.conf?.password),
+          appRepository.loadReviewTracker(initial.data.settings, stub).catch(() => ({})),
+        ]);
+        const remote = normalizeProjectDrawingIds(rawProject);
+        let changed = 0;
+        set(state => {
+          if (state.activeProjectId !== projectId) return state;
+          const local = state.data.projects.find(p => p.id === projectId);
+          if (!local) return state;
+          const merged = mergeProjectPreservingDirty(local, remote, state._dirtyDrawingIds, state._deletedDrawingIds, state._dirtyConf,
+            state.reviewTracker, remoteTracker || {}, state._dirtyTrackerDrawingIds, state._dirtyTracker);
+          changed = merged.changedDrawings;
+          return {
+            data: { ...state.data, projects: state.data.projects.map(p => p.id === projectId ? merged.project : p) },
+            reviewTracker: merged.reviewTracker,
+          };
+        });
+        return changed;
       },
       adminPresence: { isOnline: false },
       _heartbeatTimer: null,

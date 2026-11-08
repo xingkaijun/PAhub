@@ -78,6 +78,15 @@ export async function createHub(options: { middleware?: Middleware } = {}) {
     void (async () => {
       // Host headers never control routing or API prefix rewriting.
       const url = new URL(req.url || '/', 'http://pahub.local');
+      const projectEvents = url.pathname.match(/^\/api\/projects\/([^/]+)\/events$/);
+      if (projectEvents && req.method === 'GET') {
+        if (config.env.API_TOKEN && req.headers.authorization !== 'Bearer ' + config.env.API_TOKEN) {
+          res.writeHead(401, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify({ error: 'Unauthorized' })); return;
+        }
+        const projectId = safeId(decodeURIComponent(projectEvents[1]));
+        const abort = new AbortController(); res.once('close', () => abort.abort());
+        await sendFetch(pcf.realtime.projectStream(projectId, abort.signal), req, res); return;
+      }
       const repliesMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/builder-replies(?:\/([^/]+))?(?:\/([^/]+))?(?:\/([^/]+))?$/);
       if (repliesMatch) {
         const headers = new Headers();
@@ -129,6 +138,23 @@ export async function createHub(options: { middleware?: Middleware } = {}) {
         const body = await readBody(req, config.bodyLimit);
         const request = new Request(url, { method: req.method, headers, body });
         let response = await worker.fetch(request, env);
+        const projectWrite = url.pathname.match(/^\/projects\/([^/]+)(?:\/(.*))?$/);
+        if (projectWrite && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(req.method || '') && response.ok) {
+          const projectId = safeId(decodeURIComponent(projectWrite[1]));
+          let drawingIds: string[] = [];
+          if (projectWrite[2] === 'review-tracker') {
+            try { drawingIds = Object.keys(JSON.parse(body?.toString('utf8') || '{}')); } catch {}
+          } else if (!projectWrite[2] && body?.length) {
+            try {
+              const input = JSON.parse(body.toString('utf8'));
+              drawingIds = req.method === 'PATCH'
+                ? [...(input.updatedDrawings || []).map((d: any) => d.id), ...Object.keys(input.reviewTracker || {})]
+                : (input.project?.drawings || []).map((d: any) => d.id);
+            } catch {}
+          }
+          const fields = projectWrite[2] === 'review-tracker' ? ['reviewTracker'] : ['project-data'];
+          for (const drawingId of [...new Set(drawingIds.filter((id): id is string => typeof id === 'string'))]) pcf.realtime.projectChanged(projectId, drawingId, fields);
+        }
         if (url.pathname === '/admin' && response.headers.get('Content-Type')?.includes('text/html')) {
           const html = (await response.text()).replaceAll('/admin/api', '/api/admin/api').replaceAll('/admin/auth', '/api/admin/auth');
           const mapped = new Headers(response.headers);

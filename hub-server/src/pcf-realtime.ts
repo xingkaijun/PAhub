@@ -1,7 +1,7 @@
 import type { Actor } from './pcf-model.ts';
 
 export type Presence = { clientId: string; clientName: string; entity: string | null; at: number };
-export type HubEvent = { type: 'hello' | 'changed' | 'presence' | 'ping'; data: any; id?: number };
+export type HubEvent = { type: 'hello' | 'changed' | 'presence' | 'ping' | 'drawing-changed'; data: any; id?: number };
 // Replace the bus AND presence store with shared adapters before running multiple processes.
 export interface DrawingBroadcast {
   subscribe(key: string, listener: (event: HubEvent) => void): () => void;
@@ -18,9 +18,12 @@ export class MemoryBroadcast implements DrawingBroadcast {
 export class PcfRealtime {
   private people = new Map<string, Map<string, Presence>>();
   private connections = new Map<string, Map<string, Set<() => void>>>();
+  private projectListeners = new Map<string, Set<(event: HubEvent) => void>>();
+  private projectConnections = new Map<string, Set<() => void>>();
+  private presenceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private timer: ReturnType<typeof setInterval>;
   constructor(readonly bus: DrawingBroadcast = new MemoryBroadcast(), private now = Date.now) {
-    this.timer = setInterval(() => this.sweep(), 5000); this.timer.unref();
+    this.timer = setInterval(() => this.sweep(), 1000); this.timer.unref();
   }
   list(key: string) { this.sweep(); return [...(this.people.get(key)?.values() || [])]; }
   project(projectId: string) {
@@ -29,19 +32,62 @@ export class PcfRealtime {
     return { drawings };
   }
   private announce(key: string) { this.bus.publish(key, { type: 'presence', data: { online: [...(this.people.get(key)?.values() || [])] } }); }
+  private projectPresence(projectId: string) {
+    this.publishProject(projectId, { type: 'presence', data: this.projectCounts(projectId) });
+  }
+  private projectCounts(projectId: string) {
+    const drawings: Record<string, number> = {};
+    for (const [id, people] of Object.entries(this.project(projectId).drawings)) drawings[id] = people.length;
+    return { drawings };
+  }
+  private publishProject(projectId: string, event: HubEvent) {
+    for (const listener of this.projectListeners.get(projectId) || []) listener(event);
+  }
+  projectChanged(projectId: string, drawingId: string, fields: string[]) {
+    this.publishProject(projectId, { type: 'drawing-changed', data: { drawingId, fields: [...new Set(fields)] } });
+  }
+  private scheduleProjectPresence(projectId: string) {
+    if (this.presenceTimers.has(projectId)) return;
+    const timer = setTimeout(() => { this.presenceTimers.delete(projectId); this.projectPresence(projectId); }, 200);
+    timer.unref(); this.presenceTimers.set(projectId, timer);
+  }
+  projectStream(projectId: string, signal: AbortSignal) {
+    const encoder = new TextEncoder(); let stop = () => {};
+    const stream = new ReadableStream<Uint8Array>({
+      start: controller => {
+        let closed = false;
+        const send = (event: HubEvent) => { if (!closed) controller.enqueue(encoder.encode('event: ' + event.type + '\ndata: ' + JSON.stringify(event.data) + '\n\n')); };
+        const listeners = this.projectListeners.get(projectId) || new Set(); listeners.add(send); this.projectListeners.set(projectId, listeners);
+        const stops = this.projectConnections.get(projectId) || new Set<() => void>(); this.projectConnections.set(projectId, stops);
+        const ping = setInterval(() => send({ type: 'ping', data: { at: this.now() } }), 25000); ping.unref();
+        stop = () => {
+          if (closed) return; closed = true; clearInterval(ping); listeners.delete(send);
+          if (!listeners.size) this.projectListeners.delete(projectId);
+          stops.delete(stop); if (!stops.size) this.projectConnections.delete(projectId);
+          signal.removeEventListener('abort', stop); controller.close();
+        };
+        stops.add(stop);
+        send({ type: 'presence', data: this.projectCounts(projectId) });
+        signal.addEventListener('abort', stop, { once: true }); if (signal.aborted) stop();
+      },
+      cancel: () => stop(),
+    });
+    return new Response(stream, { headers: { 'Content-Type': 'text/event-stream; charset=utf-8', 'Cache-Control': 'no-store', 'X-Accel-Buffering': 'no', 'Referrer-Policy': 'no-referrer' } });
+  }
   update(key: string, actor: Actor, entity: string | null, leave = false) {
     const people = this.people.get(key) || new Map();
     if (leave) people.delete(actor.clientId);
     else people.set(actor.clientId, { clientId: actor.clientId, clientName: actor.clientName || 'Editor-' + actor.clientId.slice(0, 4), entity, at: this.now() });
     if (people.size) this.people.set(key, people); else this.people.delete(key);
     this.announce(key);
+    this.scheduleProjectPresence(key.slice(0, key.indexOf('/')));
   }
   sweep() {
     for (const [key, people] of this.people) {
       let changed = false;
       for (const [id, person] of people) if (this.now() - person.at >= 60000) { people.delete(id); changed = true; }
       if (!people.size) this.people.delete(key);
-      if (changed) this.announce(key);
+      if (changed) { this.announce(key); this.scheduleProjectPresence(key.slice(0, key.indexOf('/'))); }
     }
   }
   stream(key: string, actor: Actor, rev: number, fromRev: number, signal: AbortSignal, expires = Infinity) {
@@ -70,6 +116,8 @@ export class PcfRealtime {
   changed(key: string, result: any, actor: Actor, replace = false) {
     this.bus.publish(key, { type: 'changed', id: result.rev, data: { rev: result.rev, clientId: actor.clientId, clientName: actor.clientName, replace,
       entities: Object.entries(result.data.hub.entities).filter(([, clock]: any) => clock.rev === result.rev).map(([entity, clock]) => ({ entity, clock })), ops: result.applied || [] } });
+    const slash = key.indexOf('/');
+    if (slash > 0) this.projectChanged(key.slice(0, slash), key.slice(slash + 1), replace ? ['*'] : [...new Set<string>((result.applied || []).map((op: any) => String(op.entity || op.type || 'data')))]);
   }
-  close() { clearInterval(this.timer); for (const drawing of [...this.connections.values()]) for (const sockets of [...drawing.values()]) for (const stop of [...sockets]) stop(); }
+  close() { clearInterval(this.timer); for (const timer of this.presenceTimers.values()) clearTimeout(timer); this.presenceTimers.clear(); for (const drawing of [...this.connections.values()]) for (const sockets of [...drawing.values()]) for (const stop of [...sockets]) stop(); for (const connections of [...this.projectConnections.values()]) for (const stop of [...connections]) stop(); }
 }
