@@ -11,6 +11,8 @@ import { PcfStorage } from './pcf-storage.ts';
 import { PcfApi } from './pcf-api.ts';
 import { PcfBuilderReplies } from './pcf-builder-replies.ts';
 import { safeId } from './pcf-model.ts';
+import { ProjectComments } from './comments-register.ts';
+import { exportCommentsExcel } from './comments-excel.ts';
 
 const MIME: Record<string, string> = {
   '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -67,17 +69,36 @@ async function serveStatic(req: IncomingMessage, res: ServerResponse, root: stri
   else await pipeline(createReadStream(target), res);
 }
 
-export async function createHub(options: { middleware?: Middleware } = {}) {
+export async function createHub(options: { middleware?: Middleware; host?: '127.0.0.1' } = {}) {
   const config = readConfig();
   if (!options.middleware) await stat(path.join(config.distDir, 'index.html'));
   const db = openDatabase(config.dbPath);
   const env = { ...config.env, PAPC_DB: db };
   const pcf = new PcfApi(new PcfStorage(db.sqlite, config.dataDir), config.env.API_TOKEN);
   const builderReplies = new PcfBuilderReplies(pcf.storage, pcf.exchange, pcf.realtime, config.env.ADMIN_PASSWORD);
+  const comments = new ProjectComments(pcf.storage);
   const server = createServer((req, res) => {
     void (async () => {
       // Host headers never control routing or API prefix rewriting.
       const url = new URL(req.url || '/', 'http://pahub.local');
+      const commentsMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/comments(\.xlsx)?$/);
+      if (commentsMatch) {
+        if (config.env.API_TOKEN && req.headers.authorization !== 'Bearer ' + config.env.API_TOKEN) {
+          res.writeHead(401, { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' }); res.end(JSON.stringify({ error: 'Unauthorized' })); return;
+        }
+        if (req.method !== 'GET') { res.writeHead(405, { Allow: 'GET' }); res.end(); return; }
+        const projectId = safeId(decodeURIComponent(commentsMatch[1]));
+        const result = comments.query(projectId, url.searchParams);
+        if (commentsMatch[2]) {
+          const workbook = await exportCommentsExcel(result);
+          res.writeHead(200, { 'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': 'attachment; filename="Comments-' + projectId + '.xlsx"', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' }); res.end(workbook);
+        } else {
+          const { body, etag } = comments.json(result);
+          const unchanged = String(req.headers['if-none-match'] || '').split(',').some(value => value.trim().replace(/^W[/]/, '') === etag || value.trim() === '*');
+          res.writeHead(unchanged ? 304 : 200, { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'private, no-cache', ETag: etag, 'X-Content-Type-Options': 'nosniff' }); res.end(unchanged ? undefined : body);
+        }
+        return;
+      }
       const projectEvents = url.pathname.match(/^\/api\/projects\/([^/]+)\/events$/);
       if (projectEvents && req.method === 'GET') {
         if (config.env.API_TOKEN && req.headers.authorization !== 'Bearer ' + config.env.API_TOKEN) {
@@ -183,11 +204,11 @@ export async function createHub(options: { middleware?: Middleware } = {}) {
   try {
     await new Promise<void>((resolve, reject) => {
       server.once('error', reject);
-      server.listen(config.port, '0.0.0.0', () => { server.off('error', reject); resolve(); });
+      server.listen(config.port, options.host || '0.0.0.0', () => { server.off('error', reject); resolve(); });
     });
   } catch (error) { db.sqlite.close(); throw error; }
   const address = server.address() as import('node:net').AddressInfo;
-  console.log('PAhub listening on http://0.0.0.0:' + address.port + ' (pid ' + process.pid + ')');
+  console.log('PAhub listening on http://' + address.address + ':' + address.port + ' (pid ' + process.pid + ')');
   console.log('PAhub database: ' + config.dbPath);
   return {
     server, db, port: address.port,

@@ -278,3 +278,40 @@ Apply all clean 只处理无新冲突文件。应用前重新计算合并：若 
 PCF round values remain numeric in the document schema, edit operations, and JSON backup. All user-facing round labels use the same spreadsheet-style letters as PAPC: 1 → A, 2 → B, …, 26 → Z, 27 → AA. This applies to the hosted page and offline Builder copy, round controls and history, print/PDF, Excel display columns and filenames, Builder import summaries, Send All filenames, and `manifest.csv`. The numeric round value in machine-readable JSON / manifest storage is intentionally retained for compatibility; `manifest.csv` formats its display column as a letter.
 
 When a hosted PCF is first created from a PAPC drawing, PAPC `current_round` is parsed into the unchanged numeric PCF `project.currentRound` value (for example, PAPC `C` becomes PCF number `3`) and displayed as `C`. An applied Builder reply advances the PAPC letter with the same mapping (for example, `A` → `B`).
+
+## Comments（第 9 期：跨图纸意见汇总）
+
+选中项目后打开顶部 **Comments**。页面在只读模式下可用；上方统计和三个小图、下方清单均使用当前已应用的筛选。标签从该项目实际有效意见中收集（包含 Cost Affect 或未来的新标签），不使用固定清单。点击整行、图号或意见编号在新标签页定位该意见；Comments 自身跟随操作系统的深浅主题，不改变其他标签页。
+
+### API 与筛选
+
+- GET /api/projects/:projectId/comments：扁平 comments、statistics、options、warnings、generatedAt。
+- GET /api/projects/:projectId/comments.xlsx：同筛选子集的 Comments / Statistics 两张表。
+
+两者使用与现有 API 相同的 API_TOKEN Bearer 鉴权。筛选参数为 discipline、drawingStatus、commentStatus（保留原值）、round（数字或 A/B 字母）、tag、q、openOlderThanDays。多次传入同一分类参数表示该分类内 OR，不同分类之间为 AND；q 对图纸字段及所有有效轮次的正文、回复、姓名、标签作不区分大小写的子串搜索。openOlderThanDays 是严格大于，不包含 Closed；账龄从首次创建时间起按完整 24 小时计算，未来时间记 0，无有效日期记 0。Closed 不区分大小写，其余状态归入未关闭。ageing 为 0–7 / 8–14 / 15–30 / >30 天，topDrawings 按未关闭数优先、关闭数次之列前 10。无 PCF 的图纸不进入清单。
+
+Comments 是当前项目 PCF HTML 的只读汇总，不是内部备忘或数据库中的人工意见计数。每条 active、未被 tombstone 删除的意见只占一个逻辑结果行；已删除意见及轮次不参与汇总。轮次取该意见最新的有效轮次，显示通过 `roundToLetters` 转为 A、B、…、Z、AA。船东意见和 Builder reply 分别取所有有效轮次中最近的非空正文，相关姓名和日期随各自正文来源，不以最新空轮次覆盖旧正文。
+
+全文搜索覆盖全部有效轮次的船东意见与 Builder reply，不只搜索列表显示的最近正文；因此旧轮次命中时，结果行仍显示最近非空正文，完整往来需打开 PCF 查看。筛选与搜索先产生同一个完整结果子集，再用于列表分页及所有统计（total / open / closed、专业与意见状态、轮次、图纸状态、ageing、top drawings）；统计不局限于当前显示页。读取失败的图纸以 warnings 显式返回，不静默伪装为零条意见。
+
+### 缓存与刷新
+
+缓存分三层：最多 3000 个文件解析条目、最多 6 个项目扁平投影、每项目最多 16 个筛选结果及其已序列化 JSON。项目签名包括有效文件状态及图纸元数据；损坏、删除、重建、mtime/ctime/size 或索引 rev 改动均使结果失效，且在下一账龄跨日边界重算。结果提供 ETag，If-None-Match 命中返回 304（鉴权仍先执行）。未使用仅由 SSE 递增的版本号，以保留直接文件修改的即时失效能力。
+
+性能验收合成 500 张 PCF × 30 条意见，计时包括真实 HTTP 下载及客户端 JSON 解析：冷请求 1190.34 ms、缓存命中 178.89 ms；命中 SQL/文件状态扫描 18.97 ms、整个服务端查询 19.47 ms。7.51 MB JSON 首次序列化与哈希 89.74 ms，命中复用。可用 PAHUB_COMMENTS_PROFILE=1 输出分段耗时（不输出正文），无需临时脚本；测试阈值保持冷 <3000 ms、命中 <300 ms。
+
+最终不启用 profile 的完整验收：hub:build 通过，hub:test 69/69（第 8 期为 52 项），冷请求 1072.10 ms、缓存命中 184.79 ms、ETag 304 为 26.50 ms。浏览器脚本 hub-server/test/phase9-browser-smoke.mjs 使用 data-p9 副本，仅监听 127.0.0.1:8082，结束自动关闭；验证筛选、Excel、整行点击、跨页与隐藏筛选定位、未知 ID、SSE stale/manual Refresh，pageerrors=0。深浅主题及定位截图在 hub-server/test/artifacts/phase9-*.png，日志在同目录，不提交数据或截图。
+
+索引仅驻留服务器内存：逐文件以 mtime 为基础并结合 ctime、size 和 `pcf_index` rev 判断失效；文件内容或索引 rev 改变后重新解析。意见正文与图片不写入数据库，也不生成磁盘缓存。完整 PCF HTML 仍是唯一正文权威源，重启后的索引由文件重新构建。
+
+收到 drawing SSE 变更通知时，Comments 当前结果标记为 stale，并提供 **Refresh**。通知不意味着当前列表及统计已经更新，也不直接替换正在查看的结果；点击 Refresh 重新查询当前筛选子集。导出前应刷新过期结果。
+
+### Excel 导出与托管定位适配
+
+`exportCommentsExcel(result: any): Promise<Buffer>` 位于 `hub-server/src/comments-excel.ts`。传入完整筛选结果 `{comments, statistics, warnings}`，而非 UI 当前分页；返回 XLSX 字节，不写文件。Comments 表显式映射 drawingId、drawingNo、drawingTitle、discipline、drawingStatus、commentId、number、round、status、tags、ownerName、ownerDate、ownerComment、builderReply、builderReplyDate、updatedAt、openDays、hasImages。Statistics 表包含上述同子集的全部统计分组，warnings 只输出 drawingId、drawingNo、message；不导出任意对象、凭据、托管上下文、原始 HTML 或图片内容。
+
+导出复用只读 `pcf/template/PG-PCF-v2.6-source.html` 中以 `/* PCF single HTML v1` 开头的自包含 XLSX exporter。在独立 `node:vm` context 中，仅给可信脚本提供 Blob 和 TextEncoder，并在内存副本的固定闭包出口暴露 `makeSheet` / `workbook`；不改动模板、不执行 UI / v2.6 business scripts、不调用会导出完整文档的 `build()`。vm 是隔离措施，不是可执行不可信 HTML 的安全沙箱；绝不能将图纸文件或用户输入作为代码传入。
+
+所有单元格是 plain inline strings，没有公式或外部链接；以 `= / + / - / @` 开头的文字仍是原样文本。超过 Excel 单格 32767 UTF-16 单位的内容使用现有 writer 的续行机制，不截断、不切开 surrogate pair。每个逻辑行附加 **Record key / Part / Parts**：相同 Record key 的行按 Part 排序，逐列直接拼接以还原完整值；短字段只在首行出现。Statistics 警告等长文本同样支持续行。续行是导出存储细节，不增加逻辑意见数或统计值；非法 XML 1.0 字符仍沿用 writer 的清理规则。
+
+`commentFocusHTML(html: string): string` 位于 `hub-server/src/pcf-comment-focus.ts`；仅在托管响应注入 PAHUB 上下文之后调用，不应用于 Builder / download / standalone HTML。它在最后的 closing body 前注入幂等脚本，处理 `#comment=<encoded stable comment ID>`；使用 `#comments article.comment[data-cid]` 精确匹配稳定 ID，而非 `comment-N` 显示编号。必要时点击现有 Reset filters / Index / Jump 控件，经 DOM 事件切换分页，不读写业务函数；临时打开的 Index 恢复原状态。待渲染后滚动并显示 outline 高亮，目标带 `data-comment-focus="true"`（浏览器验证 selector：`#comments article.comment[data-comment-focus="true"]`）。未知、删除、空或 malformed ID 不抛错、不执行编辑操作；无 PAHUB 上下文或无 closing body 时保持无作用。

@@ -1,0 +1,30 @@
+/* Scoped OS-theme support: other tabs and the shared toolbar are unchanged. */
+.comments-register-page { background: #fff; }
+@media (prefers-color-scheme: dark) {
+  .comments-register-page { color-scheme: dark; background: #0f172a; color: #cbd5e1; }
+  .comments-register-page .bg-white { background-color: #0f172a; }
+  .comments-register-page [class*="bg-slate-50"],
+  .comments-register-page .bg-slate-100 { background-color: #1e293b; }
+  .comments-register-page [class*="border-slate-"],
+  .comments-register-page .divide-slate-100 > :not([hidden]) ~ :not([hidden]) { border-color: #334155; }
+  .comments-register-page [class*="text-slate-9"],
+  .comments-register-page [class*="text-slate-8"],
+  .comments-register-page [class*="text-slate-7"] { color: #e2e8f0; }
+  .comments-register-page [class*="text-slate-6"],
+  .comments-register-page [class*="text-slate-5"] { color: #b5c2d3; }
+  .comments-register-page [class*="text-slate-4"] { color: #94a3b8; }
+  .comments-register-page .text-teal-600,
+  .comments-register-page .text-teal-700,
+  .comments-register-page .text-teal-800 { color: #5eead4; }
+  .comments-register-page .bg-teal-50 { background-color: #153b3d; }
+  .comments-register-page [class*="border-teal-1"],
+  .comments-register-page [class*="border-teal-2"] { border-color: #276364; }
+  .comments-register-page [class*="hover:bg-teal-"]:hover { background-color: #153b3d; }
+  .comments-register-page .recharts-cartesian-grid line { stroke: #334155; }
+  .comments-register-page .recharts-text { fill: #b5c2d3; }
+  .comments-register-page .recharts-default-tooltip { background-color: #1e293b !important; border-color: #475569 !important; color: #e2e8f0; }
+  .comments-register-page [class*="bg-rose-"] { background-color: #491f2f; }
+  .comments-register-page [class*="text-rose-"] { color: #fda4af; }
+  .comments-register-page [class*="bg-amber-"] { background-color: #41351c; }
+  .comments-register-page [class*="text-amber-"] { color: #fcd34d; }
+}
