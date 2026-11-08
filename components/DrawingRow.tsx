@@ -129,25 +129,6 @@ export const DrawingRow = memo(({
 }: DrawingRowProps) => {
     const { isEditMode } = useStore();
     const pcfOnline = useStore(s => s.pcfPresence[drawing.id] || 0);
-    const exportBuilder = async () => {
-        const base = '/api/pcf/' + encodeURIComponent(activeProjectId) + '/' + encodeURIComponent(drawing.id);
-        const token = import.meta.env.VITE_DATA_API_TOKEN?.trim();
-        const headers = { 'Content-Type': 'application/json', ...(token ? { Authorization: 'Bearer ' + token } : {}) };
-        try {
-            let clientId = localStorage.getItem('pahub.clientId');
-            if (!clientId) { clientId = crypto.randomUUID(); localStorage.setItem('pahub.clientId', clientId); }
-            const body = JSON.stringify({ clientId, clientName: localStorage.getItem('pahub.clientName') || 'PAPC export' });
-            const created = await fetch(base + '/create', { method: 'POST', headers, body });
-            if (!created.ok) throw Error((await created.json()).error);
-            const response = await fetch(base + '/exports', { method: 'POST', headers, body });
-            const record = await response.json(); if (!response.ok) throw Error(record.error);
-            const file = await fetch(base + '/exports/' + record.exportId + '/download', { headers });
-            if (!file.ok) throw Error('Download failed: ' + file.status);
-            const url = URL.createObjectURL(await file.blob()), a = document.createElement('a');
-            a.href = url; a.download = record.filename; a.click(); setTimeout(() => URL.revokeObjectURL(url), 1000);
-            await useStore.getState().refreshPcfPresence(activeProjectId);
-        } catch (error: any) { alert('Export to Builder failed: ' + error.message); }
-    };
     const liveRemarkCount = drawing.remarks?.length || 0;
     const liveOpenRemarkCount = drawing.remarks?.filter(r => !r.resolved).length || 0;
     const reviewDeadline = toValidDate(drawing.reviewDeadline);
@@ -222,9 +203,6 @@ export const DrawingRow = memo(({
                             } catch (error) { tab?.close(); alert(String(error)); }
                         }}
                     >{drawing.title || drawing.drawingNo}{pcfOnline > 0 && <span className="ml-1 rounded bg-teal-100 px-1 text-teal-700" title={pcfOnline + ' 人正在 PCF 在线编辑'}>● {pcfOnline}</span>}</a> : drawing.title}
-                    {import.meta.env.MODE === 'hub' && <span className="ml-2 text-[9px] font-normal">
-                        <button onClick={exportBuilder} className="text-teal-700 hover:underline" title="Download an Owner-locked offline PCF HTML">Export to Builder</button>
-                    </span>}
                 </td>
                 <td className="px-2 py-2 text-[9px] text-slate-500 text-center" title={(() => {
                     const statusChanges = (drawing.statusHistory || []).filter(h => h.content.includes('Status:'));

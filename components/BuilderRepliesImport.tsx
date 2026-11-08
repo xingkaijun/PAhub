@@ -1,14 +1,23 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
 import { DownloadCloud, FileArchive, Upload, X } from 'lucide-react';
 import { useStore } from '../store';
 
 type ReplyRow = { id: string; fileName: string; importSetId?: string; drawingId?: string; drawingNo?: string; title?: string; round?: number; newReplies?: number; automatic?: number; conflicts?: number; papcStatus?: string; statusNote?: string; category: string; reason?: string; ownerTampered?: boolean };
 const label: Record<string,string> = { clean: 'Ready to apply', conflict: 'Conflict', unchanged: 'No changes', unmatched: 'Unable to match', 'owner-tampered': 'Owner changed', duplicate: 'Duplicate import', applied: 'Applied', failed: 'Failed', skipped: 'Skipped' };
 
-export const BuilderRepliesImport: React.FC<{ projectId: string }> = ({ projectId }) => {
+export type BuilderRepliesImportHandle = { openWithFiles: (files: File[]) => void };
+
+export const BuilderRepliesImport = forwardRef<BuilderRepliesImportHandle, { projectId: string }>(function BuilderRepliesImport({ projectId }, ref) {
   const loadProject = useStore(s => s.loadProject), refreshPcfPresence = useStore(s => s.refreshPcfPresence);
   const [open, setOpen] = useState(false), [files, setFiles] = useState<File[]>([]), [rows, setRows] = useState<ReplyRow[]>([]), [setId, setSetId] = useState(''), [busy, setBusy] = useState(false), [drag, setDrag] = useState(false), [message, setMessage] = useState('');
   const picker = useRef<HTMLInputElement>(null);
+  const accepted = (file: File) => /\.(zip|html?)$/i.test(file.name);
+  const openWithFiles = (incoming: File[]) => {
+    const valid = incoming.filter(accepted);
+    if (!valid.length) return;
+    setRows([]); setSetId(''); setMessage(''); setFiles(valid); setOpen(true);
+  };
+  useImperativeHandle(ref, () => ({ openWithFiles }), [projectId]);
   useEffect(() => {
     if (!open) return;
     const onMessage = (event: MessageEvent) => {
@@ -23,7 +32,7 @@ export const BuilderRepliesImport: React.FC<{ projectId: string }> = ({ projectI
     return () => window.removeEventListener('message', onMessage);
   }, [open, projectId]);
   const headers = () => { const token = import.meta.env.VITE_DATA_API_TOKEN?.trim(); return token ? { Authorization: 'Bearer ' + token } : {}; };
-  const add = (incoming: FileList | File[]) => setFiles(old => [...old, ...Array.from(incoming)]);
+  const add = (incoming: FileList | File[]) => setFiles(old => [...old, ...Array.from(incoming).filter(accepted)]);
   const preview = async () => {
     setBusy(true); setMessage('');
     try {
@@ -76,4 +85,4 @@ export const BuilderRepliesImport: React.FC<{ projectId: string }> = ({ projectI
       </section>
     </div>}
   </>;
-};
+});

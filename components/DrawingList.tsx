@@ -7,6 +7,7 @@ import { Search, FileUp, Layers, FilterX, Printer, ChevronLeft, ChevronRight as 
   Lock, Unlock, X, Cloud, Clock } from 'lucide-react';
 import { isAfter, differenceInCalendarDays, differenceInDays } from 'date-fns';
 import { DrawingRow } from './DrawingRow';
+import { BuilderRepliesImport, type BuilderRepliesImportHandle } from './BuilderRepliesImport';
 
 const getReviewDeadlineDays = (drawing: Drawing) => {
   if (!drawing.reviewDeadline) return Number.POSITIVE_INFINITY;
@@ -165,6 +166,7 @@ export const DrawingList: React.FC = () => {
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const [daysSortDirection, setDaysSortDirection] = useState<'none' | 'asc' | 'desc'>('none');
   const [lastChangeSortDirection, setLastChangeSortDirection] = useState<'none' | 'asc' | 'desc'>('none');
+  const builderRepliesImport = useRef<BuilderRepliesImportHandle>(null);
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -375,7 +377,14 @@ export const DrawingList: React.FC = () => {
   };
 
   return (
-    <div className="flex-1 flex flex-col overflow-hidden">
+    <div data-drawing-list-root="true" className="flex-1 flex flex-col overflow-hidden" onDragOver={e => {
+      const files = Array.from(e.dataTransfer.files || []);
+      if (files.some(file => /\.(zip|html?)$/i.test(file.name))) e.preventDefault();
+    }} onDrop={e => {
+      const files = Array.from(e.dataTransfer.files || []).filter(file => /\.(zip|html?)$/i.test(file.name));
+      if (!files.length) return;
+      e.preventDefault(); builderRepliesImport.current?.openWithFiles(files);
+    }}>
       {/* Main scrollable area - everything scrolls together */}
       <div className="overflow-auto flex-1 no-print" style={{ position: 'relative' }}>
         <div style={{ minWidth: '1400px' }}>
@@ -440,6 +449,7 @@ export const DrawingList: React.FC = () => {
                 />
               </div>
               <div className="flex items-center gap-2">
+                {activeProjectId && <BuilderRepliesImport ref={builderRepliesImport} projectId={activeProjectId} />}
                 <button
                   onClick={async () => {
                     if (!isEditMode) {

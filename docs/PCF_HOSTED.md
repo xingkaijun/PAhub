@@ -252,6 +252,12 @@ npm run hub:upgrade-pcf -- --project X --drawing Y
 
 ### 船厂回复批量导入
 
+#### 如何导入船厂回复
+
+在 Drawings 主列表工具栏或 Review Tracker 页右上角点击 **Import Builder Replies**，也可以把 ZIP 或 PCF HTML 文件直接拖到 Drawings 页面。处理单张托管 PCF 时，可在页首操作区点击 **Import Builder Reply**。选择文件后点击 Preview replies 检查图纸匹配、分类和差异；无冲突文件可用 Apply all clean 批量应用，冲突文件通过 Resolve 打开对应 PCF 并逐项决定。支持 ZIP 和 `.html` / `.htm`，其它拖放类型会忽略。
+
+Ready to apply 表示可按导出基线自动合并；Conflict 需要人工选择；No changes 表示没有新回复；Unable to match、Duplicate import、Failed 和 Skipped 不会自动写入；Owner changed 表示只读 Owner 字段被改动，该字段会忽略，Builder 回复仍按基线合并。只有实际应用新回复且 PAPC 状态为 **Waiting Reply** 时，状态才自动更新为 **Reviewing**；其它状态保持原值，也不会自动 Approved。
+
 PAPC Review Tracker 的 **Import Builder Replies** 支持一次选择或拖入一个 ZIP / 多个 `.html`。上传总量默认限 50 MiB（`MAX_BODY_BYTES` 可调）；单批文件数默认 50（`MAX_BUILDER_REPLY_FILES`），ZIP 展开总量默认 200 MiB（`MAX_BUILDER_REPLY_UNPACKED_BYTES`）。原始上传附件及各 HTML 副本保存在 `data/pcf/<project>/imports/<importSetId>/`，不进入 SQLite；项目/文件 ID 使用安全标识和随机 UUID。ZIP 子目录会展平处理，`__MACOSX` 与非 HTML 条目忽略；绝对路径、反斜杠、盘符和 `..` 路径拒绝。
 
 | 方法 | 路径 | 行为 |
