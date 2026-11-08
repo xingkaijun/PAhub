@@ -33,7 +33,7 @@ test('PCF hosted API: create, entity concurrency, numbering, PAPC summary, histo
   Object.assign(process.env, { PORT: '0', PAPC_DB_PATH: path.join(temp, 'papc.db'), PAHUB_DATA_DIR: temp, API_TOKEN: '' });
   let hub: Awaited<ReturnType<typeof createHub>> | undefined;
   try {
-    hub = await createHub(); hub.db.sqlite.exec(await readFile(path.join(ROOT_DIR, 'worker/sql/seed-test-data.sql'), 'utf8'));
+    hub = await createHub(); hub.db.exec(await readFile(path.join(ROOT_DIR, 'hub-server/test/fixtures/seed-test-data.sql'), 'utf8'));
     let base = 'http://127.0.0.1:' + hub.port;
     const endpoint = '/api/pcf/proj-test-001/dwg-005';
     const api = async (tail: string, method = 'GET', body?: any, headers?: Record<string, string>) => {
@@ -78,10 +78,10 @@ test('PCF hosted API: create, entity concurrency, numbering, PAPC summary, histo
     // Worker envelope is kept intact.
     const drawing = (project.project || project.data?.project || project).drawings.find((d: any) => d.id === 'dwg-005');
     assert.equal(drawing.manualCommentsCount, 2); assert.equal(drawing.manualOpenCommentsCount, 1); assert.equal(drawing.currentRound, 'C'); assert.equal(drawing.version, 'C');
-    const audit: any = hub.db.sqlite.prepare("SELECT detail FROM audit_log WHERE row_id='dwg-005' AND action='COMMENTS' ORDER BY id DESC LIMIT 1").get(); assert.equal(JSON.parse(audit.detail).source, 'PCF');
+    const audit: any = hub.db.prepare("SELECT detail FROM audit_log WHERE row_id='dwg-005' AND action='COMMENTS' ORDER BY id DESC LIMIT 1").get(); assert.equal(JSON.parse(audit.detail).source, 'PCF');
     // Inspect every user table and raw database/WAL bytes, not only the index table.
-    for (const table of hub.db.sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all()) {
-      const name = String(table.name); const rows = hub.db.sqlite.prepare('SELECT * FROM "' + name + '"').all(); assert.ok(!JSON.stringify(rows).includes('PCF_BODY_ONLY__7b9c4e'), 'body leaked to ' + name);
+    for (const table of hub.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all()) {
+      const name = String(table.name); const rows = hub.db.prepare('SELECT * FROM "' + name + '"').all(); assert.ok(!JSON.stringify(rows).includes('PCF_BODY_ONLY__7b9c4e'), 'body leaked to ' + name);
     }
     for (const name of ['papc.db', 'papc.db-wal']) { const bytes = await readFile(path.join(temp, name)); assert.equal(bytes.includes(Buffer.from('PCF_BODY_ONLY__7b9c4e')), false); }
     console.log('PAPC POST readback: comments=2 open=1 round=C version=C; COMMENTS audit OK; all SQL tables + DB/WAL sentinel matches=0');
@@ -102,8 +102,8 @@ test('PCF hosted API: create, entity concurrency, numbering, PAPC summary, histo
     const stored = await readFile(file, 'utf8'), crashData = JSON.parse(stored); crashData.hub.rev++;
     crashData.hub.lastChange = { clientId: 'recovery', clientName: '', ip: '127.0.0.1', ops: [{ type: 'document.replace' }] };
     await writeFile(file, JSON.stringify(crashData), 'utf8'); assert.equal((await api('meta')).value.rev, crashData.hub.rev);
-    assert.equal(hub.db.sqlite.prepare("SELECT count(*) AS n FROM pcf_changes WHERE client_id='recovery'").get()!.n, 1);
-    await api('meta'); assert.equal(hub.db.sqlite.prepare("SELECT count(*) AS n FROM pcf_changes WHERE client_id='recovery'").get()!.n, 1);
+    assert.equal(hub.db.prepare("SELECT count(*) AS n FROM pcf_changes WHERE client_id='recovery'").get()!.n, 1);
+    await api('meta'); assert.equal(hub.db.prepare("SELECT count(*) AS n FROM pcf_changes WHERE client_id='recovery'").get()!.n, 1);
     await hub.close(); hub = undefined;
     process.env.API_TOKEN = 'pcf-test-secret'; hub = await createHub(); base = 'http://127.0.0.1:' + hub.port;
     assert.equal((await api('data')).status, 401);

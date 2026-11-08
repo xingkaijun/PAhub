@@ -41,9 +41,9 @@ npm run hub:start
 
 ## 开发与验证
 
-npm run hub:dev 启动同源开发模式；npm run hub:build 构建前端与服务端；npm run hub:test 执行 D1 适配、集成、PCF、实时、船厂往来和 Send All 测试。测试使用临时端口和临时数据目录。
+npm run hub:dev 启动同源开发模式；npm run hub:build 构建前端与服务端；npm run hub:test 执行原生 SQLite、路由、集成、PCF、实时、船厂往来和 Send All 测试。测试使用临时端口和临时数据目录。
 
-worker/src 与 worker/sql 是由 Hub 打包执行的现有业务 API 和 SQL；不是独立部署目标。生产数据与日志不应提交。完整备份应含数据目录及 PCF 导出签名密钥。
+全部业务 API 已按模块并入 hub-server；读接口直接查询规范化表，不再依赖 Worker、D1Adapter 或 SQL 兼容视图。生产数据与日志不应提交。完整备份应含数据目录及 PCF 导出签名密钥。
 
 使用手册：[MANUAL.md](MANUAL.md)。运行配置：[hub-server/README.md](hub-server/README.md)。旧数据一次性迁移：[docs/d1-migration.md](docs/d1-migration.md)。
 

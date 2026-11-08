@@ -13,10 +13,10 @@ import { ROOT_DIR } from '../src/config.ts';
 
 function fixture() {
   const dir = mkdtempSync(path.join(tmpdir(), 'pahub-project-export-')), db = openDatabase(path.join(dir, 'papc.db'));
-  db.sqlite.exec(readFileSync(path.join(ROOT_DIR, 'worker/sql/seed-test-data.sql'), 'utf8'));
-  const storage = new PcfStorage(db.sqlite, dir), exchange = new PcfExchange(storage), p = 'proj-test-001', actor = { clientId: 'fixture', clientName: 'Fixture', ip: '' };
+  db.exec(readFileSync(path.join(ROOT_DIR, 'hub-server/test/fixtures/seed-test-data.sql'), 'utf8'));
+  const storage = new PcfStorage(db, dir), exchange = new PcfExchange(storage), p = 'proj-test-001', actor = { clientId: 'fixture', clientName: 'Fixture', ip: '' };
   storage.create(p, 'dwg-001', actor); storage.create(p, 'dwg-002', actor);
-  return { dir, db, storage, exchange, p, actor, cleanup() { db.sqlite.close(); rmSync(dir, { recursive: true, force: true }); } };
+  return { dir, db, storage, exchange, p, actor, cleanup() { db.close(); rmSync(dir, { recursive: true, force: true }); } };
 }
 function unzip(bytes: Buffer) {
   const result = new Map<string, string>(); let at = 0;
@@ -38,7 +38,7 @@ test('project ZIP contains complete independent HTML, baseline records and skipp
     const data = parseHTML(files.get('dwg-001.html')!);
     assert.equal(data.export.mode, 'complete'); assert.equal(data.circulation[0].id, 'circulation-business'); assert.equal(data.approvalHistory[0].id, 'approval-business'); assert.equal(data.hub, undefined);
     assert.doesNotMatch(files.get('dwg-001.html')!, /PAhub adapter:|X-PCF-Token|id="pahub-context"/);
-    assert.equal(f.db.sqlite.prepare('SELECT count(*) AS n FROM pcf_exports').get()!.n, 2);
+    assert.equal(f.db.prepare('SELECT count(*) AS n FROM pcf_exports').get()!.n, 2);
     for (const row of report.drawings.filter((r: any) => r.status === 'exported')) assert.equal(f.exchange.download(f.p, row.drawingId, row.exportId).html, files.get(row.file));
     assert.equal(JSON.parse(files.get('manifest.json')!).documents, 2);
   } finally { f.cleanup(); }
@@ -46,9 +46,9 @@ test('project ZIP contains complete independent HTML, baseline records and skipp
 
 test('failed complete baseline insertion leaves no orphan export file or partial ZIP', () => {
   const f = fixture(); try {
-    f.db.sqlite.exec("CREATE TRIGGER reject_complete_export BEFORE INSERT ON pcf_exports BEGIN SELECT RAISE(ABORT,'simulated export insert failure'); END");
+    f.db.exec("CREATE TRIGGER reject_complete_export BEFORE INSERT ON pcf_exports BEGIN SELECT RAISE(ABORT,'simulated export insert failure'); END");
     assert.throws(() => exportPcfProject(f.storage, f.exchange, f.p, path.join(f.dir, 'failed.zip'), f.actor), /simulated export insert failure/);
-    assert.equal(f.db.sqlite.prepare('SELECT count(*) AS n FROM pcf_exports').get()!.n, 0);
+    assert.equal(f.db.prepare('SELECT count(*) AS n FROM pcf_exports').get()!.n, 0);
     assert.deepEqual(readdirSync(path.join(f.dir, 'pcf', f.p, 'dwg-001', 'exports')), []);
   } finally { f.cleanup(); }
 });
@@ -57,10 +57,10 @@ test('export refuses overwrite and rolls back records/files when a later documen
   const f = fixture(); try {
     const target = path.join(f.dir, 'exists.zip'); writeFileSync(target, 'KEEP');
     assert.throws(() => exportPcfProject(f.storage, f.exchange, f.p, target, f.actor), /already exists/);
-    assert.equal(readFileSync(target, 'utf8'), 'KEEP'); assert.equal(f.db.sqlite.prepare('SELECT count(*) AS n FROM pcf_exports').get()!.n, 0);
+    assert.equal(readFileSync(target, 'utf8'), 'KEEP'); assert.equal(f.db.prepare('SELECT count(*) AS n FROM pcf_exports').get()!.n, 0);
     writeFileSync(f.storage.file(f.p, 'dwg-002'), '{corrupted');
     assert.throws(() => exportPcfProject(f.storage, f.exchange, f.p, path.join(f.dir, 'new.zip'), f.actor));
-    assert.equal(f.db.sqlite.prepare('SELECT count(*) AS n FROM pcf_exports').get()!.n, 0);
+    assert.equal(f.db.prepare('SELECT count(*) AS n FROM pcf_exports').get()!.n, 0);
     assert.deepEqual(readdirSync(path.join(f.dir, 'pcf', f.p, 'dwg-001', 'exports')), []);
   } finally { f.cleanup(); }
 });

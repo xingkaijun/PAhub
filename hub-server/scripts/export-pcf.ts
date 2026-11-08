@@ -20,6 +20,6 @@ if (!existsSync(dbPath)) throw Error('Database not found');
 if (existsSync(target)) throw Error('Output already exists; choose a new ZIP path');
 const db = openDatabase(dbPath);
 try {
-  const storage = new PcfStorage(db.sqlite, dir), exchange = new PcfExchange(storage);
+  const storage = new PcfStorage(db, dir), exchange = new PcfExchange(storage);
   console.log(JSON.stringify(exportPcfProject(storage, exchange, project, target, { clientId: 'export-pcf-cli', clientName: 'Offline project export', ip: '' }), null, 2));
-} finally { db.sqlite.close(); }
+} finally { db.close(); }

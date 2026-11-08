@@ -28,8 +28,8 @@ function browser(html: string) {
 }
 function fixture() {
   const dir = mkdtempSync(path.join(tmpdir(), 'pahub-cost-tag-')), db = openDatabase(path.join(dir, 'papc.db'));
-  db.sqlite.exec(readFileSync(path.join(ROOT_DIR, 'worker/sql/seed-test-data.sql'), 'utf8'));
-  const storage = new PcfStorage(db.sqlite, dir), actor = { clientId: 'cost-test', clientName: 'Owner', ip: '127.0.0.1' };
+  db.exec(readFileSync(path.join(ROOT_DIR, 'hub-server/test/fixtures/seed-test-data.sql'), 'utf8'));
+  const storage = new PcfStorage(db, dir), actor = { clientId: 'cost-test', clientName: 'Owner', ip: '127.0.0.1' };
   const p = 'proj-test-001', d = 'dwg-005', cid = randomUUID(), rid = randomUUID();
   storage.create(p, d, actor);
   storage.ops(p, d, { baseRev: 1, ops: [{ type: 'comment.add', id: cid, roundIdNew: rid }, { type: 'comment.add', id: randomUUID(), roundIdNew: randomUUID() }] }, actor);
@@ -81,7 +81,7 @@ test('Cost Affect UI add/remove, server persistence, filter, JSON, Builder, Exce
     const badge = builder.w.document.querySelector<HTMLButtonElement>(selector)!;
     assert.equal(badge.textContent, 'Cost Affect'); assert.equal(badge.disabled, true); assert.ok(badge.classList.contains('active'));
     for (const current of [b, reopened, builder]) assert.deepEqual(current.errors, []);
-  } finally { b.dom.window.close(); reopened?.dom.window.close(); builder?.dom.window.close(); f.db.sqlite.close(); }
+  } finally { b.dom.window.close(); reopened?.dom.window.close(); builder?.dom.window.close(); f.db.close(); }
 });
 test('batch import summary preserves authoritative Cost Affect even when returned tags are tampered', async () => {
   const f = fixture(), realtime = new PcfRealtime(); try {
@@ -93,5 +93,5 @@ test('batch import summary preserves authoritative Cost Affect even when returne
     const replies = new PcfBuilderReplies(f.storage, exchange, realtime);
     const preview = await replies.preview(f.p, form);
     assert.deepEqual(preview.files[0].tags, ['Cost Affect']); assert.equal(preview.files[0].ownerTampered, true);
-  } finally { realtime.close(); f.db.sqlite.close(); }
+  } finally { realtime.close(); f.db.close(); }
 });

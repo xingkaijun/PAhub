@@ -28,7 +28,7 @@ test('fresh database starts at the baseline version and never applies PCF JSON c
       assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name=?").get(table), table);
     }
     for (const view of ['api_settings', 'api_projects', 'api_project_details', 'api_review_trackers']) {
-      assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type='view' AND name=?").get(view), view);
+      assert.equal(db.prepare("SELECT 1 FROM sqlite_master WHERE type='view' AND name=?").get(view), undefined, view);
     }
     seedIndex(db, 'pcf/p1/d1.html');
     initializeSchema(db);

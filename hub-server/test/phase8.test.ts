@@ -112,7 +112,7 @@ test('phase 8: PAPC single-project save notification reports affected drawings',
   let hub: Awaited<ReturnType<typeof createHub>> | undefined;
   try {
     hub = await createHub();
-    const sql = await readFile(path.resolve('worker/sql/seed-test-data.sql'), 'utf8'); hub.db.sqlite.exec(sql);
+    const sql = await readFile(path.resolve('hub-server/test/fixtures/seed-test-data.sql'), 'utf8'); hub.db.exec(sql);
     const base = 'http://127.0.0.1:' + hub.port;
     const stream = await fetch(base + '/api/projects/proj-test-001/events'), reader = stream.body!.getReader();
     await nextEvent(reader, 'presence');

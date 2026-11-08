@@ -16,13 +16,13 @@ test('anonymous complete downloads record baselines; HTML/JSON return merges his
   let hub: Awaited<ReturnType<typeof createHub>> | undefined;
   try {
     hub = await createHub({ host: '127.0.0.1', middleware: (_req, _res, next) => next() });
-    hub.db.sqlite.exec(readFileSync(path.join(ROOT_DIR, 'worker/sql/seed-test-data.sql'), 'utf8'));
+    hub.db.exec(readFileSync(path.join(ROOT_DIR, 'hub-server/test/fixtures/seed-test-data.sql'), 'utf8'));
     const p = 'proj-test-001', d = 'dwg-005', route = 'http://127.0.0.1:' + hub.port + '/api/pcf/' + p + '/' + d + '/';
     const api = async (tail: string, method = 'GET', body?: any) => {
       const response = await fetch(route + tail, { method, headers: { 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined });
       return { status: response.status, value: await response.json() as any };
     };
-    const storage = new PcfStorage(hub.db.sqlite, dir);
+    const storage = new PcfStorage(hub.db, dir);
     await api('create', 'POST');
     const exported = await fetch(route + 'download'); assert.equal(exported.status, 200);
     const html = await exported.text(), offline = parseHTML(html); assert.equal(offline.export.mode, 'complete'); assert.equal(offline.hub, undefined);
@@ -32,14 +32,14 @@ test('anonymous complete downloads record baselines; HTML/JSON return merges his
     const downloadJSON = await api('download?format=json'); assert.equal(downloadJSON.status, 200); assert.equal(downloadJSON.value.export.mode, 'complete');
     const source = storage.load(p, d); source.data.circulation.push({ id: 'server-history', round: 2, kind: 'sent', date: '2026-11-08', note: 'server addition' });
     storage.replace(p, d, { baseRev: source.rev, data: source.data }, { clientId: 'server', clientName: '', ip: '' });
-    hub.db.sqlite.prepare("UPDATE drawings SET status='Waiting Reply' WHERE project_id=? AND id=?").run(p, d);
+    hub.db.prepare("UPDATE drawings SET status='Waiting Reply' WHERE project_id=? AND id=?").run(p, d);
     offline.project.planTitle = 'Offline title';
     const returned = replaceData(html, offline);
     const replacement = await api('document', 'PUT', { baseRev: storage.load(p, d).rev, html: returned }); assert.equal(replacement.status, 409);
     const preview = await api('imports', 'POST', { step: 'preview', html: returned }); assert.equal(preview.status, 200, JSON.stringify(preview.value)); assert.equal(preview.value.mode, 'complete'); assert.deepEqual(preview.value.conflicts, []);
     const applied = await api('imports', 'POST', { step: 'apply', html: returned, previewToken: preview.value.previewToken, batchId: randomUUID(), choices: {} });
     assert.equal(applied.status, 200); assert.equal(applied.value.data.project.planTitle, 'Offline title'); assert.equal(applied.value.data.circulation.some((x: any) => x.id === 'server-history'), true);
-    assert.equal(hub.db.sqlite.prepare('SELECT status FROM drawings WHERE project_id=? AND id=?').get(p, d)!.status, 'Waiting Reply');
+    assert.equal(hub.db.prepare('SELECT status FROM drawings WHERE project_id=? AND id=?').get(p, d)!.status, 'Waiting Reply');
     assert.equal(applied.value.data.export, undefined);
     const another = downloadJSON.value; another.project.planNo = 'JSON offline plan';
     const jsonPreview = await api('imports', 'POST', { step: 'preview', json: another }); assert.equal(jsonPreview.status, 200);

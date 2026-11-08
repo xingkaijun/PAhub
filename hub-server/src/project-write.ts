@@ -105,6 +105,10 @@ export function verifyProjectWrite(db: DatabaseSync, projectId: string, drawings
 
 export class ProjectWriter {
   constructor(readonly storage: PcfStorage, readonly realtime: PcfRealtime) {}
+  private configuration(projectId: string, conf: RecordValue, full: boolean): void {
+    saveConfiguration(this.storage.db,projectId,conf,full);
+    for (const row of this.storage.db.prepare('SELECT id FROM drawings WHERE project_id=?').all(projectId)) this.realtime.projectChanged(projectId,String(row.id),['project-data']);
+  }
   private async remove(projectId: string, id: string): Promise<void> {
     await this.storage.serial(projectId, safeId(id), () => {
       transaction(this.storage.db, 'delete_drawing', () => {
@@ -124,7 +128,7 @@ export class ProjectWriter {
     db.prepare("INSERT INTO projects(id,name,storage_path,last_updated) VALUES(?,?,?,datetime('now')) ON CONFLICT(id) DO UPDATE SET name=excluded.name,storage_path=excluded.storage_path,last_updated=excluded.last_updated").run(projectId,String(project.name || projectId),String(project.storagePath || ''));
     const valid = new Set(project.drawings.map((d: RecordValue) => String(d.id)));
     for (const row of db.prepare('SELECT id FROM drawings WHERE project_id=?').all(projectId)) if (!valid.has(String(row.id))) await this.remove(projectId,String(row.id));
-    if (project.conf) saveConfiguration(db,projectId,project.conf,true);
+    if (project.conf) this.configuration(projectId,project.conf,true);
     const written: RecordValue[] = [];
     for (const drawing of project.drawings) written.push(await writeDrawing(this.storage,this.realtime,projectId,drawing,source));
     const sanitized: RecordValue = {};
@@ -147,7 +151,7 @@ export class ProjectWriter {
     // Legacy delta response counted only the final tracker/timestamp group:
     // configuration/deletions were drained before native drawing writes.
     let statements = 0;
-    if (body.conf) saveConfiguration(db,projectId,body.conf,false);
+    if (body.conf) this.configuration(projectId,body.conf,false);
     const written: RecordValue[] = [];
     for (const drawing of body.updatedDrawings || []) written.push(await writeDrawing(this.storage,this.realtime,projectId,drawing));
     if (body.reviewTracker && typeof body.reviewTracker === 'object') statements += writeTracker(db,projectId,body.reviewTracker,true,this.realtime);

@@ -15,7 +15,7 @@ test('exchange edges: whole image sets, disjoint fields, stale preview, invalid 
   Object.assign(process.env,{PORT:'0',PAHUB_DATA_DIR:temp,PAPC_DB_PATH:path.join(temp,'papc.db'),API_TOKEN:''});
   const hub=await createHub();
   try {
-    hub.db.sqlite.exec(await readFile(path.join(ROOT_DIR,'worker/sql/seed-test-data.sql'),'utf8'));
+    hub.db.exec(await readFile(path.join(ROOT_DIR,'hub-server/test/fixtures/seed-test-data.sql'),'utf8'));
     const origin='http://127.0.0.1:'+hub.port,route='/api/pcf/proj-test-001/dwg-005/';
     const api=async(tail:string,body?:any)=>{const r=await fetch(origin+route+tail,{method:body?'POST':'GET',headers:{'Content-Type':'application/json'},body:body?JSON.stringify({clientId:'edge-reviewer',...body}):undefined});return {status:r.status,data:await r.json() as any};};
     await api('create',{});let live=(await api('data')).data;

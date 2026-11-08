@@ -13,7 +13,7 @@ Object.assign(process.env, { PORT: '0', PAHUB_DATA_DIR: temp, PAPC_DB_PATH: path
 const hub = await createHub(); let browser;
 const artifacts = path.join(root, 'hub-server/test/artifacts'); await mkdir(artifacts, { recursive: true });
 try {
-  hub.db.sqlite.exec(await readFile(path.join(root, 'worker/sql/seed-test-data.sql'), 'utf8'));
+  hub.db.exec(await readFile(path.join(root, 'hub-server/test/fixtures/seed-test-data.sql'), 'utf8'));
   browser = await chromium.launch({ headless: true, channel: process.env.PAHUB_BROWSER_CHANNEL || 'chrome' });
   const contexts = await Promise.all(['A工','B工'].map(async nickname => { const context = await browser.newContext({ viewport: { width: 1440, height: 1100 } }); await context.addInitScript(name => localStorage.setItem('pahub.clientName', name), nickname); return context; }));
   const [a,b] = await Promise.all(contexts.map(context => context.newPage()));

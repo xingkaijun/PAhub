@@ -6,7 +6,6 @@ import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { initializeSchema } from '../src/database.ts';
-import { D1Adapter } from '../src/d1.ts';
 import { PcfStorage } from '../src/pcf-storage.ts';
 import { PcfRealtime } from '../src/pcf-realtime.ts';
 import { writeDrawing } from '../src/drawing-write.ts';
@@ -19,11 +18,12 @@ import { getProjectDetail, getProjectList, getSettings, getReviewTracker } from 
 
 const baselinePath = process.env.PAHUB_WORKER_BASELINE;
 const oldWorker = baselinePath ? (await import(pathToFileURL(baselinePath).href)).default : undefined;
+const D1Adapter=baselinePath?(await import(new URL("d1.mjs",pathToFileURL(baselinePath)).href)).D1Adapter:class {constructor(..._args:unknown[]) {}};
 
 test('native normalized reads preserve the legacy view contract', async () => {
   const db = new DatabaseSync(':memory:');
   try {
-    initializeSchema(db); db.exec(await readFile(path.join(ROOT_DIR,'worker/sql/seed-test-data.sql'),'utf8'));
+    initializeSchema(db); db.exec(await readFile(path.join(ROOT_DIR,"hub-server/test/fixtures/legacy-views.sql"),"utf8")); db.exec(await readFile(path.join(ROOT_DIR,'hub-server/test/fixtures/seed-test-data.sql'),'utf8'));
     assert.deepEqual(JSON.parse(JSON.stringify(getProjectList(db))),JSON.parse(JSON.stringify(db.prepare('SELECT * FROM api_projects ORDER BY name COLLATE NOCASE ASC').all().map(row => ({id:row.id,name:row.name,storagePath:row.storage_path || undefined,lastUpdated:row.last_updated || undefined})))));
     const row = db.prepare('SELECT * FROM api_project_details').get()!;
     const expected = {...JSON.parse(String(row.project_json)),...(row.storage_path ? {storagePath:row.storage_path} : {}),conf:JSON.parse(String(row.conf_json)),lastUpdated:row.last_updated};
@@ -41,8 +41,9 @@ test('same project requests match frozen Worker before route cutover', {skip:!ol
   const dbs = [new DatabaseSync(':memory:'),new DatabaseSync(':memory:')];
   const realtime = [new PcfRealtime(),new PcfRealtime()];
   try {
-    const seed = await readFile(path.join(ROOT_DIR,'worker/sql/seed-test-data.sql'),'utf8');
-    dbs.forEach(db => {initializeSchema(db);db.exec(seed);});
+    const seed = await readFile(path.join(ROOT_DIR,'hub-server/test/fixtures/seed-test-data.sql'),'utf8');
+    const legacyViews=await readFile(path.join(ROOT_DIR,"hub-server/test/fixtures/legacy-views.sql"),"utf8");
+    dbs.forEach(db => {initializeSchema(db);db.exec(seed);db.exec(legacyViews);});
     const stores = dbs.map((db,i) => new PcfStorage(db,path.join(dir,String(i))));
     const writer = new ProjectWriter(stores[1],realtime[1]);
     const router = new Router();registerProjectRoutes(router,writer);registerTrackerRoutes(router,writer);

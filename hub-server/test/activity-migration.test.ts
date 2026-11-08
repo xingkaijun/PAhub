@@ -3,11 +3,11 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { pathToFileURL } from 'node:url';
 import { initializeSchema } from '../src/database.ts';
-import { D1Adapter } from '../src/d1.ts';
 import { Router } from '../src/router.ts';
 import { registerActivityRoutes } from '../src/activity-routes.ts';
 const baselinePath=process.env.PAHUB_WORKER_BASELINE;
 const oldWorker=baselinePath?(await import(pathToFileURL(baselinePath).href)).default:undefined;
+const D1Adapter=baselinePath?(await import(new URL("d1.mjs",pathToFileURL(baselinePath)).href)).D1Adapter:class {constructor(..._args:unknown[]) {}};
 
 test('audit boundaries, invalid details, ordering and truncation preserve Worker behavior',async () => {
   const db=new DatabaseSync(':memory:');

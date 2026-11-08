@@ -38,7 +38,7 @@ test('two real SSE clients: changed clocks, presence release, reconnect and dura
   Object.assign(process.env, { PORT: '0', PAHUB_DATA_DIR: temp, PAPC_DB_PATH: path.join(temp, 'papc.db'), API_TOKEN: 'rt-secret' });
   let hub: Awaited<ReturnType<typeof createHub>> | undefined, a: Awaited<ReturnType<typeof sse>> | undefined, b: Awaited<ReturnType<typeof sse>> | undefined;
   try {
-    hub = await createHub(); hub.db.sqlite.exec(await readFile(path.join(ROOT_DIR, 'worker/sql/seed-test-data.sql'), 'utf8'));
+    hub = await createHub(); hub.db.exec(await readFile(path.join(ROOT_DIR, 'hub-server/test/fixtures/seed-test-data.sql'), 'utf8'));
     let base = 'http://127.0.0.1:' + hub.port; const route = '/api/pcf/proj-test-001/dwg-005';
     const api = async (tail: string, body?: any) => { const response = await fetch(base + route + '/' + tail, { method: body ? 'POST' : 'GET', headers: { Authorization: 'Bearer rt-secret', 'Content-Type': 'application/json' }, body: body ? JSON.stringify(body) : undefined }); assert.equal(response.status, 200); return response.json(); };
     await api('create', {});
@@ -67,7 +67,7 @@ test('two real SSE clients: changed clocks, presence release, reconnect and dura
     assert.deepEqual(await api('ops', batch), first); // exact old response after another revision
     const conflictBatch = { ...batch, batchId: randomUUID(), ops: [{ ...contentOp(first.data,'owner','BODY_NEVER_SQL'),baseRev:0 }] };
     const rejected = await api('ops', conflictBatch); assert.equal(rejected.conflicts.length,1);assert.deepEqual(await api('ops',conflictBatch),rejected);
-    for (const table of hub.db.sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all()) assert.ok(!JSON.stringify(hub.db.sqlite.prepare('SELECT * FROM "' + table.name + '"').all()).includes('BODY_NEVER_SQL'));
+    for (const table of hub.db.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'").all()) assert.ok(!JSON.stringify(hub.db.prepare('SELECT * FROM "' + table.name + '"').all()).includes('BODY_NEVER_SQL'));
     console.log('Concurrent duplicate batch applies once; conflict-only receipt exact replay at unchanged rev; body sentinel absent from every SQLite table');
     b.close(); b = undefined; await hub.close(); hub = await createHub(); base = 'http://127.0.0.1:' + hub.port;
     assert.deepEqual(await api('ops', batch), first); assert.equal((await api('data')).data.comments.length, 1);

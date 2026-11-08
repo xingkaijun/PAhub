@@ -114,7 +114,7 @@ test('v5 builder new fields are non-writable and all downloaded data/context is 
 test('hosted JSON import blocks presence, rejects stale rev, stores history and never requests file permission',async()=>{
   const temp=await mkdtemp(path.join(tmpdir(),'pahub-v26-api-')),old=Object.fromEntries(['PORT','PAPC_DB_PATH','PAHUB_DATA_DIR','API_TOKEN'].map(k=>[k,process.env[k]]));Object.assign(process.env,{PORT:'0',PAPC_DB_PATH:path.join(temp,'papc.db'),PAHUB_DATA_DIR:temp,API_TOKEN:''});let hub:any;
   try{
-    hub=await createHub();hub.db.sqlite.exec(await readFile(path.join(ROOT_DIR,'worker/sql/seed-test-data.sql'),'utf8'));const url='http://127.0.0.1:'+hub.port+'/api/pcf/proj-test-001/dwg-005/';
+    hub=await createHub();hub.db.exec(await readFile(path.join(ROOT_DIR,'hub-server/test/fixtures/seed-test-data.sql'),'utf8'));const url='http://127.0.0.1:'+hub.port+'/api/pcf/proj-test-001/dwg-005/';
     const api=async(tail:string,method='GET',body?:any)=>{const r=await fetch(url+tail,{method,headers:{'Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});return {status:r.status,value:await r.json() as any};};
     await api('create','POST',{});let doc=(await api('data')).value;
     doc=(await api('ops','POST',{clientId:'A',baseRev:doc.rev,batchId:randomUUID(),ops:[{type:'comment.add',id:'c',roundIdNew:'r'}]})).value;

@@ -137,8 +137,8 @@ test('Send All authenticated batch ZIP, latest rev, skipped/collision manifest, 
   Object.assign(process.env, { PORT: '0', PAHUB_DATA_DIR: temp, PAPC_DB_PATH: path.join(temp, 'papc.db'), API_TOKEN: 'send-all-token', ADMIN_PASSWORD: 'send-all-admin' });
   let hub: Awaited<ReturnType<typeof createHub>> | undefined;
   try {
-    hub = await createHub(); const db = hub.db.sqlite;
-    db.exec(await readFile(path.join(ROOT_DIR, 'worker/sql/seed-test-data.sql'), 'utf8'));
+    hub = await createHub(); const db = hub.db;
+    db.exec(await readFile(path.join(ROOT_DIR, 'hub-server/test/fixtures/seed-test-data.sql'), 'utf8'));
     const p = 'proj-test-001', origin = 'http://127.0.0.1:' + hub.port;
     const api = async (route: string, body?: any, auth = true) => fetch(origin + '/api/pcf/' + p + '/' + route, { method: body ? 'POST' : 'GET', headers: { 'Content-Type': 'application/json', ...(auth ? { Authorization: 'Bearer send-all-token' } : {}) }, body: body ? JSON.stringify({ clientId: 'send-all-test', clientName: 'Reviewer', ...body }) : undefined });
     const json = async (route: string, body?: any) => { const r = await api(route, body); assert.equal(r.status, 200, await r.clone().text()); return r.json() as Promise<any>; };
@@ -196,12 +196,12 @@ test('Send All authenticated batch ZIP, latest rev, skipped/collision manifest, 
     assert.equal(retry.status, 200);
     const retryRows = csv(unzip(Buffer.from(await retry.arrayBuffer())).get('manifest.csv')!.toString('utf8').slice(1));
     assert.deepEqual(retryRows.map(row => row.exportId), manifest.map(row => row.exportId));
-    assert.equal(hub.db.sqlite.prepare('SELECT COUNT(*) AS n FROM pcf_exports').get()!.n, 2);
+    assert.equal(hub.db.prepare('SELECT COUNT(*) AS n FROM pcf_exports').get()!.n, 2);
     const baselines = await Promise.all(['dwg-001','dwg-002'].map(id => readdir(path.join(temp,'pcf',p,id,'exports'))));
-    hub.db.sqlite.exec("CREATE TRIGGER fail_second_export BEFORE INSERT ON pcf_exports WHEN NEW.drawing_id='dwg-002' BEGIN SELECT RAISE(ABORT,'test batch failure'); END");
+    hub.db.exec("CREATE TRIGGER fail_second_export BEFORE INSERT ON pcf_exports WHEN NEW.drawing_id='dwg-002' BEGIN SELECT RAISE(ABORT,'test batch failure'); END");
     const failed = await fetch('http://127.0.0.1:' + hub.port + '/api/pcf/' + p + '/exports/batch', { method: 'POST', headers: { 'Content-Type': 'application/json', Authorization: 'Bearer send-all-token' }, body: JSON.stringify({ drawingIds, batchId: randomUUID() }) });
-    assert.equal(failed.status, 500); assert.equal(hub.db.sqlite.prepare('SELECT COUNT(*) AS n FROM pcf_exports').get()!.n, 2);
-    assert.equal(hub.db.sqlite.prepare('SELECT COUNT(*) AS n FROM pcf_export_batches').get()!.n, 1);
+    assert.equal(failed.status, 500); assert.equal(hub.db.prepare('SELECT COUNT(*) AS n FROM pcf_exports').get()!.n, 2);
+    assert.equal(hub.db.prepare('SELECT COUNT(*) AS n FROM pcf_export_batches').get()!.n, 1);
     assert.deepEqual(await Promise.all(['dwg-001','dwg-002'].map(id => readdir(path.join(temp,'pcf',p,id,'exports')))), baselines);
   } finally {
     if (hub) await hub.close(); for (const key of keys) { if (old[key] === undefined) delete process.env[key]; else process.env[key] = old[key]; }
@@ -214,15 +214,15 @@ test('import-d1 and existing databases preserve legacy paths and APR without add
   const temp = await mkdtemp(path.join(tmpdir(), 'pahub-send-all-legacy-'));
   try {
     const schema = migrationSql('001_schema.sql').replaceAll('storage_path','webdav_path');
-    const seed = (await readFile(path.join(ROOT_DIR,'worker/sql/seed-test-data.sql'),'utf8')).replaceAll('storage_path','webdav_path');
+    const seed = (await readFile(path.join(ROOT_DIR,'hub-server/test/fixtures/seed-test-data.sql'),'utf8')).replaceAll('storage_path','webdav_path');
     const legacy = schema + '\n' + seed + "\nINSERT INTO review_tracker(project_id,drawing_id,raw_drawing_ref,reviewer_id,done) VALUES('proj-test-001','dwg-001','dwg-001','__approved__',0);";
     const existingFile = path.join(temp,'existing.db'), sqlite = new DatabaseSync(existingFile); sqlite.exec(legacy); sqlite.close();
     const upgraded = openDatabase(existingFile);
-    try { assert.equal(upgraded.sqlite.prepare('PRAGMA table_info(review_tracker)').all().some(row => row.name === 'source'), false); assert.equal(upgraded.sqlite.prepare("SELECT done FROM review_tracker WHERE reviewer_id='__approved__'").get()!.done, 0); } finally { upgraded.sqlite.close(); }
+    try { assert.equal(upgraded.prepare('PRAGMA table_info(review_tracker)').all().some(row => row.name === 'source'), false); assert.equal(upgraded.prepare("SELECT done FROM review_tracker WHERE reviewer_id='__approved__'").get()!.done, 0); } finally { upgraded.close(); }
     const sqlFile = path.join(temp,'old-d1.sql'); await writeFile(sqlFile,legacy);
     assert.equal((await importData(sqlFile,path.join(temp,'imported.db'))).drawings,6);
     const imported = openDatabase(path.join(temp,'imported.db'));
-    try { assert.equal(imported.sqlite.prepare('PRAGMA table_info(review_tracker)').all().some(row => row.name === 'source'), false); assert.equal(imported.sqlite.prepare("SELECT done FROM review_tracker WHERE reviewer_id='__approved__'").get()!.done,0); } finally { imported.sqlite.close(); }
+    try { assert.equal(imported.prepare('PRAGMA table_info(review_tracker)').all().some(row => row.name === 'source'), false); assert.equal(imported.prepare("SELECT done FROM review_tracker WHERE reviewer_id='__approved__'").get()!.done,0); } finally { imported.close(); }
   } finally { await rm(temp, { recursive: true, force: true }); }
 });
 
@@ -234,8 +234,8 @@ test('existing tracker source columns are ignored by reads, writes and verificat
   let hub: Awaited<ReturnType<typeof createHub>> | undefined;
   try {
     hub = await createHub();
-    hub.db.sqlite.exec(await readFile(path.join(ROOT_DIR, 'worker/sql/seed-test-data.sql'), 'utf8'));
-    hub.db.sqlite.exec("ALTER TABLE review_tracker ADD COLUMN source TEXT; UPDATE review_tracker SET source='ignored'; CREATE TRIGGER reject_source_update BEFORE UPDATE OF source ON review_tracker BEGIN SELECT RAISE(ABORT,'source must be ignored'); END;");
+    hub.db.exec(await readFile(path.join(ROOT_DIR, 'hub-server/test/fixtures/seed-test-data.sql'), 'utf8'));
+    hub.db.exec("ALTER TABLE review_tracker ADD COLUMN source TEXT; UPDATE review_tracker SET source='ignored'; CREATE TRIGGER reject_source_update BEFORE UPDATE OF source ON review_tracker BEGIN SELECT RAISE(ABORT,'source must be ignored'); END;");
     await hub.close(); hub = await createHub();
     const repository = new HubApiRepository('http://127.0.0.1:' + hub.port + '/api'), settings = {} as AppSettings;
     const project = await repository.loadProject(settings, { id: 'proj-test-001' } as Project);
@@ -246,7 +246,7 @@ test('existing tracker source columns are ignored by reads, writes and verificat
     assert.equal((await repository.saveProject(settings, project, tracker)).success, true);
     tracker = await repository.loadReviewTracker(settings, project);
     assert.equal(Boolean(tracker['dwg-001'].engineer_a.done), false); assert.equal(tracker['dwg-001'].engineer_a.doneAt ?? null, null);
-    assert.ok(hub.db.sqlite.prepare('PRAGMA table_info(review_tracker)').all().some(row => row.name === 'source'));
+    assert.ok(hub.db.prepare('PRAGMA table_info(review_tracker)').all().some(row => row.name === 'source'));
   } finally {
     if (hub) await hub.close();
     for (const key of keys) { if (old[key] === undefined) delete process.env[key]; else process.env[key] = old[key]; }

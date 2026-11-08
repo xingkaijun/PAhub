@@ -3,7 +3,6 @@ import { existsSync, mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ROOT_DIR, SQL_DIR } from './config.ts';
-import { D1Adapter } from './d1.ts';
 import { migrateLegacyProjectPath } from './import-legacy.ts';
 
 // Numbered migrations live next to the source. The build copies them to dist so
@@ -140,20 +139,20 @@ export function initializeSchema(db: DatabaseSync): void {
   removeLegacySnapshots(db);
   migrateLegacyProjectPath(db);
   migrate(db);
-  for (const view of ['api_settings', 'api_projects', 'api_project_details', 'api_review_trackers']) {
-    db.prepare('SELECT * FROM ' + view + ' LIMIT 1').all();
-  }
+  // Retire legacy read views for either storage version (1=HTML, 2=JSON).
+  // Do not advance user_version: version 2 remains an explicit offline conversion.
+  for (const view of ['api_settings', 'api_projects', 'api_project_details', 'api_review_trackers']) db.exec('DROP VIEW IF EXISTS ' + view);
   const violations = db.prepare('PRAGMA foreign_key_check').all();
   if (violations.length) throw new Error('Foreign-key violations: ' + JSON.stringify(violations.slice(0, 5)));
 }
 
-export function openDatabase(dbPath: string): D1Adapter {
+export function openDatabase(dbPath: string): DatabaseSync {
   if (dbPath !== ':memory:') mkdirSync(path.dirname(dbPath), { recursive: true });
   const db = new DatabaseSync(dbPath);
   try {
     db.exec('PRAGMA foreign_keys = ON; PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL');
     initializeSchema(db);
-    return new D1Adapter(db);
+    return db;
   } catch (error) {
     db.close();
     throw error;

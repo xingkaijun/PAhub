@@ -1,13 +1,13 @@
-import { build } from 'esbuild';
-import { spawn } from 'node:child_process';
+import {build} from 'esbuild';
+import {spawn} from 'node:child_process';
+import {readdir} from 'node:fs/promises';
 import path from 'node:path';
-import { bundleOptions, outdir, root, copySchema, typecheck } from './build.mjs';
+import {bundleOptions,outdir,root,copySchema,typecheck} from './build.mjs';
 
 await typecheck();
 await copySchema();
-await build({ ...bundleOptions, packages: 'external', define: { 'import.meta.env': JSON.stringify({ MODE: 'hub', VITE_DATA_API_BASE_URL: '/api', VITE_DATA_API_TOKEN: '' }) }, entryPoints: ['hub-server/test/d1.test.ts', 'hub-server/test/integration.test.ts', 'hub-server/test/pcf.test.ts', 'hub-server/test/realtime.test.ts', 'hub-server/test/exchange.test.ts', 'hub-server/test/exchange-edge.test.ts', 'hub-server/test/send-all.test.ts', 'hub-server/test/v26.test.ts', 'hub-server/test/builder-replies.test.ts', 'hub-server/test/phase8.test.ts', 'hub-server/test/history-retention.test.ts', 'hub-server/test/cost-affect.test.ts', 'hub-server/test/comments.test.ts', 'hub-server/test/activity-report.test.ts', 'hub-server/test/banner-toolbar.test.ts', 'hub-server/test/basic-auth.test.ts', 'hub-server/test/admin-readonly.test.ts', 'hub-server/test/drawing-state.test.ts', 'hub-server/test/deadline.test.ts', 'hub-server/test/drawing-ownership-ui.test.ts', 'hub-server/test/drawing-fields.test.ts', 'hub-server/test/template-cache.test.ts', 'hub-server/test/pcf-json-migration.test.ts', 'hub-server/test/pcf-project-export.test.ts', 'hub-server/test/pcf-complete-copy.test.ts', 'hub-server/test/pcf-complete-api.test.ts', 'hub-server/test/pcf-complete-receipt.test.ts', 'hub-server/test/pcf-complete-ui.test.ts', 'hub-server/test/migrations.test.ts'].map(relative => path.join(root, relative)),
-  outdir, outExtension: { '.js': '.mjs' } });
-const child = spawn(process.execPath, ['--test', '--test-concurrency=1', path.join(outdir, 'd1.test.mjs'), path.join(outdir, 'integration.test.mjs'), path.join(outdir, 'pcf.test.mjs'), path.join(outdir, 'realtime.test.mjs'), path.join(outdir, 'exchange.test.mjs'), path.join(outdir, 'exchange-edge.test.mjs'), path.join(outdir, 'send-all.test.mjs'), path.join(outdir, 'v26.test.mjs'), path.join(outdir, 'builder-replies.test.mjs'), path.join(outdir, 'phase8.test.mjs'), path.join(outdir, 'history-retention.test.mjs'), path.join(outdir, 'cost-affect.test.mjs'), path.join(outdir, 'comments.test.mjs'), path.join(outdir, 'activity-report.test.mjs'), path.join(outdir, 'banner-toolbar.test.mjs'), path.join(outdir, 'basic-auth.test.mjs'), path.join(outdir, 'admin-readonly.test.mjs'), path.join(outdir, 'drawing-state.test.mjs'), path.join(outdir, 'deadline.test.mjs'), path.join(outdir, 'drawing-ownership-ui.test.mjs'), path.join(outdir, 'drawing-fields.test.mjs'), path.join(outdir, 'template-cache.test.mjs'), path.join(outdir, 'pcf-json-migration.test.mjs'), path.join(outdir, 'pcf-project-export.test.mjs'), path.join(outdir, 'pcf-complete-copy.test.mjs'), path.join(outdir, 'pcf-complete-api.test.mjs'), path.join(outdir, 'pcf-complete-receipt.test.mjs'), path.join(outdir, 'pcf-complete-ui.test.mjs'), path.join(outdir, 'migrations.test.mjs')],
-  { cwd: root, stdio: 'inherit' });
-child.on('error', error => { throw error; });
-child.on('exit', code => { process.exitCode = code || 0; });
+const files=(await readdir(path.join(root,'hub-server/test'))).filter(name=>name.endsWith('.test.ts')).sort();
+await build({...bundleOptions,packages:'external',define:{'import.meta.env':JSON.stringify({MODE:'hub',VITE_DATA_API_BASE_URL:'/api',VITE_DATA_API_TOKEN:''})},entryPoints:files.map(name=>path.join(root,'hub-server/test',name)),outdir,outExtension:{'.js':'.mjs'}});
+const child=spawn(process.execPath,['--test','--test-concurrency=1',...files.map(name=>path.join(outdir,name.replace(/\.ts$/,'.mjs')))],{cwd:root,stdio:'inherit'});
+child.on('error',error=>{throw error;});
+child.on('exit',code=>{process.exitCode=code || 0;});

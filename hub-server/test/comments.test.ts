@@ -48,7 +48,7 @@ async function fixture(token = '') {
   };
   try {
     hub = await createHub({ middleware: (_req, _res, next) => next() });
-    const liveHub = hub, db = liveHub.db.sqlite, storage = new PcfStorage(db, dir);
+    const liveHub = hub, db = liveHub.db, storage = new PcfStorage(db, dir);
     db.prepare('INSERT INTO projects(id,name) VALUES (?,?)').run(project, 'Phase 9 A');
     db.prepare('INSERT INTO projects(id,name) VALUES (?,?)').run(otherProject, 'Phase 9 B');
     const origin = 'http://127.0.0.1:' + liveHub.port;

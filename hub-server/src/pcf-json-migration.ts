@@ -103,7 +103,7 @@ export function migratePcfJson(options: { dataDir: string; dbPath?: string; dryR
   const stageName = '.pcf-json-stage-' + randomUUID(), backupName = 'pcf-html-backup-' + stamp;
   const stage = path.join(dataDir, stageName), htmlBackup = path.join(dataDir, backupName);
   let movedOld = false, installed = false, committed = false;
-  const adapter = openDatabase(dbPath), db = adapter.sqlite;
+  const adapter = openDatabase(dbPath), db = adapter;
   try {
     if (existsSync(base)) cpSync(base, stage, { recursive: true }); else mkdirSync(stage);
     for (const c of conversions) {

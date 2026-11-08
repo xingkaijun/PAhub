@@ -6,7 +6,6 @@ import path from 'node:path';
 import {pathToFileURL} from 'node:url';
 import {DatabaseSync} from 'node:sqlite';
 import {initializeSchema} from '../src/database.ts';
-import {D1Adapter} from '../src/d1.ts';
 import {PcfStorage} from '../src/pcf-storage.ts';
 import {PcfRealtime} from '../src/pcf-realtime.ts';
 import {ProjectWriter} from '../src/project-write.ts';
@@ -15,11 +14,13 @@ import {Router} from '../src/router.ts';
 import {ROOT_DIR} from '../src/config.ts';
 const baselinePath=process.env.PAHUB_WORKER_BASELINE;
 const oldWorker=baselinePath?(await import(pathToFileURL(baselinePath).href)).default:undefined;
+const D1Adapter=baselinePath?(await import(new URL("d1.mjs",pathToFileURL(baselinePath)).href)).D1Adapter:class {constructor(..._args:unknown[]) {}};
 
 test('native admin matches frozen Worker for auth, schema, search, CRUD, SQL and export',async () => {
  const dir=await mkdtemp(path.join(tmpdir(),'pahub-admin-parity-')),db=new DatabaseSync(path.join(dir,'papc.db')),realtime=new PcfRealtime();
  try{
-  initializeSchema(db);db.exec(await readFile(path.join(ROOT_DIR,'worker/sql/seed-test-data.sql'),'utf8'));
+  initializeSchema(db);db.exec(await readFile(path.join(ROOT_DIR,'hub-server/test/fixtures/seed-test-data.sql'),'utf8'));
+  if(oldWorker)db.exec(await readFile(path.join(ROOT_DIR,'hub-server/test/fixtures/legacy-views.sql'),'utf8'));
   const writer=new ProjectWriter(new PcfStorage(db,dir),realtime),admin=new AdminApi(db,path.join(dir,'papc.db'),'password',writer),router=new Router();
   router.add({pattern:/^\/api\/admin(?:\/|$)/,auth:'none',handle:ctx=>admin.handle(ctx.request)});
   const env={PAPC_DB:new D1Adapter(db),ADMIN_PASSWORD:'password',ADMIN_SQL:(sql:string)=> {const reader=new DatabaseSync(path.join(dir,'papc.db'),{readOnly:true});try{reader.exec('PRAGMA query_only=ON');return reader.prepare(sql).all();}finally{reader.close();}}};

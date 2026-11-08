@@ -31,7 +31,7 @@ test('Builder export/offline save and authenticated three-way import through ops
   Object.assign(process.env, { PORT:'0',PAHUB_DATA_DIR:temp,PAPC_DB_PATH:path.join(temp,'papc.db'),API_TOKEN:'phase4-secret',ADMIN_PASSWORD:'phase4-admin' });
   let hub: Awaited<ReturnType<typeof createHub>> | undefined; const abort = new AbortController();
   try {
-    hub = await createHub();hub.db.sqlite.exec(await readFile(path.join(ROOT_DIR,'worker/sql/seed-test-data.sql'),'utf8'));
+    hub = await createHub();hub.db.exec(await readFile(path.join(ROOT_DIR,'hub-server/test/fixtures/seed-test-data.sql'),'utf8'));
     let origin = 'http://127.0.0.1:' + hub.port; const endpoint = '/api/pcf/proj-test-001/dwg-005/';
     const api = async (tail: string, body?: any, auth = true) => {
       const response = await fetch(origin+endpoint+tail,{ method:body?'POST':'GET',headers:{'Content-Type':'application/json',...(auth?{Authorization:'Bearer phase4-secret'}:{})},body:body?JSON.stringify({clientId:'reviewer',clientName:'Owner reviewer',...body}):undefined });
@@ -87,7 +87,7 @@ test('Builder export/offline save and authenticated three-way import through ops
     assert.match(events,/Builder import/);assert.ok(events.includes(record.exportId));assert.match(events,/round:r1:reply/);
     live=applied.value;assert.equal(live.data.comments.length,3);assert.ok(live.data.comments.some((x:any)=>x.id==='c5'));assert.ok(!live.data.comments.some((x:any)=>x.id==='c3'));assert.ok(!live.data.comments.some((x:any)=>x.id==='c4'));
     assert.equal(live.data.comments[0].rounds[0].owner.text,'OWNER_SENTINEL_1');assert.equal(live.data.comments[0].rounds[0].reply.text,'Builder first reply');
-    const sql=hub.db.sqlite.prepare('SELECT manual_comments_count,manual_open_comments_count,current_round FROM drawings WHERE id=?').get('dwg-005')!;
+    const sql=hub.db.prepare('SELECT manual_comments_count,manual_open_comments_count,current_round FROM drawings WHERE id=?').get('dwg-005')!;
     assert.equal(sql.manual_comments_count,3);assert.equal(sql.manual_open_comments_count,3);assert.equal(sql.current_round,'B');
     assert.equal((await api('exports')).value[0].status,'imported');
     const history=(await api('history')).value;assert.ok(history.some((x:any)=>x.rev===beforeApply));
@@ -99,7 +99,7 @@ test('Builder export/offline save and authenticated three-way import through ops
     const overwritten=await api('imports',{...body,batchId:randomUUID(),previewToken:repeated.previewToken,choices:{'r3:deleted':{choice:'server'}},overwrite:true});assert.equal(overwritten.status,200);assert.equal(overwritten.value.rev,live.rev);assert.deepEqual(overwritten.value.applied,[]);
     const restored=await api('history/'+beforeApply+'/restore',{baseRev:live.rev});assert.equal(restored.status,200);assert.equal(restored.value.data.comments.find((x:any)=>x.id==='c1').rounds[0].reply.text,'');
     // Bodies and attachments must never enter SQLite, including the new exports table.
-    for(const row of hub.db.sqlite.prepare("SELECT name FROM sqlite_master WHERE type='table'").all())for(const value of hub.db.sqlite.prepare('SELECT * FROM "'+row.name+'"').all())assert.doesNotMatch(JSON.stringify(value),/OWNER_SENTINEL|Builder first reply|Builder second reply|TAMPERED_OWNER/);
+    for(const row of hub.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all())for(const value of hub.db.prepare('SELECT * FROM "'+row.name+'"').all())assert.doesNotMatch(JSON.stringify(value),/OWNER_SENTINEL|Builder first reply|Builder second reply|TAMPERED_OWNER/);
     await hub.close();hub=await createHub();origin='http://127.0.0.1:'+hub.port;
     assert.deepEqual(await api('imports',body),applied);assert.equal((await api('imports',{step:'preview',html:returnedHTML})).value.ownerTampered,true);
     assert.equal((await api('exports/'+record.exportId+'/void',{})).status,200);assert.equal((await api('imports',{step:'preview',html:returnedHTML})).status,409);

@@ -13,7 +13,7 @@ Object.assign(process.env, { PORT: '0', PAHUB_DATA_DIR: temp, PAPC_DB_PATH: path
 const hub = await createHub(); let browser;
 const artifacts = path.join(root, 'hub-server/test/artifacts'); await mkdir(artifacts, { recursive: true });
 try {
-  hub.db.sqlite.exec(await readFile(path.join(root, 'worker/sql/seed-test-data.sql'), 'utf8'));
+  hub.db.exec(await readFile(path.join(root, 'hub-server/test/fixtures/seed-test-data.sql'), 'utf8'));
   browser = await chromium.launch({ headless: true, channel: process.env.PAHUB_BROWSER_CHANNEL || 'chrome' });
   const contextA = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true, locale: 'en-US' });
   const contextB = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true, locale: 'en-US' });
@@ -58,7 +58,7 @@ try {
   assert.match(exported, /Phase 8 unsaved export comment/);
   const exportedMarkup = exported.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '').replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '');
   assert.doesNotMatch(exportedMarkup, /\bid="(?:pahub-context|pahub-export|pahub-import)"|X-PCF-Token/i);
-  const exports = hub.db.sqlite.prepare('SELECT export_id, status FROM pcf_exports WHERE project_id=? AND drawing_id=?').all('proj-test-001', 'dwg-005');
+  const exports = hub.db.prepare('SELECT export_id, status FROM pcf_exports WHERE project_id=? AND drawing_id=?').all('proj-test-001', 'dwg-005');
   assert.equal(exports.length, 1); assert.equal(exports[0].status, 'exported');
   await a.waitForFunction(() => {
     const tr = document.querySelector('a[href="/pcf/proj-test-001/dwg-005"]')?.closest('tr');

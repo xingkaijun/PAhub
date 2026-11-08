@@ -21,8 +21,8 @@ function tree(dir: string): string {
 function fixture() {
   const parent = mkdtempSync(path.join(tmpdir(), 'pahub-migrate-json-test-')), dir = path.join(parent, 'data'); mkdirSync(dir);
   const db = openDatabase(path.join(dir, 'papc.db'));
-  db.sqlite.exec(readFileSync(path.join(ROOT_DIR, 'worker/sql/seed-test-data.sql'), 'utf8'));
-  const p = 'proj-test-001', d = 'dwg-005', storage = new PcfStorage(db.sqlite, dir), actor = { clientId: 'fixture', clientName: '', ip: '127.0.0.1' };
+  db.exec(readFileSync(path.join(ROOT_DIR, 'hub-server/test/fixtures/seed-test-data.sql'), 'utf8'));
+  const p = 'proj-test-001', d = 'dwg-005', storage = new PcfStorage(db, dir), actor = { clientId: 'fixture', clientName: '', ip: '127.0.0.1' };
   storage.create(p, d, actor); const baseline = storage.load(p, d).data;
   storage.ops(p, d, { baseRev: 1, batchId: randomUUID(), ops: [{ type: 'comment.add', id: 'c1', roundIdNew: 'r1' }] }, actor);
   const data = storage.load(p, d).data;
@@ -32,8 +32,8 @@ function fixture() {
   const historyFile = path.join(h, snapshot);
   writeFileSync(historyFile.replace(/\.json$/, '.html'), renderTemplate(JSON.parse(readFileSync(historyFile, 'utf8'))), 'utf8'); rmSync(historyFile);
   const manifest = path.join(h, '.retention.json'), value = JSON.parse(readFileSync(manifest, 'utf8')); value.filename = value.filename.replace(/\.json$/, '.html'); writeFileSync(manifest, JSON.stringify(value));
-  db.sqlite.prepare("UPDATE pcf_index SET file_path=replace(file_path,'.json','.html')").run();
-  db.sqlite.exec('PRAGMA user_version=1'); db.sqlite.close();
+  db.prepare("UPDATE pcf_index SET file_path=replace(file_path,'.json','.html')").run();
+  db.exec('PRAGMA user_version=1'); db.close();
   const exportDir = path.join(dir, 'pcf', p, d, 'exports'); mkdirSync(exportDir, { recursive: true }); writeFileSync(path.join(exportDir, 'baseline.html'), html);
   return { parent, dir, p, d, data, baseline, snapshot: snapshot.replace(/\.json$/, '.html'), html, cleanup() { rmSync(parent, { recursive: true, force: true }); } };
 }
@@ -55,15 +55,15 @@ test('migration preserves exact JSON, revision, history manifest, HTML exchange 
     assert.equal(readFileSync(path.join(report.htmlBackup, f.p, f.d + '.html'), 'utf8'), f.html);
     const db = openDatabase(path.join(f.dir, 'papc.db'));
     try {
-      assert.equal(db.sqlite.prepare('PRAGMA user_version').get()!.user_version, 2);
-      const storage = new PcfStorage(db.sqlite, f.dir);
+      assert.equal(db.prepare('PRAGMA user_version').get()!.user_version, 2);
+      const storage = new PcfStorage(db, f.dir);
       assert.deepEqual(storage.load(f.p, f.d).data, f.data);
       assert.equal(storage.meta(f.p, f.d).file_path, 'pcf/' + f.p + '/' + f.d + '.json');
       const history = storage.history(f.p, f.d); assert.equal(history.length, 1); assert.ok(history[0].filename.endsWith('.json'));
       assert.deepEqual(JSON.parse(readFileSync(path.join(storage.historyDir(f.p, f.d), history[0].filename), 'utf8')), f.baseline);
       const m = JSON.parse(readFileSync(path.join(storage.historyDir(f.p, f.d), '.retention.json'), 'utf8')); assert.equal(m.filename, history[0].filename);
       assert.equal(readFileSync(path.join(f.dir, 'pcf', f.p, f.d, 'exports', 'baseline.html'), 'utf8'), f.html);
-    } finally { db.sqlite.close(); }
+    } finally { db.close(); }
     const after = tree(f.dir); assert.equal(migratePcfJson({ dataDir: f.dir, hubStopped: true }).status, 'already-migrated'); assert.equal(tree(f.dir), after);
   } finally { f.cleanup(); }
 });
@@ -74,7 +74,7 @@ test('invalid HTML or an index ahead of its document aborts before any writes', 
     writeFileSync(file, '<html>broken</html>'); const before = tree(f.dir);
     assert.throws(() => migratePcfJson({ dataDir: f.dir, hubStopped: true }), /pcf-data/); assert.equal(tree(f.dir), before);
     writeFileSync(file, f.html);
-    const db = openDatabase(path.join(f.dir, 'papc.db')); db.sqlite.exec('UPDATE pcf_index SET rev=999'); db.sqlite.close();
+    const db = openDatabase(path.join(f.dir, 'papc.db')); db.exec('UPDATE pcf_index SET rev=999'); db.close();
     const indexed = tree(f.dir); assert.throws(() => migratePcfJson({ dataDir: f.dir, hubStopped: true }), /Index ahead/); assert.equal(tree(f.dir), indexed);
   } finally { f.cleanup(); }
 });
@@ -82,17 +82,17 @@ test('invalid HTML or an index ahead of its document aborts before any writes', 
 test('failed final index update rolls back installed JSON and leaves the HTML directory usable', () => {
   const f = fixture(); try {
     const db = openDatabase(path.join(f.dir, 'papc.db'));
-    db.sqlite.exec("CREATE TRIGGER reject_json BEFORE UPDATE OF file_path ON pcf_index WHEN NEW.file_path LIKE '%.json' BEGIN SELECT RAISE(ABORT,'simulated JSON index failure'); END");
-    db.sqlite.close();
+    db.exec("CREATE TRIGGER reject_json BEFORE UPDATE OF file_path ON pcf_index WHEN NEW.file_path LIKE '%.json' BEGIN SELECT RAISE(ABORT,'simulated JSON index failure'); END");
+    db.close();
     assert.throws(() => migratePcfJson({ dataDir: f.dir, hubStopped: true }), /simulated JSON index failure/);
     assert.equal(readFileSync(path.join(f.dir, 'pcf', f.p, f.d + '.html'), 'utf8'), f.html);
     assert.equal(existsSync(path.join(f.dir, 'pcf', f.p, f.d + '.json')), false);
     assert.equal(existsSync(path.join(f.dir, '.pcf-json-migration.json')), false);
     const reopened = openDatabase(path.join(f.dir, 'papc.db'));
     try {
-      assert.equal(reopened.sqlite.prepare('PRAGMA user_version').get()!.user_version, 1);
-      assert.equal(reopened.sqlite.prepare('SELECT file_path FROM pcf_index').get()!.file_path, 'pcf/' + f.p + '/' + f.d + '.html');
-    } finally { reopened.sqlite.close(); }
+      assert.equal(reopened.prepare('PRAGMA user_version').get()!.user_version, 1);
+      assert.equal(reopened.prepare('SELECT file_path FROM pcf_index').get()!.file_path, 'pcf/' + f.p + '/' + f.d + '.html');
+    } finally { reopened.close(); }
   } finally { f.cleanup(); }
 });
 
@@ -101,7 +101,7 @@ test('future database version leaves interrupted migration directories and journ
     const stageName = '.pcf-json-stage-' + randomUUID(), backupName = 'pcf-html-backup-test-' + randomUUID();
     mkdirSync(path.join(f.dir, stageName)); writeFileSync(path.join(f.dir, stageName, 'keep.txt'), 'KEEP');
     writeFileSync(path.join(f.dir, '.pcf-json-migration.json'), JSON.stringify({ stage: stageName, htmlBackup: backupName }));
-    const db = openDatabase(path.join(f.dir, 'papc.db')); db.sqlite.exec('PRAGMA user_version=3'); db.sqlite.close();
+    const db = openDatabase(path.join(f.dir, 'papc.db')); db.exec('PRAGMA user_version=3'); db.close();
     const before = tree(f.dir);
     assert.throws(() => migratePcfJson({ dataDir: f.dir, hubStopped: true }), /newer/);
     assert.equal(tree(f.dir), before);

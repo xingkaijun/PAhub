@@ -9,7 +9,7 @@ export const root = fileURLToPath(new URL('../..', import.meta.url));
 export const outdir = path.join(root, 'hub-server/dist');
 export const bundleOptions = {
   absWorkingDir: root, bundle: true, platform: 'node', target: 'node24', format: 'esm',
-  loader: { '.html': 'text' }, alias: { '@pahub/worker': path.join(root, 'worker/src/index.ts') }, sourcemap: true, logLevel: 'info',
+  loader: { '.html': 'text' }, sourcemap: true, logLevel: 'info',
 };
 
 export async function copySchema() {

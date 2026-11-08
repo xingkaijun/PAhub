@@ -66,7 +66,7 @@ const selected = row('Phase9 目标中文意见 — 核实阀门及燃气管路'
 const wrongTag = row('Phase9 wrong tag excluded marker', ['Structure']), machinery = row('Phase9 machinery excluded marker');
 try {
   hub = await createHub({ host: '127.0.0.1' }); assert.equal(hub.port, 8082); await mkdir(artifacts, { recursive: true });
-  const db = hub.db.sqlite;
+  const db = hub.db;
   const demoProjectsBefore = db.prepare('SELECT id,name FROM projects ORDER BY id').all();
   const demoDrawingsBefore = db.prepare('SELECT id,project_id,drawing_no FROM drawings ORDER BY id').all();
   db.prepare('INSERT INTO projects(id,name,last_updated) VALUES (?,?,?)').run(projectId, projectName, new Date().toISOString());

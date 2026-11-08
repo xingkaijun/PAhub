@@ -14,7 +14,7 @@ PAhub = D1-PAPC（图纸审批进度）+ PG PCF v1.9（每张图一份意见记�
 ## 架构
 - 一个 Node 24 进程（`hub-server/`）：
   - 托管 PAPC 前端（vite build 产物）。
-  - 在 `/api/*` 提供 PAPC 原有 API：直接复用 `worker/src/index.ts` 的 fetch 处理函数，`env.PAPC_DB` 由一个基于 `node:sqlite` 的 D1 兼容适配器提供（prepare/bind/first/all/run/raw/batch/exec）。这样 Worker 业务逻辑不改。
+  - 在 `/api/*` 提供 PAPC 原有 API：图纸/项目、review-tracker、audit/heartbeat、settings/health、admin 已迁入 hub-server 原生模块。统一路由与中间件负责 JSON、错误、日志、可选鉴权；读接口直接查规范化表，写入代码提交后直接发出通知。
   - SQLite 数据库文件：`data/papc.db`。
   - PCF 文件：`data/pcf/<projectId>/<drawingId>.json`，JSON 是权威数据（含实体时钟和幂等回执）。历史版本：`data/pcf/<projectId>/.history/<drawingId>/<rev>-<时间>-<uuid>.json`。使用稳定 drawingId，不用可改名且可能含非法字符的图号；数据根目录由 PAHUB_DATA_DIR 配置。
   - PCF 页面：`/pcf/<projectId>/<drawingId>` 用当前内存模板和权威 JSON 渲染，注入仅供在线页面使用的上下文；托管保存直接原子写 JSON。开发模式模板修改后重新加载，生产升级模板只需替换模板并重启，不再批量重写文档。

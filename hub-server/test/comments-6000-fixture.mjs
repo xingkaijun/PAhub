@@ -11,14 +11,14 @@ const profiles = [], info = console.info;
 console.info = (label, value) => { if (label === 'Comments profile') profiles.push(value); else info(label, value); };
 const hub = await createHub({ host: '127.0.0.1' }), origin = 'http://127.0.0.1:' + hub.port;
 const project = 'comments-6000', name = 'Comments 6000 Acceptance';
-hub.db.sqlite.prepare('INSERT INTO projects(id,name) VALUES (?,?)').run(project, name);
+hub.db.prepare('INSERT INTO projects(id,name) VALUES (?,?)').run(project, name);
 const actor = { clientId: 'performance-fixture', clientName: 'Acceptance' };
 const json = async (url, body) => { const response = await fetch(origin + url, body ? { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...body, ...actor }) } : {}); assert.equal(response.status, 200, await response.clone().text()); return response.json(); };
 const content = text => ({ text, html: text, images: [] });
 const first = {};
 for (let d = 0; d < 200; d++) {
   const id = 'perf-' + String(d + 1).padStart(3, '0');
-  hub.db.sqlite.prepare('INSERT INTO drawings(id,project_id,drawing_no,title,discipline,status,current_round) VALUES (?,?,?,?,?,?,?)').run(id, project, 'PERF-' + id, 'Equipment specification ' + d, ['Hull','Machinery','Electrical'][d % 3], 'Reviewing', 'A');
+  hub.db.prepare('INSERT INTO drawings(id,project_id,drawing_no,title,discipline,status,current_round) VALUES (?,?,?,?,?,?,?)').run(id, project, 'PERF-' + id, 'Equipment specification ' + d, ['Hull','Machinery','Electrical'][d % 3], 'Reviewing', 'A');
   await json('/api/pcf/' + project + '/' + id + '/create', {});
   const ops = [];
   for (let c = 0; c < 30; c++) {

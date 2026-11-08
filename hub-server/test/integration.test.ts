@@ -22,7 +22,7 @@ test('hub end-to-end: real frontend repository, persisted PATCH/PUT, audit logs,
   Object.assign(process.env, { PORT: '0', PAPC_DB_PATH: destination, API_TOKEN: '', ADMIN_PASSWORD: 'integration-password' });
   let hub: Awaited<ReturnType<typeof createHub>> | undefined;
   try {
-    await importData(path.join(ROOT_DIR, 'worker/sql/seed-test-data.sql'), destination);
+    await importData(path.join(ROOT_DIR, 'hub-server/test/fixtures/seed-test-data.sql'), destination);
     hub = await createHub();
     let base = 'http://127.0.0.1:' + hub.port;
     Object.defineProperty(globalThis, 'location', { configurable: true, value: { origin: base } });
@@ -45,7 +45,7 @@ test('hub end-to-end: real frontend repository, persisted PATCH/PUT, audit logs,
     assert.equal(saved.verification?.ok, true);
     project = await api.loadProject(settings, stub);
     assert.equal(project.drawings.find(d => d.id === drawing.id)?.status, 'Approved');
-    assert.equal(hub.db.sqlite.prepare('SELECT status FROM drawings WHERE id = ?').get(drawing.id)!.status, 'Approved');
+    assert.equal(hub.db.prepare('SELECT status FROM drawings WHERE id = ?').get(drawing.id)!.status, 'Approved');
     console.log('PATCH /api/projects/proj-test-001 -> ' + JSON.stringify(saved));
     console.log('POST project readback + SQLite -> dwg-001 status=Approved');
     const tracker = await api.loadReviewTracker(settings, project);
@@ -94,7 +94,7 @@ test('hub end-to-end: real frontend repository, persisted PATCH/PUT, audit logs,
     assert.equal(await access(badDb).then(() => true, () => false), false);
     const dumpPath = path.join(temp, 'full-export.sql');
     const schema = migrationSql('001_schema.sql');
-    const seed = await readFile(path.join(ROOT_DIR, 'worker/sql/seed-test-data.sql'), 'utf8');
+    const seed = await readFile(path.join(ROOT_DIR, 'hub-server/test/fixtures/seed-test-data.sql'), 'utf8');
     await writeFile(dumpPath, 'PRAGMA foreign_keys=OFF;\nBEGIN TRANSACTION;\n' + schema + '\n' + seed + '\nCOMMIT;');
     const dumpDb = path.join(temp, 'dump.db');
     assert.equal((await importData(dumpPath, dumpDb)).drawings, 6);

@@ -16,7 +16,7 @@ async function fixture() {
   const old = Object.fromEntries(keys.map(k => [k, process.env[k]]));
   Object.assign(process.env, { PORT: '0', PAHUB_DATA_DIR: dir, PAPC_DB_PATH: path.join(dir, 'papc.db'), API_TOKEN: '', PAHUB_BASIC_AUTH: '' });
   const hub = await createHub({ host: '127.0.0.1', middleware: (_req, _res, next) => next() });
-  hub.db.sqlite.exec(await readFile(path.join(ROOT_DIR, 'worker/sql/seed-test-data.sql'), 'utf8'));
+  hub.db.exec(await readFile(path.join(ROOT_DIR, 'hub-server/test/fixtures/seed-test-data.sql'), 'utf8'));
   const base = '/api/pcf/proj-test-001/dwg-001/';
   const request = async (url: string, method = 'GET', body?: any) => {
     const r = await fetch('http://127.0.0.1:' + hub.port + url, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });
@@ -51,7 +51,7 @@ test('scenario A: dirty legacy row cannot overwrite a newer PCF summary', async 
 
 test('scenario B: legacy Waiting Reply -> Reviewing advances PCF and survives a PCF save', async () => {
   const f = await fixture(); try {
-    await f.create(); f.hub.db.sqlite.prepare("UPDATE drawings SET status='Waiting Reply' WHERE id='dwg-001'").run();
+    await f.create(); f.hub.db.prepare("UPDATE drawings SET status='Waiting Reply' WHERE id='dwg-001'").run();
     const drawing = (await f.project()).drawings.find((d: any) => d.id === 'dwg-001');
     const saved = await f.request('/api/projects/proj-test-001', 'PATCH', { updatedDrawings: [{ ...drawing, status: 'Reviewing', currentRound: 'B' }] });
     assert.equal(saved.verification.ok, true);
@@ -76,7 +76,7 @@ test('field PATCH changes only submitted columns and relations, retaining concur
 
 test('write verification still detects a requested field silently ignored by SQLite', async () => {
   const f = await fixture(); try {
-    f.hub.db.sqlite.exec("CREATE TRIGGER ignore_title BEFORE UPDATE OF title ON drawings BEGIN SELECT RAISE(IGNORE); END");
+    f.hub.db.exec("CREATE TRIGGER ignore_title BEFORE UPDATE OF title ON drawings BEGIN SELECT RAISE(IGNORE); END");
     const result = await f.request('/api/projects/proj-test-001', 'PATCH', { updatedDrawings: [{ id: 'dwg-001', changes: { title: 'must be verified' } }] });
     assert.equal(result.verification.ok, false);
     assert.ok(result.verification.mismatched[0].fields.includes('title'));
@@ -86,7 +86,7 @@ test('write verification still detects a requested field silently ignored by SQL
 
 test('native status endpoint owns AA -> AB and repeated status requests do not advance twice', async () => {
   const f = await fixture(); try {
-    f.hub.db.sqlite.prepare("UPDATE drawings SET status='Waiting Reply',current_round='AA' WHERE id='dwg-001'").run();
+    f.hub.db.prepare("UPDATE drawings SET status='Waiting Reply',current_round='AA' WHERE id='dwg-001'").run();
     const endpoint = '/api/projects/proj-test-001/drawings/dwg-001/status';
     const changed = await f.request(endpoint, 'POST', { status: 'Reviewing' });
     assert.equal(changed.currentRound, 'AB'); assert.ok(changed.reviewDeadline);
@@ -97,7 +97,7 @@ test('native status endpoint owns AA -> AB and repeated status requests do not a
 
 test('native Reviewing transition and a simultaneous PCF edit share the same queue', async () => {
   const f = await fixture(); try {
-    await f.create(); f.hub.db.sqlite.prepare("UPDATE drawings SET status='Waiting Reply' WHERE id='dwg-001'").run();
+    await f.create(); f.hub.db.prepare("UPDATE drawings SET status='Waiting Reply' WHERE id='dwg-001'").run();
     await Promise.all([
       f.request('/api/projects/proj-test-001/drawings/dwg-001/status', 'POST', { status: 'Reviewing' }),
       f.ops([{ type: 'comment.add', id: 'concurrent-comment', roundIdNew: 'concurrent-reply' }]),
@@ -120,12 +120,12 @@ test('field PATCH can create a project and drawing without falling back to a who
 
 test('failed PCF round write rolls back status, summary, metadata and document', async () => {
   const f = await fixture(); try {
-    await f.create(); f.hub.db.sqlite.prepare("UPDATE drawings SET status='Waiting Reply' WHERE id='dwg-001'").run();
+    await f.create(); f.hub.db.prepare("UPDATE drawings SET status='Waiting Reply' WHERE id='dwg-001'").run();
     const before = await f.live();
-    f.hub.db.sqlite.exec("CREATE TRIGGER fail_transition BEFORE INSERT ON pcf_changes BEGIN SELECT RAISE(ABORT,'simulated transition failure'); END");
+    f.hub.db.exec("CREATE TRIGGER fail_transition BEFORE INSERT ON pcf_changes BEGIN SELECT RAISE(ABORT,'simulated transition failure'); END");
     const response = await fetch('http://127.0.0.1:' + f.hub.port + '/api/projects/proj-test-001', { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ updatedDrawings: [{ id: 'dwg-001', changes: { status: 'Reviewing', title: 'must roll back' } }] }) });
     assert.equal(response.status, 500);
-    const row: any = f.hub.db.sqlite.prepare("SELECT * FROM drawings WHERE id='dwg-001'").get();
+    const row: any = f.hub.db.prepare("SELECT * FROM drawings WHERE id='dwg-001'").get();
     assert.equal(row.status, 'Waiting Reply'); assert.equal(row.current_round, 'A'); assert.notEqual(row.title, 'must roll back');
     assert.deepEqual(await f.live(), before);
   } finally { await f.cleanup(); }
@@ -161,7 +161,7 @@ test('scenario C: importing a Builder reply then closing a comment retains the n
     const download = await fetch('http://127.0.0.1:' + f.hub.port + f.base + 'exports/' + exported.exportId + '/download').then(r => r.text());
     const reply = parseHTML(download); reply.comments[0].rounds[0].reply = { ...blankContent(), text: 'Builder reply' };
     const html = replaceData(download, reply);
-    f.hub.db.sqlite.prepare("UPDATE drawings SET status='Waiting Reply' WHERE id='dwg-001'").run();
+    f.hub.db.prepare("UPDATE drawings SET status='Waiting Reply' WHERE id='dwg-001'").run();
     const preview = await f.request(f.base + 'imports', 'POST', { step: 'preview', html });
     const batchId = randomUUID();
     const imported = await f.request(f.base + 'imports', 'POST', { step: 'apply', html, previewToken: preview.previewToken, batchId });

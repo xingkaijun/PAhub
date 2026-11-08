@@ -14,7 +14,7 @@ const hub=await createHub(),artifacts=path.join(root,'hub-server/test/artifacts'
 const dataOf=html=>JSON.parse(html.match(/<script id="pcf-data"[^>]*>([\s\S]*?)<\/script>/)[1]);
 const unzip=bytes=>{const files=new Map();let at=0;while(bytes.readUInt32LE(at)===0x04034b50){const method=bytes.readUInt16LE(at+8),size=bytes.readUInt32LE(at+18),n=bytes.readUInt16LE(at+26),x=bytes.readUInt16LE(at+28),name=bytes.subarray(at+30,at+30+n).toString('utf8'),start=at+30+n+x,payload=bytes.subarray(start,start+size);files.set(name,method===8?inflateRawSync(payload):payload);at=start+size;}return files;};
 try{
-  hub.db.sqlite.exec(await readFile(path.join(root,'worker/sql/seed-test-data.sql'),'utf8'));
+  hub.db.exec(await readFile(path.join(root,'hub-server/test/fixtures/seed-test-data.sql'),'utf8'));
   browser=await chromium.launch({channel:'chrome',headless:true});const errors=[];
   const ca=await browser.newContext({viewport:{width:1500,height:1100},acceptDownloads:true}),cb=await browser.newContext({viewport:{width:1500,height:1100},acceptDownloads:true});
   const a=await ca.newPage(),b=await cb.newPage();for(const p of [a,b])p.on('pageerror',e=>errors.push(e.message));

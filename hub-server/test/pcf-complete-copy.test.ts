@@ -123,7 +123,7 @@ test('complete copy export/import merges through the API, preserves circulation/
   Object.assign(process.env, { PORT: '0', PAHUB_DATA_DIR: temp, PAPC_DB_PATH: path.join(temp, 'papc.db'), API_TOKEN: '', ADMIN_PASSWORD: '' });
   let hub: Awaited<ReturnType<typeof createHub>> | undefined;
   try {
-    hub = await createHub(); hub.db.sqlite.exec(await readFile(path.join(ROOT_DIR, 'worker/sql/seed-test-data.sql'), 'utf8'));
+    hub = await createHub(); hub.db.exec(await readFile(path.join(ROOT_DIR, 'hub-server/test/fixtures/seed-test-data.sql'), 'utf8'));
     const endpoint = '/api/pcf/proj-test-001/dwg-005';
     const api = async (tail: string, method = 'GET', body?: any) => {
       const response = await fetch('http://127.0.0.1:' + hub!.port + endpoint + '/' + tail, { method, headers: { 'Content-Type': 'application/json' }, body: body === undefined ? undefined : JSON.stringify(body) });

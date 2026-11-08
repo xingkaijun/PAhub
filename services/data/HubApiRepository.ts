@@ -24,7 +24,9 @@ export class HubApiRepository implements DataRepository {
     });
 
     if (!res.ok) {
-      const message = await res.text();
+      const raw = await res.text();
+      let message = raw;
+      try { const parsed = JSON.parse(raw); if (typeof parsed.error === 'string') message = parsed.error; } catch { /* Older servers returned text. */ }
       const error = new Error(message || `API request failed: ${res.status}`);
       (error as any).status = res.status;
       throw error;

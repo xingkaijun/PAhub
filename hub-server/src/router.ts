@@ -56,7 +56,9 @@ export class Router {
         }
       }
     } catch (error) { response = caughtError(error); }
-    response = await normalizeError(response);
+    // The PCF credential-entry page is a deliberate HTML authentication challenge,
+    // not an API error; keep it usable when optional API_TOKEN is enabled.
+    if (!(url.pathname.startsWith('/pcf/') && response.status === 401 && response.headers.get('Content-Type')?.includes('text/html'))) response = await normalizeError(response);
     if (url.pathname === '/api' || url.pathname.startsWith('/api/')) {
       response.headers.set('Access-Control-Allow-Origin', this.options.ALLOW_CORS_ORIGIN || '*');
       response.headers.set('Access-Control-Allow-Methods', 'GET,POST,PUT,PATCH,DELETE,OPTIONS');
