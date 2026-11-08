@@ -131,6 +131,18 @@ test('failed PCF round write rolls back status, summary, metadata and document',
   } finally { await f.cleanup(); }
 });
 
+test('admin table edits cannot override PCF-managed fields', async () => {
+  const previous = process.env.ADMIN_PASSWORD; process.env.ADMIN_PASSWORD = 'ownership-admin';
+  const f = await fixture(); try {
+    await f.create();
+    const auth = await f.request('/api/admin/auth', 'POST', { password: 'ownership-admin' });
+    const response = await fetch('http://127.0.0.1:' + f.hub.port + '/api/admin/api/tables/drawings/dwg-001', { method: 'PUT', headers: { Authorization: 'Bearer ' + auth.token, 'Content-Type': 'application/json' }, body: JSON.stringify({ manual_comments_count: 999, current_round: 'ZZ', version: 'override' }) });
+    assert.equal(response.status, 200, await response.text());
+    const d = (await f.project()).drawings.find((d: any) => d.id === 'dwg-001');
+    assert.equal(d.manualCommentsCount, 1); assert.equal(d.currentRound, 'A'); assert.notEqual(d.version, 'override');
+  } finally { await f.cleanup(); previous === undefined ? delete process.env.ADMIN_PASSWORD : process.env.ADMIN_PASSWORD = previous; }
+});
+
 test('legacy full PUT cannot replace PCF counts, round or version', async () => {
   const f = await fixture(); try {
     await f.create(); const stale = await f.project();
