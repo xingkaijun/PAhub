@@ -370,6 +370,12 @@ header.banner{padding:16px;gap:14px}
 @media screen and (max-width:1000px){.banner .connection-status{grid-column:1;grid-row:2;flex-wrap:wrap;gap:5px}.banner .connection-status .save-line{grid-column:auto;grid-row:auto}.banner #file-connect-btn{font-size:9px}}
 </style>
 <style id="pahub-banner-v6">
+/* Native dialogs use the browser top layer; keep the page locked in both themes. */
+html:has(dialog:modal), body:has(dialog:modal) { overflow:hidden; }
+dialog { background:var(--surface); max-height:88dvh; }
+dialog:modal { display:flex; flex-direction:column; overflow:hidden; }
+dialog .dialog-head, dialog .dialog-footer { flex-shrink:0; }
+dialog .dialog-body { min-height:0; overflow:auto; overscroll-behavior:contain; }
 @media screen {
   header.banner { display:grid; grid-template-columns:minmax(245px,auto) minmax(0,1fr) minmax(max-content,auto); min-height:79px; height:79px; padding:16px 24px; gap:16px; }
   header.banner .brand { gap:16px; min-width:0; }

@@ -1,4 +1,5 @@
 import React, { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { DownloadCloud, FileArchive, Upload, X } from 'lucide-react';
 import { useStore } from '../store';
 import { roundToLetters } from '../lib/rounds';
@@ -12,6 +13,7 @@ export const BuilderRepliesImport = forwardRef<BuilderRepliesImportHandle, { pro
   const loadProject = useStore(s => s.loadProject), refreshPcfPresence = useStore(s => s.refreshPcfPresence);
   const [open, setOpen] = useState(false), [files, setFiles] = useState<File[]>([]), [rows, setRows] = useState<ReplyRow[]>([]), [setId, setSetId] = useState(''), [busy, setBusy] = useState(false), [drag, setDrag] = useState(false), [message, setMessage] = useState('');
   const picker = useRef<HTMLInputElement>(null);
+  const dialog = useRef<HTMLElement>(null);
   const accepted = (file: File) => /\.(zip|html?)$/i.test(file.name);
   const openWithFiles = (incoming: File[]) => {
     const valid = incoming.filter(accepted);
@@ -19,6 +21,34 @@ export const BuilderRepliesImport = forwardRef<BuilderRepliesImportHandle, { pro
     setRows([]); setSetId(''); setMessage(''); setFiles(valid); setOpen(true);
   };
   useImperativeHandle(ref, () => ({ openWithFiles }), [projectId]);
+  useEffect(() => {
+    if (!open) return;
+    const previousOverflow = document.body.style.overflow;
+    const previousHtmlOverflow = document.documentElement.style.overflow;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    const background = Array.from(document.body.children).filter((element): element is HTMLElement => element instanceof HTMLElement && !element.contains(dialog.current));
+    const previousInert = background.map(element => element.inert);
+    background.forEach(element => { element.inert = true; });
+    document.body.style.overflow = 'hidden';
+    document.documentElement.style.overflow = 'hidden';
+    dialog.current?.focus();
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') { event.preventDefault(); setOpen(false); }
+      if (event.key !== 'Tab') return;
+      const focusable = Array.from(dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not([hidden]),a[href],[tabindex="0"]') || []);
+      const first = focusable[0], last = focusable[focusable.length - 1];
+      if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) { event.preventDefault(); last?.focus(); }
+      else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog.current)) { event.preventDefault(); first?.focus(); }
+    };
+    document.addEventListener('keydown', onKeyDown);
+    return () => {
+      document.body.style.overflow = previousOverflow;
+      document.documentElement.style.overflow = previousHtmlOverflow;
+      background.forEach((element, index) => { element.inert = previousInert[index]; });
+      document.removeEventListener('keydown', onKeyDown);
+      previousFocus?.focus();
+    };
+  }, [open]);
   useEffect(() => {
     if (!open) return;
     const onMessage = (event: MessageEvent) => {
@@ -74,16 +104,16 @@ export const BuilderRepliesImport = forwardRef<BuilderRepliesImportHandle, { pro
   };
   return <>
     <button onClick={() => setOpen(true)} className="flex items-center gap-1.5 rounded-full border border-teal-100 bg-white px-4 py-2 text-[10px] font-black uppercase tracking-widest text-teal-700 shadow-sm hover:bg-teal-50"><DownloadCloud size={13}/> Import Builder Replies</button>
-    {open && <div className="fixed inset-0 z-[100] flex items-center justify-center bg-slate-950/40 p-4" onClick={e => { if (e.target === e.currentTarget) setOpen(false); }}>
-      <section className="flex max-h-[88vh] w-full max-w-5xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl">
-        <header className="flex items-center justify-between border-b border-slate-100 px-6 py-4"><div><h2 className="text-sm font-black uppercase tracking-widest text-slate-800">Import Builder Replies</h2><p className="mt-1 text-xs text-slate-400">Drop a ZIP or multiple PCF HTML files. Up to 50 files and 50 MB per import.</p></div><button aria-label="Close" onClick={() => setOpen(false)}><X size={18}/></button></header>
-        <div className="space-y-4 overflow-auto p-6">
+    {open && createPortal(<div className="fixed inset-0 z-[2147483000] flex items-center justify-center overflow-y-auto bg-slate-950/55 p-4 backdrop-blur-[2px]" onClick={e => { if (e.target === e.currentTarget && !busy) setOpen(false); }}>
+      <section ref={dialog} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="builder-replies-title" className="builder-replies-dialog flex max-h-[min(88dvh,900px)] w-full max-w-5xl flex-col overflow-hidden rounded-2xl border shadow-2xl outline-none">
+        <header className="flex shrink-0 items-center justify-between border-b border-slate-200 px-6 py-4 dark:border-slate-700"><div><h2 id="builder-replies-title" className="text-sm font-black uppercase tracking-widest text-slate-800 dark:text-slate-100">Import Builder Replies</h2><p className="mt-1 text-xs text-slate-500 dark:text-slate-400">Drop a ZIP or multiple PCF HTML files. Up to 50 files and 50 MB per import.</p></div><button aria-label="Close" onClick={() => setOpen(false)} className="rounded-lg p-2 text-slate-500 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800"><X size={18}/></button></header>
+        <div className="min-h-0 space-y-4 overflow-auto overscroll-contain p-6">
           {!rows.length && <div onDragOver={e => { e.preventDefault(); setDrag(true); }} onDragLeave={() => setDrag(false)} onDrop={e => { e.preventDefault(); setDrag(false); add(e.dataTransfer.files); }} onClick={() => picker.current?.click()} className={`cursor-pointer rounded-xl border-2 border-dashed p-10 text-center ${drag ? 'border-teal-500 bg-teal-50' : 'border-slate-200 bg-slate-50'}`}><Upload className="mx-auto mb-2 text-teal-600"/><p className="text-sm font-bold text-slate-700">Drop builder reply files here</p><p className="mt-1 text-xs text-slate-400">ZIP archives or .html PCF replies</p><input ref={picker} hidden multiple type="file" accept=".zip,.html,text/html,application/zip" onChange={e => e.target.files && add(e.target.files)}/>{files.length > 0 && <p className="mt-3 text-xs font-bold text-teal-700">{files.length} file(s) selected</p>}</div>}
           {rows.length > 0 && <div className="overflow-x-auto rounded-xl border border-slate-100"><table className="w-full text-left text-xs"><thead className="bg-slate-50 text-[10px] uppercase tracking-wider text-slate-500"><tr>{['File','Drawing','Round','New replies','Auto','Conflicts','Result','PAPC status',''].map(x => <th key={x} className="whitespace-nowrap px-3 py-2">{x}</th>)}</tr></thead><tbody>{rows.map(row => <tr key={row.id} className="border-t border-slate-100"><td className="max-w-48 truncate px-3 py-2" title={row.fileName}>{row.fileName}</td><td className="px-3 py-2">{row.drawingNo ? `${row.drawingNo} · ${row.title || ''}` : '—'}</td><td className="px-3 py-2">{row.round ?? '—'}</td><td className="px-3 py-2">{row.newReplies ?? '—'}</td><td className="px-3 py-2">{row.automatic ?? '—'}</td><td className="px-3 py-2">{row.conflicts ?? '—'}</td><td className="whitespace-nowrap px-3 py-2 font-bold">{label[row.category] || row.category}{row.ownerTampered ? <span className="ml-2 rounded bg-amber-50 px-1.5 py-0.5 text-[10px] text-amber-800">Owner changed</span> : null}{row.reason ? <span className="block max-w-52 whitespace-normal font-normal text-rose-600">{row.reason}</span> : null}</td><td className="whitespace-nowrap px-3 py-2">{row.statusNote || '—'}</td><td className="whitespace-nowrap px-3 py-2">{row.category === 'conflict' || (row.category === 'owner-tampered' && (row.conflicts || 0) > 0) ? <button className="mr-2 text-teal-700 underline" onClick={() => resolve(row)}>Resolve…</button> : null}{['conflict','owner-tampered','clean'].includes(row.category) ? <button className="text-slate-500 underline" onClick={() => skip(row)}>Skip</button> : null}</td></tr>)}</tbody></table></div>}
           {message && <p role="alert" className="text-sm text-rose-600">{message}</p>}
         </div>
         <footer className="flex justify-between border-t border-slate-100 px-6 py-4"><button onClick={() => setOpen(false)} className="rounded-full px-4 py-2 text-xs text-slate-500">Close</button><div className="flex gap-2">{rows.length === 0 ? <button disabled={busy || files.length === 0} onClick={preview} className="rounded-full bg-teal-700 px-5 py-2 text-xs font-bold text-white disabled:opacity-40"><FileArchive className="mr-1 inline" size={13}/>{busy ? 'Reading…' : 'Preview replies'}</button> : <><button onClick={() => { setRows([]); setSetId(''); }} className="rounded-full border border-slate-200 px-4 py-2 text-xs">New import</button><button disabled={busy || !rows.some(row => row.category === 'clean' || (row.category === 'owner-tampered' && (row.newReplies || 0) > 0))} onClick={applyClean} className="rounded-full bg-teal-700 px-5 py-2 text-xs font-bold text-white disabled:opacity-40">{busy ? 'Applying…' : 'Apply all clean'}</button></>}</div></footer>
       </section>
-    </div>}
+    </div>, document.body)}
   </>;
 });

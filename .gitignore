@@ -35,3 +35,5 @@ backup-*.sql
 # PAhub database, WAL/SHM and local imports
 /data/
 /hub-server/test/artifacts/
+/.playwright-cli/
+/output/
