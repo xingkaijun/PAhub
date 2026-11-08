@@ -370,6 +370,27 @@ test('phase 9: tags including Cost Affect are discovered dynamically and cached 
   } finally { await f.cleanup(); }
 });
 
+test('comments cache reparses only the changed PCF', async () => {
+  const oldProfile = process.env.PAHUB_COMMENTS_PROFILE;
+  process.env.PAHUB_COMMENTS_PROFILE = '1';
+  const info = console.info, profiles: any[] = [];
+  console.info = (...args: any[]) => { if (args[0] === 'Comments profile') profiles.push(args[1]); else info(...args); };
+  const f = await fixture();
+  try {
+    for (const id of ['cache-a', 'cache-b']) { f.drawing(id); await f.store(id, documentData([comment(id)])); }
+    await f.query(); assert.equal(profiles.at(-1).parsedFiles, 2);
+    await f.query(); assert.equal(profiles.at(-1).parsedFiles, 0);
+    await f.store('cache-a', documentData([comment('changed-cache-marker')]));
+    const changed = await f.query();
+    assert.equal(profiles.at(-1).parsedFiles, 1);
+    assert.ok(changed.comments.some((row: any) => row.ownerComment === 'changed-cache-marker'));
+    await f.query(); assert.equal(profiles.at(-1).parsedFiles, 0);
+  } finally {
+    await f.cleanup(); console.info = info;
+    if (oldProfile === undefined) delete process.env.PAHUB_COMMENTS_PROFILE; else process.env.PAHUB_COMMENTS_PROFILE = oldProfile;
+  }
+});
+
 test('phase 9: drawing metadata changes invalidate aggregate and serialized result caches', async () => {
   const f = await fixture(); try {
     f.drawing('metadata'); await f.store('metadata', documentData([comment('metadata marker')]));

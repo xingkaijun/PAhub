@@ -49,6 +49,7 @@ export class ProjectComments {
 
   query(projectId: string, params = new URLSearchParams(), now = Date.now()) {
     const started = performance.now();
+    let parsedFiles = 0;
     const p = safeId(projectId), db = this.storage.db;
     if (!db.prepare('SELECT 1 FROM projects WHERE id=?').get(p)) fail('Project not found', 404);
     const drawings = db.prepare('SELECT d.id,d.drawing_no,d.title,d.discipline,d.status,i.rev FROM drawings d LEFT JOIN pcf_index i ON i.project_id=d.project_id AND i.drawing_id=d.id WHERE d.project_id=? AND COALESCE(d._deleted,0)=0 ORDER BY d.drawing_no,d.id').all(p);
@@ -63,7 +64,8 @@ export class ProjectComments {
         const stat = statSync(file, { bigint: true });
         const signature = [stat.mtimeNs, stat.ctimeNs, stat.size, drawing.rev ?? ''].join(':');
         const prior = this.cache.get(file);
-        entry = prior?.signature === signature ? prior : { signature, comments: this.derive(readFileSync(file, 'utf8')) };
+        if (prior?.signature === signature) entry = prior;
+        else { parsedFiles++; entry = { signature, comments: this.derive(readFileSync(file, 'utf8')) }; }
         this.cache.delete(file); this.cache.set(file, entry);
         signatures.push(JSON.stringify([d, drawing.drawing_no, drawing.title, drawing.discipline, drawing.status, signature]));
       } catch (error: any) {
@@ -104,7 +106,7 @@ export class ProjectComments {
     const keyParams = new URLSearchParams(params); keyParams.sort();
     const key = keyParams.toString(), cached = snapshot.results.get(key);
     if (cached) {
-      if (process.env.PAHUB_COMMENTS_PROFILE === '1') console.info('Comments profile', { scanMs: +(scanned - started).toFixed(2), queryMs: +(performance.now() - started).toFixed(2), resultHit: true });
+      if (process.env.PAHUB_COMMENTS_PROFILE === '1') console.info('Comments profile', { parsedFiles, scanMs: +(scanned - started).toFixed(2), queryMs: +(performance.now() - started).toFixed(2), resultHit: true });
       return cached;
     }
     const selections = new Map(['discipline', 'drawingStatus', 'commentStatus', 'round', 'tag'].map(key => [key, params.getAll(key).filter(Boolean)]));
@@ -121,7 +123,7 @@ export class ProjectComments {
     const result = { comments, statistics: commentStatistics(comments), options, warnings, generatedAt: new Date(now).toISOString() };
     snapshot.results.set(key, result);
     while (snapshot.results.size > 16) snapshot.results.delete(snapshot.results.keys().next().value!);
-    if (process.env.PAHUB_COMMENTS_PROFILE === '1') console.info('Comments profile', { scanMs: +(scanned - started).toFixed(2), queryMs: +(performance.now() - started).toFixed(2), resultHit: false });
+    if (process.env.PAHUB_COMMENTS_PROFILE === '1') console.info('Comments profile', { parsedFiles, scanMs: +(scanned - started).toFixed(2), queryMs: +(performance.now() - started).toFixed(2), resultHit: false });
     return result;
   }
 
