@@ -28,7 +28,7 @@ export function mergeProjectPreservingDirty(
   for (const id of dirtyTrackerDrawingIds) tracker[id] = { ...(remoteTracker?.[id] || {}), ...(localTracker[id] || {}) };
   if (dirtyTracker && dirtyTrackerDrawingIds.size === 0) Object.assign(tracker, localTracker);
   return {
-    project: { ...local, ...remote, id: local.id, conf: dirtyConf ? local.conf : remote.conf, drawings, snapshots: remote.snapshots || local.snapshots },
+    project: { ...local, ...remote, id: local.id, conf: dirtyConf ? local.conf : remote.conf, drawings },
     reviewTracker: tracker,
     changedDrawings,
   };

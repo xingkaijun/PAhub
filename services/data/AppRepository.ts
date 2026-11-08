@@ -1,4 +1,4 @@
-import { AppSettings, Project, ProjectSnapshot, ReviewTrackerData, DeltaPayload, SaveResult } from '../../types';
+import { AppSettings, Project, ReviewTrackerData, DeltaPayload, SaveResult } from '../../types';
 import { HubApiRepository } from './HubApiRepository';
 import { AuditLogPage, ProjectListItem } from './types';
 
@@ -30,22 +30,6 @@ export const appRepository = {
 
   saveDelta(settings: AppSettings, projectId: string, payload: DeltaPayload): Promise<SaveResult> {
     return apiRepository.saveDelta(settings, projectId, payload);
-  },
-
-  loadSnapshots(settings: AppSettings, project: Project, includeAll = false): Promise<ProjectSnapshot[]> {
-    return apiRepository.loadSnapshots(settings, project, includeAll);
-  },
-
-  createSnapshot(settings: AppSettings, project: Project, note: string): Promise<boolean> {
-    return apiRepository.createSnapshot(settings, project, note);
-  },
-
-  restoreSnapshot(settings: AppSettings, project: Project, snapshot: ProjectSnapshot): Promise<boolean> {
-    return apiRepository.restoreSnapshot(settings, project, snapshot);
-  },
-
-  deleteSnapshot(settings: AppSettings, project: Project, snapshotId: string): Promise<boolean> {
-    return apiRepository.deleteSnapshot(settings, project, snapshotId);
   },
 
   loadReviewTracker(settings: AppSettings, project: Project): Promise<ReviewTrackerData> {

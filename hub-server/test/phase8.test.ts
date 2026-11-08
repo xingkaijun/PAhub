@@ -159,7 +159,7 @@ test('phase 8: exported shipyard HTML omits hosted Export and Import controls', 
 
 test('phase 8: project refresh updates clean drawings and protects dirty drawing, config and tracker', () => {
   const drawing = (id: string, title: string) => ({ id, title, drawingNo: id, status: 'Pending', currentRound: 'A', statusHistory: [], remarks: [] });
-  const local = { id: 'merge-project', name: 'Project', conf: { password: '', marker: 'local config' }, snapshots: [], drawings: [drawing('clean', 'old'), drawing('dirty', 'local edit'), drawing('deleted', 'removed locally')] };
+  const local = { id: 'merge-project', name: 'Project', conf: { password: '', marker: 'local config' }, drawings: [drawing('clean', 'old'), drawing('dirty', 'local edit'), drawing('deleted', 'removed locally')] };
   const remote = { ...local, conf: { password: '', marker: 'remote config' }, drawings: [drawing('clean', 'remote update'), drawing('dirty', 'remote edit'), drawing('deleted', 'remote still present'), drawing('new', 'new remote drawing')] };
   const remoteTracker = { clean: { reviewer: { done: true } }, dirty: { reviewer: { done: false }, remoteOnly: { done: true } } };
   const localTracker = { dirty: { reviewer: { done: true, doneAt: 'local' } } };

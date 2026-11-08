@@ -1028,7 +1028,7 @@ const handleAdminRequest = async (request: Request, env: Env, url: URL): Promise
     const ALLOWED_TABLES = [
       'projects', 'reviewers', 'drawings', 'drawing_assignees',
       'drawing_status_history', 'review_tracker', 'discipline_defaults',
-      'discipline_default_assignees', 'project_settings', 'snapshots', 'audit_log'
+      'discipline_default_assignees', 'project_settings', 'audit_log'
     ];
     if (!ALLOWED_TABLES.includes(table)) return json(env, 403, { error: 'Forbidden table' });
 
@@ -1564,103 +1564,6 @@ export default {
           }
         }
 
-        const isSnapshotEnd = segments.length >= 3 && segments[2] === 'snapshots';
-        if (isSnapshotEnd) {
-          if (segments.length === 3 && request.method === 'GET') {
-            const all = url.searchParams.get('all') === '1';
-            const limit = all ? '' : 'LIMIT 10';
-            const rows = await queryAll(db, `SELECT id, note, created_at, data_json FROM snapshots WHERE project_id = ? ORDER BY created_at DESC ${limit}`, [projectId]);
-            const snaps = rows.map(r => {
-              const parsed = readJson<any>(r.data_json as string, {});
-              const stats = parsed?.snapshotMeta?.stats || [];
-              return { id: toStringValue(r.id), note: toStringValue(r.note), timestamp: toStringValue(r.created_at), stats };
-            });
-            return json(env, 200, snaps);
-          }
-          if (segments.length === 3 && request.method === 'POST') {
-            const body = await request.json() as any;
-            const note = toStringValue(body?.note) || `Snapshot ${new Date().toLocaleString()}`;
-
-            const projectData = await getProjectDetail(db, projectId) as any;
-
-            // Fetch the latest previous snapshot to calculate flows
-            const lastSnapRow = await queryFirst(db, `SELECT data_json FROM snapshots WHERE project_id = ? ORDER BY created_at DESC LIMIT 1`, [projectId]);
-            let previousStats: any[] = [];
-            if (lastSnapRow) {
-              const prevParsed = readJson<any>(lastSnapRow.data_json as string, {});
-              previousStats = prevParsed?.snapshotMeta?.stats || [];
-            }
-
-            // Generate stats from drawings grouped by discipline
-            const drawingsArr = projectData?.drawings || [];
-            const discMap: Record<string, any> = {};
-            for (const d of drawingsArr) {
-              const disc = d.discipline || 'Unknown';
-              if (!discMap[disc]) discMap[disc] = { discipline: disc, approved: 0, reviewing: 0, waitingReply: 0, pending: 0, totalComments: 0, openComments: 0, flowToReview: 0, flowToWaiting: 0, flowToApproved: 0 };
-              const status = (d.status || 'Pending').toLowerCase();
-              if (status === 'approved') discMap[disc].approved++;
-              else if (status === 'reviewing') discMap[disc].reviewing++;
-              else if (status === 'waiting reply') discMap[disc].waitingReply++;
-              else discMap[disc].pending++;
-              const manualTotal = d.manualCommentsCount ? Number(d.manualCommentsCount) : 0;
-              const manualOpen = d.manualOpenCommentsCount ? Number(d.manualOpenCommentsCount) : 0;
-              discMap[disc].totalComments += manualTotal;
-              discMap[disc].openComments += manualOpen;
-            }
-
-            // Calculate flows based on previous snapshot
-            const stats = Object.values(discMap).map((currentStat: any) => {
-              const prevStat = previousStats.find((s: any) => s.discipline === currentStat.discipline);
-              if (prevStat) {
-                currentStat.flowToReview = Math.max(0, currentStat.reviewing - (prevStat.reviewing || 0));
-                currentStat.flowToWaiting = Math.max(0, currentStat.waitingReply - (prevStat.waitingReply || 0));
-                currentStat.flowToApproved = Math.max(0, currentStat.approved - (prevStat.approved || 0));
-              } else {
-                // If no previous stat for this discipline, all current non-pending are considered new flow
-                currentStat.flowToReview = currentStat.reviewing;
-                currentStat.flowToWaiting = currentStat.waitingReply;
-                currentStat.flowToApproved = currentStat.approved;
-              }
-              return currentStat;
-            });
-
-            // Embed snapshotMeta into data_json
-            projectData.snapshotMeta = { createdAt: new Date().toISOString(), note, stats };
-            const dataJson = JSON.stringify(projectData);
-
-            await db.prepare(`INSERT INTO snapshots (id, project_id, note, data_json) VALUES (?, ?, ?, ?)`).bind(
-              crypto.randomUUID(), projectId, note, dataJson
-            ).run();
-            return json(env, 200, { success: true });
-          }
-          // Import endpoint: accepts raw JSON data with custom timestamp
-          if (segments.length === 4 && segments[3] === 'import' && request.method === 'POST') {
-            const body = await request.json() as any;
-            const note = toStringValue(body?.note) || 'Imported Snapshot';
-            const dataJson = typeof body?.dataJson === 'string' ? body.dataJson : JSON.stringify(body?.dataJson || {});
-            const createdAt = toStringValue(body?.createdAt) || new Date().toISOString();
-            await db.prepare(`INSERT INTO snapshots (id, project_id, note, data_json, created_at) VALUES (?, ?, ?, ?, ?)`).bind(
-              crypto.randomUUID(), projectId, note, dataJson, createdAt
-            ).run();
-            return json(env, 200, { success: true });
-          }
-          if (segments.length === 4 && request.method === 'DELETE') {
-            const snapshotId = decodeURIComponent(segments[3]);
-            await db.prepare(`DELETE FROM snapshots WHERE project_id = ? AND id = ?`).bind(projectId, snapshotId).run();
-            return json(env, 200, { success: true });
-          }
-          if (segments.length === 5 && segments[4] === 'restore' && request.method === 'POST') {
-            const snapshotId = decodeURIComponent(segments[3]);
-            const snap = await queryFirst(db, `SELECT data_json FROM snapshots WHERE project_id = ? AND id = ?`, [projectId, snapshotId]);
-            if (!snap) return json(env, 404, { error: 'Snapshot not found' });
-
-            const projectData = readJson<Record<string, unknown>>(toStringValue(snap.data_json), {});
-            if (projectData && Object.keys(projectData).length > 0) {
-              await saveProjectData(db, projectId, projectData, {}, 'restore');
-            }
-            return json(env, 200, { success: true });
-          }
-        }
       }
 
       return notImplemented(env, request.method, path);

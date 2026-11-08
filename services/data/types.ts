@@ -1,4 +1,4 @@
-import { AppSettings, AuditEntry, Project, ProjectSnapshot, ReviewTrackerData, DeltaPayload, SaveResult } from '../../types';
+import { AppSettings, AuditEntry, Project, ReviewTrackerData, DeltaPayload, SaveResult } from '../../types';
 
 export interface ProjectListItem {
   id: string;
@@ -17,10 +17,6 @@ export interface DataRepository {
   loadProject(settings: AppSettings, project: Project, passwordInput?: string): Promise<Project>;
   saveProject(settings: AppSettings, project: Project, reviewTracker: ReviewTrackerData): Promise<SaveResult>;
   saveDelta(settings: AppSettings, projectId: string, payload: DeltaPayload): Promise<SaveResult>;
-  loadSnapshots(settings: AppSettings, project: Project, includeAll?: boolean): Promise<ProjectSnapshot[]>;
-  createSnapshot(settings: AppSettings, project: Project, note: string): Promise<boolean>;
-  restoreSnapshot(settings: AppSettings, project: Project, snapshot: ProjectSnapshot): Promise<boolean>;
-  deleteSnapshot(settings: AppSettings, project: Project, snapshotId: string): Promise<boolean>;
   loadReviewTracker(settings: AppSettings, project: Project): Promise<ReviewTrackerData>;
   saveReviewTracker(settings: AppSettings, project: Project, data: ReviewTrackerData): Promise<SaveResult>;
   loadAuditLog(settings: AppSettings, project: Project, fromISO: string, toISO: string): Promise<AuditLogPage>;

@@ -1,4 +1,4 @@
-import { AppSettings, Project, ProjectSnapshot, ReviewTrackerData, DeltaPayload, SaveResult } from '../../types';
+import { AppSettings, Project, ReviewTrackerData, DeltaPayload, SaveResult } from '../../types';
 import { AuditLogPage, DataRepository, ProjectListItem } from './types';
 
 interface RequestOptions {
@@ -73,33 +73,6 @@ export class HubApiRepository implements DataRepository {
       method: 'PATCH',
       body: payload,
     });
-  }
-
-  loadSnapshots(_settings: AppSettings, project: Project, includeAll = false): Promise<ProjectSnapshot[]> {
-    const suffix = includeAll ? '?all=1' : '';
-    return this.request<ProjectSnapshot[]>(`projects/${encodeURIComponent(project.id)}/snapshots${suffix}`);
-  }
-
-  async createSnapshot(_settings: AppSettings, project: Project, note: string): Promise<boolean> {
-    await this.request(`projects/${encodeURIComponent(project.id)}/snapshots`, {
-      method: 'POST',
-      body: { note },
-    });
-    return true;
-  }
-
-  async restoreSnapshot(_settings: AppSettings, project: Project, snapshot: ProjectSnapshot): Promise<boolean> {
-    await this.request(`projects/${encodeURIComponent(project.id)}/snapshots/${encodeURIComponent(snapshot.id)}/restore`, {
-      method: 'POST',
-    });
-    return true;
-  }
-
-  async deleteSnapshot(_settings: AppSettings, project: Project, snapshotId: string): Promise<boolean> {
-    await this.request(`projects/${encodeURIComponent(project.id)}/snapshots/${encodeURIComponent(snapshotId)}`, {
-      method: 'DELETE',
-    });
-    return true;
   }
 
   loadReviewTracker(_settings: AppSettings, project: Project): Promise<ReviewTrackerData> {

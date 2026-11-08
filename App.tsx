@@ -51,7 +51,6 @@ import {
   ClipboardCheck
 } from 'lucide-react';
 
-const Reports = lazy(() => import('./components/Reports').then(module => ({ default: module.Reports })));
 const Settings = lazy(() => import('./components/Settings').then(module => ({ default: module.Settings })));
 const DailyLogReport = lazy(() => import('./components/DailyLogReport').then(module => ({ default: module.DailyLogReport })));
 const ActivityReport = lazy(() => import('./components/ActivityReport').then(module => ({ default: module.ActivityReport })));
@@ -68,7 +67,7 @@ const LazyTabFallback: React.FC = () => (
 );
 
 const App: React.FC = () => {
-  const [activeTab, setActiveTab] = useState<'drawings' | 'reports' | 'activity' | 'dailylog' | 'settings' | 'manual' | 'tracker'>('drawings');
+  const [activeTab, setActiveTab] = useState<'drawings' | 'activity' | 'dailylog' | 'settings' | 'manual' | 'tracker'>('drawings');
   const data = useStore(state => state.data);
   const activeProjectId = useStore(state => state.activeProjectId);
   const setActiveProject = useStore(state => state.setActiveProject);
@@ -575,15 +574,6 @@ const App: React.FC = () => {
               <span className="hidden xl:inline">Inventory</span>
             </button>
             <button
-              onClick={() => isEditMode && setActiveTab('reports')}
-              disabled={!isEditMode}
-              className={`flex items-center gap-1.5 px-3 xl:px-5 py-2 rounded-full text-[10px] font-[1000] uppercase tracking-[0.15em] transition-all duration-300 shrink-0 ${activeTab === 'reports' ? 'bg-white text-teal-700 shadow-lg shadow-black/10' : !isEditMode ? 'text-white/35 cursor-not-allowed opacity-70' : 'text-teal-50/75 hover:text-white hover:bg-white/10'}`}
-              title={!isEditMode ? "Unlock Edit Mode to Access" : "Intelligence Dashboard"}
-            >
-              {!isEditMode ? <Lock size={14} className="text-white/40 shrink-0" /> : <LayoutDashboard size={14} strokeWidth={2.5} className={`shrink-0 ${activeTab === 'reports' ? 'text-teal-600' : 'text-teal-50/75'}`} />}
-              <span className="hidden xl:inline">Intelligence</span>
-            </button>
-            <button
               onClick={() => isEditMode && setActiveTab('activity')}
               disabled={!isEditMode}
               className={`flex items-center gap-1.5 px-3 xl:px-5 py-2 rounded-full text-[10px] font-[1000] uppercase tracking-[0.15em] transition-all duration-300 shrink-0 ${activeTab === 'activity' ? 'bg-white text-teal-700 shadow-lg shadow-black/10' : !isEditMode ? 'text-white/35 cursor-not-allowed opacity-70' : 'text-teal-50/75 hover:text-white hover:bg-white/10'}`}
@@ -666,13 +656,6 @@ const App: React.FC = () => {
 
           <div className="flex-1 bg-white/92 backdrop-blur-xl rounded-[2rem] border border-white/70 shadow-[0_24px_80px_-28px_rgba(15,118,110,0.28)] overflow-hidden flex flex-col">
             {activeTab === 'drawings' && <DrawingList />}
-            {activeTab === 'reports' && (
-              <Suspense fallback={<LazyTabFallback />}>
-                <ErrorBoundary>
-                  <Reports />
-                </ErrorBoundary>
-              </Suspense>
-            )}
             {activeTab === 'activity' && (
               <Suspense fallback={<LazyTabFallback />}>
                 <ErrorBoundary>

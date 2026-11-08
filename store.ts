@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { AppData, Project, Drawing, DrawingStatus, Remark, AppSettings, ProjectSnapshot, DisciplineSnapshot, ProjectConfig, ReviewTrackerData, ReviewTrackerEntry, DeltaPayload, AuditEntry, SaveResult, WriteVerification } from './types';
+import { AppData, Project, Drawing, DrawingStatus, Remark, AppSettings, ProjectConfig, ReviewTrackerData, ReviewTrackerEntry, DeltaPayload, AuditEntry, SaveResult, WriteVerification } from './types';
 // Fix: Removed missing isWeekend from date-fns imports
 import { addDays, format, isSameDay } from 'date-fns';
 import { appRepository } from './services/data/AppRepository';
@@ -31,7 +31,7 @@ const stripProjectPayload = (project: Project, keepPayload: boolean): Project =>
   return {
     ...project,
     drawings: [],
-    snapshots: [],
+
   };
 };
 
@@ -103,12 +103,7 @@ interface AppState {
   fetchProjectList: () => Promise<void>;
   loadProject: (projectId: string, passwordInput?: string) => Promise<void>;
   refreshProjectPreservingDirty: (projectId: string) => Promise<number>;
-  refreshSnapshots: (projectId: string) => Promise<void>;
-  refreshAllSnapshots: (projectId: string) => Promise<void>;
   testConnection: (url: string, user: string, pass: string, proxyUrl?: string) => Promise<{ success: boolean; message: string }>;
-  takeSnapshot: (projectId: string) => Promise<void>;
-  deleteSnapshot: (projectId: string, snapshotId: string) => Promise<void>;
-  restoreSnapshot: (snapshotId: string) => Promise<boolean>;
 
   // UI State
   viewMode: 'list' | 'board';
@@ -353,7 +348,7 @@ export const useStore = create<AppState>()(
                 roundACycle: state.data.settings.roundACycle,
                 otherRoundsCycle: state.data.settings.otherRoundsCycle
               },
-              snapshots: []
+
             },
           ],
         },
@@ -847,7 +842,7 @@ export const useStore = create<AppState>()(
                   name: rp.name,
                   storagePath: rp.storagePath,
                   drawings: [],
-                  snapshots: [],
+
                   conf: {
                     reviewers: state.data.settings.reviewers,
                     disciplineDefaults: state.data.settings.disciplineDefaults,
@@ -868,124 +863,6 @@ export const useStore = create<AppState>()(
           console.error("List failed", err);
           set({ isLoading: false, error: err.message });
           throw err;
-        }
-      },
-
-      refreshSnapshots: async (projectId: string) => {
-        const { data } = get();
-        const project = data.projects.find(p => p.id === projectId);
-        if (!project) return;
-
-        // No loading state for background refresh usually, but let's keep silent or localized
-        try {
-          const snapshots = await appRepository.loadSnapshots(data.settings, project, false);
-
-          set(state => ({
-            data: {
-              ...state.data,
-              projects: state.data.projects.map(p => p.id === projectId ? { ...p, snapshots } : p)
-            }
-          }));
-        } catch (err: any) {
-          console.warn("Snapshot refresh failed", err);
-        }
-      },
-
-      refreshAllSnapshots: async (projectId: string) => {
-        const { data } = get();
-        const project = data.projects.find(p => p.id === projectId);
-        if (!project) return;
-
-        try {
-          const snapshots = await appRepository.loadSnapshots(data.settings, project, true);
-
-          set(state => ({
-            data: {
-              ...state.data,
-              projects: state.data.projects.map(p => p.id === projectId ? { ...p, snapshots } : p)
-            }
-          }));
-        } catch (err: any) {
-          console.warn("Snapshot refresh all failed", err);
-        }
-      },
-
-      takeSnapshot: async (projectId: string) => {
-        const { data } = get();
-        const project = data.projects.find(p => p.id === projectId);
-        if (!project) return;
-
-        set({ isLoading: true });
-        try {
-          // Auto-generate note via prompt or default
-          const note = prompt("Snapshot Note (Optional):") || "Manual Snapshot";
-
-          await appRepository.createSnapshot(data.settings, project, note);
-
-          // Refresh list immediately
-          const snapshots = await appRepository.loadSnapshots(data.settings, project, false);
-
-          set(state => ({
-            isLoading: false,
-            data: {
-              ...state.data,
-              projects: state.data.projects.map(p => p.id === projectId ? { ...p, snapshots } : p)
-            }
-          }));
-        } catch (e: any) {
-          set({ isLoading: false, error: e.message });
-        }
-      },
-
-      deleteSnapshot: async (projectId: string, snapshotId: string) => {
-        const { data } = get();
-        const project = data.projects.find(p => p.id === projectId);
-        if (!project) return;
-
-        set({ isLoading: true });
-        try {
-          await appRepository.deleteSnapshot(data.settings, project, snapshotId);
-
-          // Refresh list
-          const snapshots = await appRepository.loadSnapshots(data.settings, project, false);
-
-          set(state => ({
-            isLoading: false,
-            data: {
-              ...state.data,
-              projects: state.data.projects.map(p => p.id === projectId ? { ...p, snapshots } : p)
-            }
-          }));
-        } catch (e: any) {
-          set({ isLoading: false, error: e.message });
-        }
-      },
-
-      restoreSnapshot: async (snapshotId: string) => {
-        const { data, activeProjectId } = get();
-        if (!activeProjectId) return false;
-        const project = data.projects.find(p => p.id === activeProjectId);
-        if (!project) return false;
-
-        const snapshot = project.snapshots?.find(s => s.id === snapshotId);
-        if (!snapshot) return false;
-
-        if (!window.confirm(`Are you sure you want to restore snapshot "${snapshot.note}"? Data since ${new Date(snapshot.createdAt).toLocaleString()} will be lost.`)) {
-          return false;
-        }
-
-        set({ isLoading: true });
-        try {
-          await appRepository.restoreSnapshot(data.settings, project, snapshot);
-
-          // Reload project data fully
-          await get().loadProject(activeProjectId, project.conf?.password);
-
-          set({ isLoading: false });
-          return true;
-        } catch (e: any) {
-          set({ isLoading: false, error: e.message });
-          return false;
         }
       },
 

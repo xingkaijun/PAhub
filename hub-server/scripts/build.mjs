@@ -14,7 +14,7 @@ export const bundleOptions = {
 
 export async function copySchema() {
   await mkdir(path.join(outdir, 'sql'), { recursive: true });
-  for (const name of ['init-local.sql', 'snapshot-table.sql', 'audit-journal.sql']) {
+  for (const name of ['init-local.sql', 'audit-journal.sql']) {
     await copyFile(path.join(root, 'worker/sql', name), path.join(outdir, 'sql', name));
   }
 }

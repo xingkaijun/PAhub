@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { SQL_DIR } from './config.ts';
 import { D1Adapter } from './d1.ts';
 import { initializePcfSchema } from './pcf-schema.ts';
@@ -10,7 +11,20 @@ function columns(db: DatabaseSync, table: string): string[] {
   return db.prepare('PRAGMA table_info("' + table + '")').all().map(row => String(row.name));
 }
 
+// Legacy project snapshots are retired. Back up before deleting, outside a transaction.
+function removeLegacySnapshots(db: DatabaseSync): void {
+  if (!db.prepare("SELECT 1 FROM sqlite_master WHERE type='table' AND name='snapshots'").get()) return;
+  const databaseFile = String(db.prepare('PRAGMA database_list').all().find(row => row.name === 'main')?.file || '');
+  const backupDir = databaseFile ? path.join(path.dirname(databaseFile), 'backups') : path.join(process.env.TEMP || '.', 'pahub-backups');
+  mkdirSync(backupDir, { recursive: true });
+  const backup = path.join(backupDir, 'before-snapshot-removal-' + Date.now() + '-' + randomUUID() + '.db');
+  db.exec("VACUUM INTO '" + backup.replaceAll("'", "''") + "'");
+  db.exec('DROP TABLE snapshots'); // SQLite also removes indexes belonging to this table.
+  console.log('Removed legacy project snapshots; database backup: ' + backup);
+}
+
 export function initializeSchema(db: DatabaseSync): void {
+  removeLegacySnapshots(db);
   migrateLegacyProjectPath(db);
   const expected: Record<string, string[]> = {
     projects: ['id', 'name', 'storage_path', 'last_updated'],
@@ -42,7 +56,6 @@ export function initializeSchema(db: DatabaseSync): void {
     db.exec(init.slice(0, split));
     db.exec(readFileSync(path.join(SQL_DIR, 'audit-journal.sql'), 'utf8')
       .replace(/^ALTER TABLE audit_log ADD COLUMN project_id TEXT;\s*$/m, ''));
-    db.exec(readFileSync(path.join(SQL_DIR, 'snapshot-table.sql'), 'utf8'));
     db.exec(init.slice(split));
     initializePcfSchema(db);
     for (const view of ['api_settings', 'api_projects', 'api_project_details', 'api_review_trackers']) {

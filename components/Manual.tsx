@@ -2,7 +2,7 @@ import React from 'react';
 import {
   BookOpen, Terminal, Cloud, FileText, Settings,
   HelpCircle, ChevronRight, Info, AlertCircle, Send,
-  MousePointer2, Command, Shield, Sparkles, CheckCircle, RefreshCw, Camera
+  MousePointer2, Command, Shield, Sparkles, CheckCircle, RefreshCw
 } from 'lucide-react';
 
 // Move helper components to top to avoid hoisting issues and fix children prop type errors
@@ -82,10 +82,9 @@ export const Manual: React.FC = () => {
               </ul>
             </Section>
 
-            <Section icon={<FileText size={18} />} title="4. Reporting & Snapshots">
+            <Section icon={<FileText size={18} />} title="4. Daily Log & Activity Reports">
               <ul className="space-y-3 text-[11px] font-medium text-slate-600 leading-relaxed">
                 <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-500" /> <strong>Data Strictness:</strong> Chart calculations explicitly depend solely on the manual Total/Open comments values you log, guaranteeing accurate, transparent trend visualizations.</li>
-                <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-500" /> <strong>Snapshots:</strong> Click <Camera size={10} className="inline mx-1" /> to freeze current progress. Reports compare the <strong>Newest</strong> snapshot against the <strong>Previous</strong> one to calculate weekly progress.</li>
               </ul>
             </Section>
           </div>
@@ -161,10 +160,9 @@ export const Manual: React.FC = () => {
               </ol>
             </Section>
 
-            <Section icon={<FileText size={18} />} title="4. 图表快照说明">
+            <Section icon={<FileText size={18} />} title={"4. \u65e5\u5fd7\u4e0e\u6d3b\u52a8\u62a5\u8868"}>
               <ul className="space-y-3 text-[11px] font-medium text-slate-600 leading-relaxed">
                 <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-600" /> <strong>报表严谨性：</strong> Reports 中的总意见生成，严格基于你在表单或命令行（c:5/1）中填写的具体计数执行，不计入日常打卡记录的内部备注文本，保证数据一致。</li>
-                <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-600" /> <strong>手动快照：</strong> 进度总结时，务必点击右上角 <Camera size={10} className="inline mx-1" /> 按钮，生成当期的数据快照，图表历史走势会立刻自动更新。</li>
               </ul>
             </Section>
           </div>
@@ -182,11 +180,11 @@ export const Manual: React.FC = () => {
             <div className="flex-1 space-y-4 text-center md:text-left">
               <h3 className="text-xl font-black uppercase tracking-widest">Platform Safety & Best Practices</h3>
               <p className="text-slate-400 text-[11px] font-bold leading-relaxed uppercase tracking-widest">
-                Configure your <strong>Project Settings</strong> to customize auto-sync intervals. Ideally, one team member should act as the <strong>Administrator</strong> to manage snapshots and bulk imports to avoid conflicts.
+                Configure your <strong>Project Settings</strong> to customize auto-sync intervals. Ideally, one team member should act as the <strong>Administrator</strong> to manage bulk imports to avoid conflicts.
               </p>
               <div className="pt-4 flex flex-wrap gap-4 justify-center md:justify-start">
                 <TipBadge label="Auto-Sync Enabled" />
-                <TipBadge label="Snapshot Weekly" />
+                <TipBadge label="Review Logs Weekly" />
                 <TipBadge label="Project Specific Config" />
                 <TipBadge label="Secure Cloud" />
               </div>

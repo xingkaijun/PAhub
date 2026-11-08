@@ -78,7 +78,6 @@ export async function importData(source: string, destination: string) {
     const counts = {
       projects: Number(sqlite.prepare('SELECT COUNT(*) AS n FROM projects').get()!.n),
       drawings: Number(sqlite.prepare('SELECT COUNT(*) AS n FROM drawings').get()!.n),
-      snapshots: Number(sqlite.prepare('SELECT COUNT(*) AS n FROM snapshots').get()!.n),
       audit_log: Number(sqlite.prepare('SELECT COUNT(*) AS n FROM audit_log').get()!.n),
     };
     sqlite.close(); sqlite = undefined;

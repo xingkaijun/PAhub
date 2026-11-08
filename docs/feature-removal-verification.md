@@ -1,0 +1,119 @@
+# Feature removal verification
+
+Initial `git grep -l -i -E 'snapshot|Intelligence'` inventory:
+
+- `App.tsx`
+- `components/ActivityReport.tsx`
+- `components/DailyLogReport.tsx`
+- `components/DrawingList.tsx`
+- `components/Manual.tsx`
+- `components/ProjectDashboard.tsx`
+- `components/Reports.tsx`
+- `docs/PCF_HOSTED.md`
+- `hub-server/scripts/build.mjs`
+- `hub-server/src/database.ts`
+- `hub-server/src/importer.ts`
+- `hub-server/test/browser-smoke.mjs`
+- `hub-server/test/exchange-browser-smoke.mjs`
+- `hub-server/test/integration.test.ts`
+- `hub-server/test/pcf.test.ts`
+- `hub-server/test/phase8.test.ts`
+- `hub-server/test/v26-browser-smoke.mjs`
+- `index.html`
+- `pcf/template/PG-PCF-hub.html`
+- `pcf/template/PG-PCF-v1.9-source.html`
+- `pcf/template/PG-PCF-v2.6-source.html`
+- `services/data/AppRepository.ts`
+- `services/data/HubApiRepository.ts`
+- `services/data/mergeProject.ts`
+- `services/data/types.ts`
+- `store.ts`
+- `types.ts`
+- `worker/sql/init-local.sql`
+- `worker/sql/snapshot-table.sql`
+- `worker/src/index.ts`
+
+Reports.tsx and ProjectDashboard.tsx were feature-only; removed. Daily Log, Activity Report, audit_log and PCF behavior retained. Activity A4 layout and palette moved unchanged to components/reportLayout.tsx. Worker API and D1 schema definitions removed; startup uses VACUUM INTO before DROP, logging only when the old table exists.
+
+Remaining tracked matches (line numbers at this commit; each is intentional):
+
+- `App.tsx:561`: Existing brand or command-bar terminology, not retired navigation.
+- `components/DailyLogReport.tsx:414`: Local log cache source label; retained log behavior.
+- `components/DailyLogReport.tsx:433`: Local log cache source label; retained log behavior.
+- `components/DailyLogReport.tsx:665`: Local log cache source label; retained log behavior.
+- `components/DrawingList.tsx:678`: Existing brand or command-bar terminology, not retired navigation.
+- `components/Manual.tsx:44`: Existing brand or command-bar terminology, not retired navigation.
+- `components/Manual.tsx:67`: Existing brand or command-bar terminology, not retired navigation.
+- `docs/PCF_HOSTED.md:9`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `docs/PCF_HOSTED.md:137`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `docs/PCF_HOSTED.md:232`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `docs/PCF_HOSTED.md:239`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `hub-server/src/database.ts:14`: One-time backup/DROP migration and its regression test.
+- `hub-server/src/database.ts:15`: One-time backup/DROP migration and its regression test.
+- `hub-server/src/database.ts:16`: One-time backup/DROP migration and its regression test.
+- `hub-server/src/database.ts:20`: One-time backup/DROP migration and its regression test.
+- `hub-server/src/database.ts:22`: One-time backup/DROP migration and its regression test.
+- `hub-server/src/database.ts:23`: One-time backup/DROP migration and its regression test.
+- `hub-server/src/database.ts:27`: One-time backup/DROP migration and its regression test.
+- `hub-server/test/browser-smoke.mjs:23`: Browser UI capture terminology, not project persistence.
+- `hub-server/test/exchange-browser-smoke.mjs:21`: Browser UI capture terminology, not project persistence.
+- `hub-server/test/exchange-browser-smoke.mjs:33`: Browser UI capture terminology, not project persistence.
+- `hub-server/test/exchange-browser-smoke.mjs:47`: Browser UI capture terminology, not project persistence.
+- `hub-server/test/integration.test.ts:122`: One-time backup/DROP migration and its regression test.
+- `hub-server/test/integration.test.ts:127`: One-time backup/DROP migration and its regression test.
+- `hub-server/test/integration.test.ts:129`: One-time backup/DROP migration and its regression test.
+- `hub-server/test/integration.test.ts:133`: One-time backup/DROP migration and its regression test.
+- `hub-server/test/pcf.test.ts:169`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `hub-server/test/pcf.test.ts:170`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `hub-server/test/v26-browser-smoke.mjs:24`: Browser UI capture terminology, not project persistence.
+- `hub-server/test/v26-browser-smoke.mjs:49`: Browser UI capture terminology, not project persistence.
+- `pcf/template/PG-PCF-hub.html:427`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `pcf/template/PG-PCF-hub.html:509`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `pcf/template/PG-PCF-hub.html:523`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `pcf/template/PG-PCF-hub.html:694`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `pcf/template/PG-PCF-hub.html:695`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `pcf/template/PG-PCF-hub.html:1219`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `pcf/template/PG-PCF-hub.html:1221`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `pcf/template/PG-PCF-hub.html:1229`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `pcf/template/PG-PCF-hub.html:1398`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `pcf/template/PG-PCF-hub.html:1549`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `pcf/template/PG-PCF-hub.html:1551`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `pcf/template/PG-PCF-hub.html:1563`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `pcf/template/PG-PCF-v1.9-source.html:92`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `pcf/template/PG-PCF-v1.9-source.html:174`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `pcf/template/PG-PCF-v1.9-source.html:188`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `pcf/template/PG-PCF-v1.9-source.html:359`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `pcf/template/PG-PCF-v1.9-source.html:360`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `pcf/template/PG-PCF-v1.9-source.html:680`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `pcf/template/PG-PCF-v1.9-source.html:682`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `pcf/template/PG-PCF-v1.9-source.html:692`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `pcf/template/PG-PCF-v2.6-source.html:382`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `pcf/template/PG-PCF-v2.6-source.html:464`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `pcf/template/PG-PCF-v2.6-source.html:478`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `pcf/template/PG-PCF-v2.6-source.html:649`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `pcf/template/PG-PCF-v2.6-source.html:650`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `pcf/template/PG-PCF-v2.6-source.html:1113`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `pcf/template/PG-PCF-v2.6-source.html:1115`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `pcf/template/PG-PCF-v2.6-source.html:1127`: PCF standalone HTML serialization or offline recovery data; not project snapshots.
+- `store.ts:707`: Local dirty/deleted save-state copies; unrelated to project feature.
+- `store.ts:708`: Local dirty/deleted save-state copies; unrelated to project feature.
+- `store.ts:709`: Local dirty/deleted save-state copies; unrelated to project feature.
+- `store.ts:710`: Local dirty/deleted save-state copies; unrelated to project feature.
+- `store.ts:711`: Local dirty/deleted save-state copies; unrelated to project feature.
+- `store.ts:712`: Local dirty/deleted save-state copies; unrelated to project feature.
+- `store.ts:714`: Local dirty/deleted save-state copies; unrelated to project feature.
+- `store.ts:725`: Local dirty/deleted save-state copies; unrelated to project feature.
+- `store.ts:726`: Local dirty/deleted save-state copies; unrelated to project feature.
+- `store.ts:727`: Local dirty/deleted save-state copies; unrelated to project feature.
+- `store.ts:732`: Local dirty/deleted save-state copies; unrelated to project feature.
+- `store.ts:735`: Local dirty/deleted save-state copies; unrelated to project feature.
+- `store.ts:736`: Local dirty/deleted save-state copies; unrelated to project feature.
+- `store.ts:739`: Local dirty/deleted save-state copies; unrelated to project feature.
+- `store.ts:745`: Local dirty/deleted save-state copies; unrelated to project feature.
+- `store.ts:749`: Local dirty/deleted save-state copies; unrelated to project feature.
+- `store.ts:770`: Local dirty/deleted save-state copies; unrelated to project feature.
+- `store.ts:778`: Local dirty/deleted save-state copies; unrelated to project feature.
+- `store.ts:781`: Local dirty/deleted save-state copies; unrelated to project feature.
+- `store.ts:786`: Local dirty/deleted save-state copies; unrelated to project feature.
+
+This verification document and reports.acceptance.js also mention the retired names solely as removal documentation / absence assertions. No runtime create/load/restore/delete API remains.

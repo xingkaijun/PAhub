@@ -40,28 +40,6 @@ export interface Drawing {
   statusHistory: Remark[];
 }
 
-export interface DisciplineSnapshot {
-  discipline: string;
-  approved: number;
-  reviewing: number;
-  waitingReply: number;
-  pending: number;
-  totalComments: number;
-  openComments: number;
-  flowToReview: number;
-  flowToWaiting: number;
-  flowToApproved: number;
-}
-
-export interface ProjectSnapshot {
-  id: string; // Filename usually
-  timestamp: string; // ISO Date
-  note?: string;
-  createdAt?: string; // Duplicate for compatibility
-  stats?: DisciplineSnapshot[]; // For reports
-  data?: any; // Full data if needed
-}
-
 export interface Reviewer {
   id: string;
   name: string;
@@ -100,7 +78,6 @@ export interface Project {
   id: string;
   name: string;
   drawings: Drawing[];
-  snapshots?: ProjectSnapshot[];
   storagePath?: string;
   conf: ProjectConfig;
   lastUpdated?: string;

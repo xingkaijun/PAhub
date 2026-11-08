@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, writeFile, access } from 'node:fs/promises';
+import { mkdtemp, readFile, writeFile, access, readdir } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
@@ -14,7 +14,7 @@ import type { AppSettings, Project } from '../../types';
 const settings = {} as AppSettings;
 const stub = { id: 'proj-test-001' } as Project;
 
-test('hub end-to-end: real frontend repository, persisted PATCH/PUT, snapshots, SQL/JSON imports', async () => {
+test('hub end-to-end: real frontend repository, persisted PATCH/PUT, audit logs, SQL/JSON imports', async () => {
   const temp = await mkdtemp(path.join(tmpdir(), 'pahub-test-'));
   console.log('Test artifacts: ' + temp);
   const destination = path.join(temp, 'seed.db');
@@ -52,11 +52,6 @@ test('hub end-to-end: real frontend repository, persisted PATCH/PUT, snapshots, 
     const full = await api.saveProject(settings, project, tracker);
     assert.equal(full.verification?.ok, true);
     console.log('PUT /api/projects/proj-test-001 -> ' + JSON.stringify(full));
-    assert.equal(await api.createSnapshot(settings, project, 'phase-1 smoke'), true);
-    const snapshots = await api.loadSnapshots(settings, project, true);
-    assert.equal(snapshots.length, 1);
-    assert.equal(snapshots[0].note, 'phase-1 smoke');
-    console.log('POST/GET snapshots -> count=1 note=' + snapshots[0].note);
     const audit = await api.loadAuditLog(settings, project, '2000-01-01T00:00:00.000Z', '2100-01-01T00:00:00.000Z');
     assert.ok(audit.entries.some(row => row.action === 'STATUS' && row.drawingId === drawing.id));
     console.log('GET audit -> STATUS journal persisted');
@@ -113,8 +108,7 @@ test('hub end-to-end: real frontend repository, persisted PATCH/PUT, snapshots, 
     assert.equal((await fetch(base + '/api/health')).status, 401);
     assert.equal((await fetch(base + '/api/health', { headers: { Authorization: 'Bearer smoke-token' } })).status, 200);
     assert.equal((await api.loadProject(settings, stub)).drawings.find(d => d.id === drawing.id)?.status, 'Approved');
-    assert.equal((await api.loadSnapshots(settings, stub, true)).length, 1);
-    console.log('Restart -> status=Approved snapshots=1; API_TOKEN missing=401 valid=200');
+    console.log('Restart -> status=Approved audit retained; API_TOKEN missing=401 valid=200');
   } finally {
     await hub?.close();
     for (const [key, value] of Object.entries(previousEnv)) {
@@ -122,6 +116,25 @@ test('hub end-to-end: real frontend repository, persisted PATCH/PUT, snapshots, 
     }
     Reflect.deleteProperty(globalThis, 'location');
   }
+});
+
+
+test('retired project snapshot migration backs up data before DROP and runs once', async () => {
+  const directory = await mkdtemp(path.join(tmpdir(), 'pahub-retirement-'));
+  const db = new DatabaseSync(path.join(directory, 'papc.db'));
+  try {
+    initializeSchema(db);
+    db.exec("CREATE TABLE snapshots(id TEXT PRIMARY KEY, data_json TEXT); CREATE INDEX old_snapshot_index ON snapshots(id); INSERT INTO snapshots VALUES ('old', '{\"preserved\":true}');");
+    initializeSchema(db);
+    assert.equal(db.prepare("SELECT 1 FROM sqlite_master WHERE name='snapshots' OR name='old_snapshot_index'").get(), undefined);
+    const backups = await readdir(path.join(directory, 'backups'));
+    assert.equal(backups.length, 1);
+    const saved = new DatabaseSync(path.join(directory, 'backups', backups[0]), { readOnly: true });
+    try { assert.equal(saved.prepare('SELECT data_json FROM snapshots').get()!.data_json, '{"preserved":true}'); } finally { saved.close(); }
+    initializeSchema(db);
+    assert.deepEqual(await readdir(path.join(directory, 'backups')), backups);
+    assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE name='audit_log'").get());
+  } finally { db.close(); }
 });
 
 test('schema initialization is idempotent and upgrades guarded audit/_deleted columns', async () => {
