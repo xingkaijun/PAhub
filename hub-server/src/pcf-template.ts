@@ -3,10 +3,12 @@ import path from 'node:path';
 import { ROOT_DIR } from './config.ts';
 import { parseHTML, replaceData } from './pcf-html.ts';
 import { atomicWrite } from './atomic-write.ts';
+import { TemplateCache } from './template-cache.ts';
 import { cleanupLegacyImport, type PcfData } from './pcf-model.ts';
 
 export const TEMPLATE_VERSION = 6;
-export const currentTemplate = () => readFileSync(path.join(ROOT_DIR, 'pcf/template/PG-PCF-hub.html'), 'utf8');
+const template = new TemplateCache(path.join(ROOT_DIR, 'pcf/template/PG-PCF-hub.html'), process.env.NODE_ENV === 'development');
+export const currentTemplate = () => template.read();
 export const templateVersion = (html: string) => Number(html.match(/name="pahub-template-version" content="(\d+)"/)?.[1] || 2);
 export const renderTemplate = (data: PcfData) => replaceData(currentTemplate(), data);
 export function upgradeFile(file: string, dryRun = false): { file: string; from: number; to: number; status: string; backup?: string; deletedToClean?: number; emptyRoundsToPrune?: number } {

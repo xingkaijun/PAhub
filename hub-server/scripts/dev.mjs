@@ -4,6 +4,7 @@ import { bundleOptions, copySchema, outdir, root } from './build.mjs';
 import { pathToFileURL } from 'node:url';
 import path from 'node:path';
 
+process.env.NODE_ENV = 'development';
 await copySchema();
 let vite;
 let hub;
