@@ -169,7 +169,7 @@ const TOOLBAR = `<script id="pahub-banner-toolbar">
     header.banner.pahub-unified .capsule svg { width:13px!important; height:13px!important; flex:0 0 13px!important; }
     header.banner.pahub-unified .capsule svg.menu-chevron { width:10px!important; height:10px!important; flex:0 0 10px!important; }
     header.banner.pahub-unified .capsule button::before { width:13px; height:13px; flex:0 0 13px; }
-    header.banner.pahub-unified #save-menu-btn::before, header.banner.pahub-unified #pahub-io-menu-btn::before { display:none; }
+    header.banner.pahub-unified #save-menu-btn::before, header.banner.pahub-unified :is(#pahub-io-menu-btn,#pahub-export,#pahub-exchange,#pahub-io-export,#pahub-import,#pahub-name)::before { display:none!important; content:none!important; }
     header.banner.pahub-unified .banner-menu { position:relative; display:flex; flex:0 0 auto; }
     header.banner.pahub-unified .banner-menu .banner-menu-panel { top:calc(100% + 9px); left:0; right:auto; transform:none; background:var(--surface); border-color:var(--line); color:var(--ink); border-radius:12px; z-index:150; }
     header.banner.pahub-unified .banner-menu-panel button { background:transparent; color:var(--ink); text-transform:none; }
