@@ -25,29 +25,53 @@ function fixture(hosted = true) {
   const mount=()=>{w.eval(script);doc.dispatchEvent(new w.Event('DOMContentLoaded'));};
   return { dom,w,doc,mount };
 }
-test('hosted toolbar moves original buttons, keeps grouping and native menu/keyboard behavior',()=>{
+test('hosted toolbar: centered capsules, personal capsule on the right, original nodes kept',()=>{
   const f=fixture(); try {
     const ids=['pahub-export','pahub-import','pahub-exchange','save-btn','save-menu-btn','json-menu-btn','excel-menu-btn','more-btn','help-btn','theme-btn','pahub-name'];
     const nodes=ids.map(id=>f.doc.getElementById(id)!); let clicks=0;
     nodes.forEach(node=>node.addEventListener('click',()=>clicks++));
     f.mount();
-    assert.equal(f.doc.querySelectorAll('.pahub-toolbar > .toolbar-group').length,3);
-    for (const [i,id] of ids.entries()) { assert.equal(f.doc.getElementById(id),nodes[i]); assert.ok(nodes[i].closest('.pahub-toolbar')); nodes[i].click(); }
+    const toolbar=f.doc.querySelector('.pahub-toolbar')!;
+    assert.equal(toolbar.querySelectorAll(':scope > .capsule').length,2);
+    for (const [i,id] of ids.entries()) { assert.equal(f.doc.getElementById(id),nodes[i]); assert.ok(nodes[i].closest('.capsule')); nodes[i].click(); }
     assert.equal(clicks,ids.length);
+    const personal=f.doc.querySelector('.banner-actions > .capsule.personal')!;
+    assert.deepEqual([...personal.children].map(el=>el.id),['pahub-name','help-btn','theme-btn']);
+    for (const id of ['pahub-name','help-btn','theme-btn']) assert.ok(!f.doc.getElementById(id)!.closest('.pahub-toolbar'));
     assert.equal(f.doc.getElementById('more-btn')!.textContent,'File Options');
     assert.equal(f.doc.getElementById('pahub-name')!.textContent,'Set Nickname');
+    assert.equal(f.doc.getElementById('pahub-exchange')!.textContent,'Shipyard Correspondence');
     assert.ok(!f.doc.getElementById('save-state')!.closest('.pahub-toolbar'));
     for (const key of ['save','json','excel']) {
       const trigger=f.doc.getElementById(key+'-menu-btn')!, panel=f.doc.getElementById(key+'-menu-panel')!;
       trigger.dispatchEvent(new f.w.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
       assert.equal(trigger.getAttribute('aria-expanded'),'true');
-      assert.equal((panel as any).inert,false);
       assert.equal(f.doc.activeElement,panel.querySelector('button'));
       panel.dispatchEvent(new f.w.KeyboardEvent('keydown',{key:'Escape',bubbles:true}));
       assert.equal(trigger.getAttribute('aria-expanded'),'false');
-      assert.equal((panel as any).inert,true); assert.equal(f.doc.activeElement,trigger);
     }
     f.mount(); assert.equal(f.doc.querySelectorAll('.pahub-toolbar').length,1);
+  } finally {f.dom.window.close();}
+});
+test('Import/Export are one split button: Export is the default, Import lives in its menu',()=>{
+  const f=fixture(); try {
+    let exported=0, imported=0;
+    f.doc.getElementById('pahub-export')!.addEventListener('click',()=>exported++);
+    f.doc.getElementById('pahub-import')!.addEventListener('click',()=>imported++);
+    f.mount();
+    const io=f.doc.getElementById('pahub-io')!, trigger=f.doc.getElementById('pahub-io-menu-btn')!, panel=f.doc.getElementById('pahub-io-panel')!;
+    assert.equal(io.firstElementChild!.id,'pahub-export');
+    assert.equal(f.doc.getElementById('pahub-import')!.parentElement,panel);
+    assert.equal(panel.hidden,true);
+    f.doc.getElementById('pahub-export')!.click(); assert.equal(exported,1);
+    trigger.click(); assert.equal(panel.hidden,false); assert.equal(trigger.getAttribute('aria-expanded'),'true');
+    f.doc.getElementById('pahub-io-export')!.click(); assert.equal(exported,2); assert.equal(panel.hidden,true);
+    trigger.dispatchEvent(new f.w.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
+    assert.equal(panel.hidden,false); assert.equal(f.doc.activeElement,f.doc.getElementById('pahub-io-export'));
+    panel.dispatchEvent(new f.w.KeyboardEvent('keydown',{key:'ArrowDown',bubbles:true}));
+    assert.equal(f.doc.activeElement,f.doc.getElementById('pahub-import'));
+    f.doc.getElementById('pahub-import')!.click(); assert.equal(imported,1); assert.equal(panel.hidden,true);
+    trigger.click(); f.doc.body.click(); assert.equal(panel.hidden,true);
   } finally {f.dom.window.close();}
 });
 test('standalone Builder/offline pages do not receive hosted toolbar presentation',()=>{
