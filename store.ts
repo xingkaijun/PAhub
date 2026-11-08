@@ -7,6 +7,7 @@ import { appRepository } from './services/data/AppRepository';
 import { mergeProjectPreservingDirty } from './services/data/mergeProject';
 import { calculateDeadline, projectDateKey, reviewCycleDays } from './lib/deadline';
 import { transitionReviewState } from './lib/drawing-status';
+import { changedDrawingFields, drawingFieldPatch, PCF_MANAGED_FIELDS, type DirtyDrawingFields } from './lib/drawing-fields';
 const generateId = () => Math.random().toString(36).substr(2, 9);
 
 const ensureDrawingHasId = (drawing: Drawing): Drawing => {
@@ -125,6 +126,7 @@ interface AppState {
 
   // 脏数据追踪（增量保存）
   _dirtyDrawingIds: Set<string>;
+  _dirtyDrawingFields: DirtyDrawingFields;
   _deletedDrawingIds: Set<string>;
   _dirtyConf: boolean;
   _dirtyTracker: boolean;
@@ -188,6 +190,7 @@ export const useStore = create<AppState>()(
       isEditMode: false,
       reviewTracker: {},
       _dirtyDrawingIds: new Set<string>(),
+      _dirtyDrawingFields: {},
       _deletedDrawingIds: new Set<string>(),
       _dirtyConf: false,
       _dirtyTracker: false,
@@ -220,7 +223,7 @@ export const useStore = create<AppState>()(
           const local = state.data.projects.find(p => p.id === projectId);
           if (!local) return state;
           const merged = mergeProjectPreservingDirty(local, remote, state._dirtyDrawingIds, state._deletedDrawingIds, state._dirtyConf,
-            state.reviewTracker, remoteTracker || {}, state._dirtyTrackerDrawingIds, state._dirtyTracker);
+            state.reviewTracker, remoteTracker || {}, state._dirtyTrackerDrawingIds, state._dirtyTracker, state._dirtyDrawingFields);
           changed = merged.changedDrawings;
           return {
             data: { ...state.data, projects: state.data.projects.map(p => p.id === projectId ? merged.project : p) },
@@ -367,6 +370,11 @@ export const useStore = create<AppState>()(
       updateDrawing: (id, updates) => set((state) => {
         const { activeProjectId } = state;
         if (!activeProjectId) return state;
+        const current = state.data.projects.find(p => p.id === activeProjectId)?.drawings.find(d => d.id === id);
+        updates = { ...updates };
+        delete updates.currentRound;
+        if (current?.hasPcf) for (const field of PCF_MANAGED_FIELDS) delete updates[field];
+        if (Object.keys(updates).length === 0) return state;
 
         const newDirty = new Set(state._dirtyDrawingIds);
         newDirty.add(id);
@@ -562,29 +570,9 @@ export const useStore = create<AppState>()(
         };
       }),
 
-      batchUpdateDrawings: (updates) => set((state) => {
-        const { activeProjectId } = state;
-        if (!activeProjectId) return state;
-        const newDirty = new Set(state._dirtyDrawingIds);
-        updates.forEach(u => newDirty.add(u.id));
-        return {
-          _dirtyDrawingIds: newDirty,
-          data: {
-            ...state.data,
-            projects: state.data.projects.map(p => {
-              if (p.id !== activeProjectId) return p;
-              return {
-                ...p,
-                drawings: p.drawings.map(d => {
-                  const update = updates.find(u => u.id === d.id);
-                  if (!update) return d;
-                  return { ...d, ...update.changes };
-                })
-              };
-            })
-          }
-        };
-      }),
+      batchUpdateDrawings: (updates) => {
+        for (const update of updates) get().updateDrawing(update.id, update.changes);
+      },
 
       resetAllAssignees: () => set((state) => {
         const { activeProjectId, data } = state;
@@ -635,11 +623,12 @@ export const useStore = create<AppState>()(
       },
 
       saveProject: async (projectId: string) => {
-        const { data, reviewTracker, _dirtyDrawingIds, _deletedDrawingIds, _dirtyConf, _dirtyTracker, _dirtyTrackerDrawingIds } = get();
+        const { data, reviewTracker, _dirtyDrawingIds, _dirtyDrawingFields, _deletedDrawingIds, _dirtyConf, _dirtyTracker, _dirtyTrackerDrawingIds } = get();
         const project = data.projects.find(p => p.id === projectId);
         if (!project) return false;
 
         const dirtyDrawingSnapshot = new Set(_dirtyDrawingIds);
+        const fieldSnapshot = Object.fromEntries(Object.entries(_dirtyDrawingFields).map(([id, fields]) => [id, new Set(fields)])) as DirtyDrawingFields;
         const deletedDrawingSnapshot = new Set(_deletedDrawingIds);
         const dirtyTrackerSnapshot = new Set(_dirtyTrackerDrawingIds);
         const dirtyConfSnapshot = _dirtyConf;
@@ -656,34 +645,17 @@ export const useStore = create<AppState>()(
 
         set({ isLoading: true, error: null });
         try {
-          // 增量保存条件：无删除操作，且存在可增量表达的 drawing/conf/tracker 变更
-          const canPatchDrawings = dirtyDrawingSnapshot.size > 0 && dirtyDrawingSnapshot.size < totalDrawings * 0.5;
-          const canPatchMetadataOnly = totalDrawings > 0 && dirtyDrawingSnapshot.size === 0 && (dirtyConfSnapshot || dirtyTrackerSnapshotFlag);
-          const useDelta = deletedDrawingSnapshot.size === 0 && (canPatchDrawings || canPatchMetadataOnly);
-          let saveResult: SaveResult | undefined;
-
-          if (useDelta) {
-            // 构建增量 payload
-            const updatedDrawings = project.drawings.filter(d => dirtyDrawingSnapshot.has(d.id));
-            const payload: DeltaPayload = {};
-            if (updatedDrawings.length > 0) payload.updatedDrawings = updatedDrawings;
-            if (dirtyConfSnapshot) payload.conf = project.conf;
-            if (dirtyTrackerSnapshotFlag) {
-              // 每个 dirty tracker drawing 都发送完整 drawing 级 tracker；空对象表示清空远端残留
-              const trackerSlice: ReviewTrackerData = {};
-              for (const id of dirtyTrackerSnapshot) {
-                trackerSlice[id] = reviewTracker[id] || {};
-              }
-              if (Object.keys(trackerSlice).length > 0) payload.reviewTracker = trackerSlice;
-            }
-
-            console.log(`[Save] Delta: ${updatedDrawings.length} drawings, conf=${dirtyConfSnapshot}, tracker=${dirtyTrackerSnapshotFlag}, trackerIds=${dirtyTrackerSnapshot.size}`);
-            saveResult = await appRepository.saveDelta(data.settings, projectId, payload);
-          } else {
-            // 全量回退（删除、大批量修改、首次保存、或空项目创建）
-            console.log(`[Save] Full: ${totalDrawings} drawings (dirty=${dirtyCount}, deleted=${deletedDrawingSnapshot.size})`);
-            saveResult = await appRepository.saveProject(data.settings, project, reviewTracker);
+          const updatedDrawings = project.drawings.filter(d => dirtyDrawingSnapshot.has(d.id)).map(d => drawingFieldPatch(d, fieldSnapshot[d.id] || new Set(Object.keys(d) as (keyof Drawing)[])));
+          const payload: DeltaPayload = { projectName: project.name };
+          if (deletedDrawingSnapshot.size) payload.deletedDrawingIds = [...deletedDrawingSnapshot];
+          if (updatedDrawings.length > 0) payload.updatedDrawings = updatedDrawings;
+          if (dirtyConfSnapshot) payload.conf = project.conf;
+          if (dirtyTrackerSnapshotFlag) {
+            const trackerSlice: ReviewTrackerData = {};
+            for (const id of dirtyTrackerSnapshot) trackerSlice[id] = reviewTracker[id] || {};
+            if (Object.keys(trackerSlice).length > 0) payload.reviewTracker = trackerSlice;
           }
+          const saveResult = await appRepository.saveDelta(data.settings, projectId, payload);
 
           // 服务端回读校验：没落库的图纸不清脏标记，交给下次保存重试
           const verification = saveResult?.verification;
@@ -702,11 +674,28 @@ export const useStore = create<AppState>()(
           set(state => {
             const currentProject = state.data.projects.find(p => p.id === projectId);
             const nextDirtyDrawingIds = new Set(state._dirtyDrawingIds);
+            const nextFields = { ...state._dirtyDrawingFields };
+            const acknowledged = new Map((saveResult?.drawings || []).map(d => [d.id, d]));
+            const mergedDrawings = currentProject?.drawings.map(d => {
+              const remote = acknowledged.get(d.id);
+              if (!remote || unverifiedIds.has(d.id)) return d;
+              const sent = project.drawings.find(x => x.id === d.id);
+              const merged = { ...d };
+              for (const field of Object.keys(remote) as (keyof Drawing)[]) {
+                if (field === 'hasPcf' || (remote.hasPcf && PCF_MANAGED_FIELDS.includes(field)) || JSON.stringify(d[field]) === JSON.stringify(sent?.[field])) (merged as any)[field] = remote[field];
+              }
+              return merged;
+            });
             dirtyDrawingSnapshot.forEach(id => {
               if (unverifiedIds.has(id)) return;
               const previousDrawing = project.drawings.find(d => d.id === id);
               const currentDrawing = currentProject?.drawings.find(d => d.id === id);
-              if (currentDrawing === previousDrawing) nextDirtyDrawingIds.delete(id);
+              const remaining = new Set(nextFields[id] || []);
+              for (const field of fieldSnapshot[id] || []) {
+                if (JSON.stringify(currentDrawing?.[field]) === JSON.stringify(previousDrawing?.[field])) remaining.delete(field);
+              }
+              if (!remaining.size || currentDrawing === previousDrawing) { nextDirtyDrawingIds.delete(id); delete nextFields[id]; }
+              else nextFields[id] = remaining;
             });
 
             const nextDeletedDrawingIds = new Set(state._deletedDrawingIds);
@@ -723,6 +712,8 @@ export const useStore = create<AppState>()(
               isLoading: false,
               error: verificationMessage ?? state.error,
               _dirtyDrawingIds: nextDirtyDrawingIds,
+              _dirtyDrawingFields: nextFields,
+              data: mergedDrawings ? { ...state.data, projects: state.data.projects.map(p => p.id === projectId ? { ...p, drawings: mergedDrawings } : p) } : state.data,
               _deletedDrawingIds: nextDeletedDrawingIds,
               _dirtyConf: nextDirtyConf,
               _dirtyTracker: nextDirtyTrackerDrawingIds.size > 0,
@@ -834,6 +825,7 @@ export const useStore = create<AppState>()(
             activeProjectId: projectId,
             isLoading: false,
             _dirtyDrawingIds: new Set<string>(),
+            _dirtyDrawingFields: {},
             _deletedDrawingIds: new Set<string>(),
             _dirtyConf: false,
             _dirtyTracker: false,
@@ -1135,6 +1127,10 @@ export const useStore = create<AppState>()(
         },
         activeProjectId: state.activeProjectId,
         reviewTracker: state.reviewTracker,
+        _dirtyDrawingIds: [...state._dirtyDrawingIds],
+        _deletedDrawingIds: [...state._deletedDrawingIds],
+        _dirtyDrawingFields: Object.fromEntries(Object.entries(state._dirtyDrawingFields).map(([id, fields]) => [id, [...fields]])),
+        _dirtyConf: state._dirtyConf,
         _dirtyTracker: state._dirtyTracker,
         _dirtyTrackerDrawingIds: Array.from(state._dirtyTrackerDrawingIds),
       }),
@@ -1166,6 +1162,9 @@ export const useStore = create<AppState>()(
                 : currentState.data.projects,
             }
           : currentState.data,
+        _dirtyDrawingIds: new Set(persistedState?._dirtyDrawingIds || []),
+        _deletedDrawingIds: new Set(persistedState?._deletedDrawingIds || []),
+        _dirtyDrawingFields: Object.fromEntries(Object.entries(persistedState?._dirtyDrawingFields || {}).map(([id, fields]) => [id, new Set(fields as (keyof Drawing)[])])),
         _dirtyTrackerDrawingIds: persistedState?._dirtyTrackerDrawingIds instanceof Set
           ? persistedState._dirtyTrackerDrawingIds
           : new Set(Array.isArray(persistedState?._dirtyTrackerDrawingIds) ? persistedState._dirtyTrackerDrawingIds : []),
@@ -1173,3 +1172,22 @@ export const useStore = create<AppState>()(
     }
   )
 );
+
+// Track fields centrally so every mutation path participates; non-dirty server refreshes do not create edits.
+useStore.subscribe((state, previous) => {
+  if (state.data === previous.data || state.activeProjectId !== previous.activeProjectId || state._dirtyDrawingIds === previous._dirtyDrawingIds || previous.isLoading && !state.isLoading) return;
+  const project = state.data.projects.find(p => p.id === state.activeProjectId);
+  const before = previous.data.projects.find(p => p.id === state.activeProjectId);
+  if (!project) return;
+  const next = { ...state._dirtyDrawingFields };
+  let changed = false;
+  for (const d of project.drawings) {
+    if (!state._dirtyDrawingIds.has(d.id)) continue;
+    const old = before?.drawings.find(x => x.id === d.id);
+    if (old === d) continue;
+    const fields = changedDrawingFields(old, d);
+    if (!fields.size) continue;
+    next[d.id] = new Set([...(next[d.id] || []), ...fields]); changed = true;
+  }
+  if (changed) useStore.setState({ _dirtyDrawingFields: next });
+});

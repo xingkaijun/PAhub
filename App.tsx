@@ -1,3 +1,4 @@
+import { createDebouncedSave } from './lib/auto-save';
 
 
 import React, { Suspense, lazy, useMemo, useState, useEffect } from 'react';
@@ -199,6 +200,23 @@ const App: React.FC = () => {
   };
 
   // ... (handleProjectSwitch remains same)
+
+  // Save three seconds after the last local edit; the minute timer below remains a retry fallback.
+  useEffect(() => {
+    if (!activeProjectId || showProjectSelector || !isEditMode) return;
+    const projectId = activeProjectId;
+    const debounced = createDebouncedSave(() => {
+      const state = useStore.getState();
+      if (state.activeProjectId === projectId && state.isEditMode && state.hasUnsavedChanges() && !state.isLoading) void state.saveProject(projectId);
+    });
+    if (useStore.getState().hasUnsavedChanges()) debounced.changed();
+    const unsubscribe = useStore.subscribe((state, previous) => {
+      if (state.activeProjectId !== projectId || !state.isEditMode) return;
+      if (state._dirtyDrawingFields !== previous._dirtyDrawingFields || state._deletedDrawingIds !== previous._deletedDrawingIds ||
+          state._dirtyConf && state.data !== previous.data || state._dirtyTracker && state.reviewTracker !== previous.reviewTracker || previous.isLoading && !state.isLoading && state.hasUnsavedChanges()) debounced.changed();
+    });
+    return () => { unsubscribe(); debounced.cancel(); };
+  }, [activeProjectId, showProjectSelector, isEditMode]);
 
   // 3. Auto-Save Logic (Configurable Interval)
   useEffect(() => {
