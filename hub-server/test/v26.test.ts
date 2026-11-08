@@ -90,7 +90,7 @@ test('v4 upgrade cleans legacy deleted and empty high rounds without losing date
   d.comments[0].rounds[0].owner.images=[{id:'img',name:'x.png',mime:'image/png',data:'data:image/png;base64,AA==',width:1,height:1}];
   d.deleted=[{id:'deleted-old',type:'comment',deletedAt:'2026-01-01',parentNumber:3,data:{id:'lost',rounds:[round('lost-r',7)]}}];
   d.roundRegister.push({id:'date-5',round:5,ownerDate:'2026-01-01'},{id:'empty-8',round:8});d.circulation=[{id:'audit-6',round:6,date:'2026-01-01'}];d.project.currentRound=8;d.hub.receipts=[{batchId:'unchanged',result:{rev:1}}];
-  const original=replaceData(template.replace('pahub-template-version" content="5','pahub-template-version" content="4'),d);await writeFile(file,original,'utf8');
+  const original=replaceData(template.replace('pahub-template-version" content="6','pahub-template-version" content="4'),d);await writeFile(file,original,'utf8');
   const dry=upgradeFile(file,true);assert.equal(dry.status,'would-upgrade');assert.equal(dry.deletedToClean,1);assert.equal(dry.emptyRoundsToPrune,1);assert.equal(await readFile(file,'utf8'),original);
   const report=upgradeFile(file),up=parseHTML(await readFile(file,'utf8'));assert.equal(await readFile(report.backup!,'utf8'),original);
   assert.equal(up.documentId,d.documentId);assert.deepEqual(up.comments,d.comments);assert.deepEqual(up.hub.receipts,d.hub.receipts);assert.equal(up.project.currentRound,6);assert.ok(up.roundRegister.some((r:any)=>r.id==='date-5'));assert.deepEqual(up.circulation,d.circulation);assert.deepEqual(up.deleted,[]);assert.ok(up.hub.tombstones.some((t:any)=>t.id==='lost-r'));

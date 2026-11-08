@@ -114,11 +114,11 @@ test('upgrade CLI: dry-run untouched; backup+atomic replacement; deep JSON equal
   const { mkdir }=await import('node:fs/promises');await mkdir(dir,{recursive:true});
   const template=await readFile(path.join(ROOT_DIR,'pcf/template/PG-PCF-hub.html'),'utf8'), data=parseHTML(template);
   data.hub={rev:9,entities:{example:{rev:8}},receipts:[{id:'keep-me',result:{rev:9}}],custom:'keep-hub'};data.custom={preserve:['all','data']};
-  const original=replaceData(template.replace('<meta name="pahub-template-version" content="5">',''),data), file=path.join(dir,'drawing-y.html');await writeFile(file,original,'utf8');
+  const original=replaceData(template.replace('<meta name="pahub-template-version" content="6">','<meta name="pahub-template-version" content="5">'),data), file=path.join(dir,'drawing-y.html');await writeFile(file,original,'utf8');
   const run=(flags:string[])=>execFileSync(process.execPath,['hub-server/scripts/upgrade-pcf.mjs',...flags],{cwd:ROOT_DIR,env:{...process.env,PAHUB_DATA_DIR:temp},encoding:'utf8'});
   const report=JSON.parse(run(['--dry-run','--project','project-x','--drawing','drawing-y']));assert.equal(report.report[0].status,'would-upgrade');assert.equal(await readFile(file,'utf8'),original);assert.deepEqual(await readdir(dir),['drawing-y.html']);
   const upgraded=JSON.parse(run(['--project','project-x','--drawing','drawing-y']));assert.equal(upgraded.report[0].status,'upgraded');assert.equal(await readFile(upgraded.report[0].backup,'utf8'),original);
-  const final=await readFile(file,'utf8');data.hub.tombstones=[];assert.deepEqual(parseHTML(final),data);assert.match(final,/pahub-template-version" content="5/);assert.ok(!(await readdir(dir)).some(x=>x.endsWith('.tmp')));
+  const final=await readFile(file,'utf8');data.hub.tombstones=[];assert.deepEqual(parseHTML(final),data);assert.match(final,/pahub-template-version" content="6/);assert.ok(!(await readdir(dir)).some(x=>x.endsWith('.tmp')));
   const browser=offline(final);try{assert.deepEqual(browser.errors,[]);assert.equal(browser.w.document.querySelector('#save-btn')!.textContent,'Save');}finally{browser.dom.window.close();}
   assert.equal(JSON.parse(run([])).report[0].status,'current');
   console.log('Upgrade CLI: dry-run byte-identical/no backup; real backup byte-identical; JSON deep-equal (documentId/hub/receipts/custom); atomic temp cleared; jsdom page loaded; rerun=current');

@@ -4,7 +4,7 @@ import { ROOT_DIR } from './config.ts';
 import { parseHTML, replaceData, atomicWrite } from './pcf-storage.ts';
 import { cleanupLegacyImport, type PcfData } from './pcf-model.ts';
 
-export const TEMPLATE_VERSION = 5;
+export const TEMPLATE_VERSION = 6;
 export const currentTemplate = () => readFileSync(path.join(ROOT_DIR, 'pcf/template/PG-PCF-hub.html'), 'utf8');
 export const templateVersion = (html: string) => Number(html.match(/name="pahub-template-version" content="(\d+)"/)?.[1] || 2);
 export const renderTemplate = (data: PcfData) => replaceData(currentTemplate(), data);
