@@ -26,6 +26,7 @@ interface Env {
   ALLOW_CORS_ORIGIN?: string;
   ADMIN_PASSWORD?: string;
   ADMIN_SQL?: (sql: string) => Record<string, unknown>[];
+  DRAWING_WRITE?: (projectId: string, drawing: any) => Promise<any>;
 }
 
 interface ProjectListRow extends Record<string, unknown> {
@@ -305,6 +306,9 @@ const getProjectDetail = async (db: D1Database, projectId: string) => {
 
   const project = readJson<Record<string, JsonValue>>(row.project_json, {});
   const conf = readJson<Record<string, JsonValue>>(row.conf_json, {});
+  const pcfRows = await queryAll(db, 'SELECT drawing_id FROM pcf_index WHERE project_id=?', [projectId]);
+  const pcfIds = new Set(pcfRows.map(r => String(r.drawing_id)));
+  if (Array.isArray(project.drawings)) project.drawings = project.drawings.map((d: any) => ({ ...d, hasPcf: pcfIds.has(String(d.id)) }));
 
   return {
     ...project,
@@ -434,8 +438,12 @@ const DRAWING_UPSERT_SQL =
    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
    ON CONFLICT(id) DO UPDATE SET
      custom_id=excluded.custom_id, drawing_no=excluded.drawing_no, discipline=excluded.discipline, title=excluded.title,
-     status=excluded.status, version=excluded.version, current_round=excluded.current_round, review_deadline=excluded.review_deadline,
-     manual_comments_count=excluded.manual_comments_count, manual_open_comments_count=excluded.manual_open_comments_count,
+     status=excluded.status,
+     version=CASE WHEN EXISTS(SELECT 1 FROM pcf_index WHERE project_id=drawings.project_id AND drawing_id=drawings.id) THEN drawings.version ELSE excluded.version END,
+     current_round=CASE WHEN EXISTS(SELECT 1 FROM pcf_index WHERE project_id=drawings.project_id AND drawing_id=drawings.id) THEN drawings.current_round ELSE excluded.current_round END,
+     review_deadline=excluded.review_deadline,
+     manual_comments_count=CASE WHEN EXISTS(SELECT 1 FROM pcf_index WHERE project_id=drawings.project_id AND drawing_id=drawings.id) THEN drawings.manual_comments_count ELSE excluded.manual_comments_count END,
+     manual_open_comments_count=CASE WHEN EXISTS(SELECT 1 FROM pcf_index WHERE project_id=drawings.project_id AND drawing_id=drawings.id) THEN drawings.manual_open_comments_count ELSE excluded.manual_open_comments_count END,
      checked=excluded.checked, checked_synced=excluded.checked_synced,
      received_date=excluded.received_date, category=excluded.category, deadline=excluded.deadline`;
 
@@ -672,14 +680,18 @@ const verifyWrite = async (
         );
       }
 
+      const pcfRows = await queryAll(db, 'SELECT drawing_id FROM pcf_index WHERE project_id=?', [projectId]);
+      const pcfIds = new Set(pcfRows.map(r => String(r.drawing_id)));
+      const pcfFields = new Set(['version', 'currentRound', 'manualCommentsCount', 'manualOpenCommentsCount']);
       for (const drawing of drawingList) {
         const id = toStringValue(drawing.id)!;
-        const expected = normalizeDrawingRow(drawing);
-        const fields = diffDrawing(expected, actual.get(id));
+        const expected = normalizeDrawingRow(drawing.__expected || drawing);
+        const fields = diffDrawing(expected, actual.get(id)).filter(field => !pcfIds.has(id) || !pcfFields.has(field));
 
         // 子表行数：捕捉「DELETE 成功、INSERT 没跟上」那一类故障
+        const expectedDrawing = drawing.__expected || drawing;
         const expectedAssignees = new Set(
-          (Array.isArray(drawing.assignees) ? drawing.assignees : [])
+          (Array.isArray(expectedDrawing.assignees) ? expectedDrawing.assignees : [])
             .filter((a: unknown) => a != null)
             .map((a: unknown) => String(a))
         ).size;
@@ -688,7 +700,7 @@ const verifyWrite = async (
         const expectedHistory = Array.isArray(drawing.statusHistory) ? drawing.statusHistory.length : 0;
         if ((counts.statusHistory.get(id) || 0) !== expectedHistory) fields.push('statusHistoryCount');
 
-        const expectedRemarks = Array.isArray(drawing.remarks) ? drawing.remarks.length : 0;
+        const expectedRemarks = Array.isArray(expectedDrawing.remarks) ? expectedDrawing.remarks.length : 0;
         if ((counts.remarks.get(id) || 0) !== expectedRemarks) fields.push('remarkCount');
 
         addFields(id, expected.customId, fields);
@@ -729,7 +741,8 @@ const saveProjectData = async (
   project: any,
   reviewTracker: any,
   // 写入日志的来源标记：正常保存 / 整库导入 / 快照恢复，三者在 Log 页可区分
-  source: string = 'app'
+  source: string = 'app',
+  drawingWrite?: Env['DRAWING_WRITE']
 ) => {
   if (!project || !Array.isArray(project.drawings)) return VERIFICATION_SKIPPED;
   const stmts = new StatementGroups();
@@ -744,6 +757,8 @@ const saveProjectData = async (
        name=excluded.name, storage_path=excluded.storage_path, last_updated=excluded.last_updated`
   ).bind(projectId, projectName, storagePath));
   stmts.mark();
+
+  if (drawingWrite) await runStatementGroups(db, stmts.all());
 
   // Extract valid drawing IDs to delete removed ones
   // 这次读取同时兼作写入日志的 baseline —— 全量路径因此没有额外查询
@@ -761,8 +776,10 @@ const saveProjectData = async (
     stmts.mark(); // 一张图纸的删除是一个整体
   }
 
+  const writtenDrawings: any[] = [];
   // Upsert drawings and their relations
   for (const drawing of project.drawings) {
+    if (drawingWrite) { writtenDrawings.push(await drawingWrite(projectId, drawing)); continue; }
     const id = toStringValue(drawing.id) || crypto.randomUUID();
     stmts.push(db.prepare(DRAWING_UPSERT_SQL).bind(...drawingBindValues(id, projectId, normalizeDrawingRow(drawing))));
 
@@ -905,7 +922,7 @@ const saveProjectData = async (
   await runStatementGroups(db, stmts.all());
 
   // tracker 用 sanitize 之后的版本比对：写下去的就是它，拿原始 payload 比会产生假失配
-  return verifyWrite(db, projectId, project.drawings, sanitizedTracker, { baseline, source });
+  return verifyWrite(db, projectId, drawingWrite ? writtenDrawings : project.drawings, sanitizedTracker, drawingWrite ? undefined : { baseline, source });
 };
 
 const buildReviewTrackerStatements = (db: D1Database, projectId: string, data: any): D1PreparedStatement[] => {
@@ -1141,14 +1158,16 @@ const handleAdminRequest = async (request: Request, env: Env, url: URL): Promise
       if (!colNames.includes('id') && colNames.includes('project_id')) pkCol = 'project_id';
 
       // Ensure pkCol is not updated
-      const updateCols = cols.filter(c => c !== pkCol);
+      const managed = table === 'drawings' && await queryFirst(db, 'SELECT 1 FROM pcf_index WHERE drawing_id=?', [id]);
+      const protectedCols = new Set(['manual_comments_count','manual_open_comments_count','current_round','version']);
+      const updateCols = cols.filter(c => c !== pkCol && (!managed || !protectedCols.has(c)));
       const updateVals = updateCols.map(c => body[c]);
       const setStr = updateCols.map(c => `${c}=?`).join(',');
 
       // drawings 表的手工改动也要进同一份写入日志，否则绕过应用逻辑的改动在 Log 页看不到
       const journalBefore = table === 'drawings' ? await readDrawingRowById(db, id) : null;
 
-      await db.prepare(`UPDATE ${table} SET ${setStr} WHERE ${pkCol} = ?`).bind(...updateVals, id).run();
+      if (updateCols.length) await db.prepare(`UPDATE ${table} SET ${setStr} WHERE ${pkCol} = ?`).bind(...updateVals, id).run();
 
       if (journalBefore) {
         const journalAfter = await readDrawingRowById(db, id);
@@ -1327,20 +1346,23 @@ export default {
 
         if (segments.length === 2 && request.method === 'PUT') {
           const body = await request.json() as any;
-          const verification = await saveProjectData(db, projectId, body.project, body.reviewTracker);
+          const verification = await saveProjectData(db, projectId, body.project, body.reviewTracker, 'app', env.DRAWING_WRITE);
           return json(env, 200, { success: true, verification: verification as unknown as JsonValue });
         }
 
         if (segments.length === 2 && request.method === 'PATCH') {
           const body = await request.json() as any;
           const stmts = new StatementGroups();
+          if (env.DRAWING_WRITE) await db.prepare('INSERT INTO projects(id,name,last_updated) VALUES(?,?,?) ON CONFLICT(id) DO NOTHING').bind(projectId, body.projectName || projectId, new Date().toISOString()).run();
 
           // 写入日志的 baseline：必须在任何写入之前读
           const baseline = await readDrawingRows(db, projectId);
 
+          const writtenDrawings: any[] = [];
           // 1. Upsert only the changed drawings
           if (Array.isArray(body.updatedDrawings)) {
             for (const drawing of body.updatedDrawings) {
+              if (env.DRAWING_WRITE) { writtenDrawings.push(await env.DRAWING_WRITE(projectId, drawing)); continue; }
               const id = toStringValue(drawing.id) || crypto.randomUUID();
               stmts.push(db.prepare(DRAWING_UPSERT_SQL).bind(...drawingBindValues(id, projectId, normalizeDrawingRow(drawing))));
 
@@ -1482,7 +1504,7 @@ export default {
           const statementCount = stmts.size;
           await runStatementGroups(db, stmts.all());
 
-          const patchedDrawings = Array.isArray(body.updatedDrawings) ? body.updatedDrawings : [];
+          const patchedDrawings = env.DRAWING_WRITE ? writtenDrawings : Array.isArray(body.updatedDrawings) ? body.updatedDrawings : [];
 
           // 增量路径不做 sanitize，直接拿收到的 slice 比对
           const verification = await verifyWrite(
@@ -1490,7 +1512,7 @@ export default {
             projectId,
             patchedDrawings,
             body.reviewTracker && typeof body.reviewTracker === 'object' ? body.reviewTracker : null,
-            { baseline, source: 'app' }
+            env.DRAWING_WRITE ? undefined : { baseline, source: 'app' }
           );
 
           return json(env, 200, {
@@ -1498,6 +1520,7 @@ export default {
             mode: 'delta',
             statements: statementCount,
             verification: verification as unknown as JsonValue,
+            ...(env.DRAWING_WRITE ? { drawings: writtenDrawings.map(({ __expected, ...drawing }) => drawing) } : {}),
           });
         }
 

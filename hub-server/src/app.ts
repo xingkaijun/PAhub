@@ -14,6 +14,8 @@ import { PcfApi } from './pcf-api.ts';
 import { PcfBuilderReplies } from './pcf-builder-replies.ts';
 import { safeId } from './pcf-model.ts';
 import { ProjectComments } from './comments-register.ts';
+import { writeDrawing } from './drawing-write.ts';
+import { transitionDrawingStatus } from './drawing-status.ts';
 import { exportCommentsExcel } from './comments-excel.ts';
 
 const MIME: Record<string, string> = {
@@ -100,7 +102,7 @@ export async function createHub(options: { middleware?: Middleware; host?: '127.
   const config = readConfig();
   if (!options.middleware) await stat(path.join(config.distDir, 'index.html'));
   const db = openDatabase(config.dbPath);
-  const env = { ...config.env, PAPC_DB: db, ADMIN_SQL: (sql: string) => readOnlyQuery(config.dbPath, sql) };
+  const env = { ...config.env, PAPC_DB: db, ADMIN_SQL: (sql: string) => readOnlyQuery(config.dbPath, sql), DRAWING_WRITE: (projectId: string, drawing: any) => writeDrawing(pcf.storage, pcf.realtime, projectId, drawing) };
   const pcf = new PcfApi(new PcfStorage(db.sqlite, config.dataDir), config.env.API_TOKEN);
   const builderReplies = new PcfBuilderReplies(pcf.storage, pcf.exchange, pcf.realtime, config.env.ADMIN_PASSWORD);
   const comments = new ProjectComments(pcf.storage);
@@ -113,6 +115,21 @@ export async function createHub(options: { middleware?: Middleware; host?: '127.
       }
       // Host headers never control routing or API prefix rewriting.
       const url = new URL(req.url || '/', 'http://pahub.local');
+      const statusMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/drawings\/([^/]+)\/status$/);
+      if (statusMatch) {
+        if (config.env.API_TOKEN && req.headers.authorization !== 'Bearer ' + config.env.API_TOKEN) {
+          await sendFetch(Response.json({ error: 'Unauthorized' }, { status: 401 }), req, res); return;
+        }
+        if (req.method !== 'POST') { res.writeHead(405, { Allow: 'POST' }); res.end(); return; }
+        try {
+          const body = await readBody(req, config.bodyLimit);
+          const input = JSON.parse(body?.toString('utf8') || '{}');
+          const projectId = safeId(decodeURIComponent(statusMatch[1])), drawingId = safeId(decodeURIComponent(statusMatch[2]));
+          const result = await pcf.storage.serial(projectId, drawingId, () => transitionDrawingStatus(pcf.storage, pcf.realtime, projectId, drawingId, input.status));
+          await sendFetch(Response.json(result, { headers: { 'Cache-Control': 'no-store' } }), req, res);
+        } catch (e: any) { await sendFetch(Response.json({ error: e.message }, { status: e instanceof SyntaxError ? 400 : e.status || 500 }), req, res); }
+        return;
+      }
       const commentsMatch = url.pathname.match(/^\/api\/projects\/([^/]+)\/comments(\.xlsx)?$/);
       if (commentsMatch) {
         if (config.env.API_TOKEN && req.headers.authorization !== 'Bearer ' + config.env.API_TOKEN) {
@@ -169,7 +186,7 @@ export async function createHub(options: { middleware?: Middleware; host?: '127.
           const match = url.pathname.match(/^\/api\/projects\/[^/]+\/builder-replies\/([^/]+)\/apply$/);
           if (!match) { res.writeHead(404); res.end(); return; }
           const input = JSON.parse(body?.toString('utf8') || '{}');
-          payload = builderReplies.apply(projectId, decodeURIComponent(match[1]), input.fileIds, input.batchId);
+          payload = await builderReplies.apply(projectId, decodeURIComponent(match[1]), input.fileIds, input.batchId);
         } else { res.writeHead(404); res.end(); return; }
         const response = Response.json(payload, { headers: { 'Cache-Control': 'no-store' } });
         await sendFetch(response, req, res); return;

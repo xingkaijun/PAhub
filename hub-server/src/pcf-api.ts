@@ -141,9 +141,11 @@ export class PcfApi {
           if (body.step !== 'apply') fail('Import step must be preview or apply');
           const outcome = this.exchange.apply(p, d, body, this.actor(body, ip));
           const exportId = parseHTML(body.html).export?.exportId;
-          if (exportId && outcome.result.applied.length) updateBuilderReplyPapcStatus(this.storage.db, p, d, exportId);
-          if (!outcome.replayed && outcome.result.applied.length) this.realtime.changed(p + '/' + d, outcome.result, outcome.actor);
-          return json(outcome.result);
+          if (exportId && outcome.result.applied.length) updateBuilderReplyPapcStatus(this.storage, this.realtime, p, d, exportId);
+          const latest = this.storage.load(p, d);
+          const result = { ...outcome.result, rev: latest.rev, data: this.storage.publicData(latest.data) };
+          if (!outcome.replayed && outcome.result.applied.length) this.realtime.changed(p + '/' + d, result, outcome.actor);
+          return json(result);
         }
         case 'GET history': return json(this.storage.history(p, d));
         case 'GET download': return new Response(standaloneHTML(externalData(this.storage.load(p, d).data)), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Content-Disposition': 'attachment; filename="' + d + '.html"', 'Cache-Control': 'no-store' } });

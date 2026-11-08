@@ -8,6 +8,7 @@ declare const worker: {
     API_TOKEN?: string;
     ADMIN_PASSWORD?: string;
     ADMIN_SQL?: (sql: string) => Record<string, unknown>[];
+    DRAWING_WRITE?: (projectId: string, drawing: any) => Promise<any>;
     ALLOW_CORS_ORIGIN?: string;
   }): Promise<Response>;
 };

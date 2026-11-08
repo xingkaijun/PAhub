@@ -90,7 +90,7 @@ export class PcfStorage {
     const inserted = this.db.prepare('INSERT OR IGNORE INTO pcf_changes(project_id,drawing_id,rev,client_id,client_name,ip,ops_json,created_at) VALUES(?,?,?,?,?,?,?,?)').run(p, d, data.hub.rev, change.clientId, change.clientName, change.ip, JSON.stringify(change.ops), data.updatedAt);
     if (inserted.changes) this.db.prepare("INSERT INTO audit_log(table_name,row_id,project_id,action,detail,created_at) VALUES('drawings',?,?,'COMMENTS',?,?)").run(d, p, JSON.stringify({ customId: before.custom_id, drawingNo: before.drawing_no, from: { total: before.manual_comments_count, open: before.manual_open_comments_count }, to: { total, open }, source: 'PCF', rev: data.hub.rev, round: { from: before.current_round, to: roundLabel(n) }, version: row?.revision || before.version }), data.updatedAt);
   }
-  private save(p: string, d: string, html: string, data: PcfData, actor: Actor, ops: unknown[]) {
+  private save(p: string, d: string, html: string, data: PcfData, actor: Actor, ops: unknown[], commit?: () => void) {
     const file = this.file(p, d), old = existsSync(file) ? readFileSync(file, 'utf8') : null;
     const oldRev = old ? parseHTML(old).hub.rev : 0;
     const at = this.now();
@@ -99,11 +99,19 @@ export class PcfStorage {
     const history = old ? prepareHistory(this.historyDir(p, d), oldRev, old, actor.clientId, at, atomicWrite) : undefined;
     // Synchronous section: Worker cannot interleave in an open SQLite transaction.
     let renamed = false;
-    try { this.transaction(() => { this.indexWrite(p, d, data); atomicWrite(file, next); renamed = true; }); }
+    try { this.transaction(() => { this.indexWrite(p, d, data); commit?.(); atomicWrite(file, next); renamed = true; }); }
     catch (e) { if (renamed) { if (old) atomicWrite(file, old); else unlinkSync(file); } history?.rollback(); throw e; }
     // Retention is maintenance after a successful write; never reject an already committed save.
     try { history?.commit(data.hub.rev); } catch (error) { console.warn('PCF history retention deferred', error); }
     return data.hub.rev;
+  }
+  // Status transitions use the same document transaction, clocks and history as PCF edits.
+  transitionRound(p: string, d: string, round: number, actor: Actor, commit: () => void) {
+    const { html, data, rev } = this.load(p, d);
+    const result = applyOps(data, [{ type: 'project.set', field: 'currentRound', value: round, baseRev: data.hub.entities['project:currentRound']?.rev || 0 }], actor, rev + 1);
+    if (result.conflicts.length) fail('PCF round transition conflict', 409);
+    const nextRev = this.save(p, d, html, data, actor, result.applied, commit);
+    return { rev: nextRev, ...result, data: this.publicData(data) };
   }
   publicData(data: PcfData) { const copy = structuredClone(data); delete copy.hub.receipts; return copy; }
   ops(p: string, d: string, body: any, actor: Actor) { return this.opsBatch(p, d, body, actor).result; }

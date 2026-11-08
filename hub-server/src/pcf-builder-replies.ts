@@ -6,7 +6,7 @@ import type { PcfStorage } from './pcf-storage.ts';
 import type { PcfExchange } from './pcf-exchange.ts';
 import type { PcfRealtime } from './pcf-realtime.ts';
 import { parseHTML } from './pcf-storage.ts';
-import { nextRoundLabel } from '../../lib/rounds.ts';
+import { transitionDrawingStatus } from './drawing-status.ts';
 import { roundToLetters } from '../../lib/rounds.ts';
 
 const MAX_FILES = Number(process.env.MAX_BUILDER_REPLY_FILES || 50);
@@ -15,29 +15,12 @@ const MAX_UNPACKED = Number(process.env.MAX_BUILDER_REPLY_UNPACKED_BYTES || 200 
 const validUuid = (value: string) => /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
 type Input = { name: string; bytes: Buffer };
 
-export function updateBuilderReplyPapcStatus(db: PcfStorage['db'], projectId: string, drawingId: string, exportId: string) {
-  const row: any = db.prepare('SELECT status,custom_id,drawing_no,current_round FROM drawings WHERE project_id=? AND id=? AND COALESCE(_deleted,0)=0').get(projectId, drawingId);
+export function updateBuilderReplyPapcStatus(storage: PcfStorage, realtime: PcfRealtime, projectId: string, drawingId: string, exportId: string) {
+  const row: any = storage.db.prepare('SELECT status FROM drawings WHERE project_id=? AND id=? AND COALESCE(_deleted,0)=0').get(projectId, drawingId);
   if (!row) throw Error('PAPC drawing no longer exists');
   if (row.status !== 'Waiting Reply') return `status unchanged (${row.status})`;
-  const at = new Date(), atISO = at.toISOString();
-  const currentRound = String(row.current_round || 'A');
-  const nextRound = nextRoundLabel(currentRound);
-  const cfg: any = db.prepare('SELECT conf_json FROM api_project_details WHERE id=?').get(projectId);
-  const conf = cfg ? JSON.parse(cfg.conf_json) : {};
-  const cycleDays = Number(nextRound.toUpperCase() === 'A' ? conf.roundACycle || 14 : conf.otherRoundsCycle || 7);
-  const holidays = new Set((conf.holidays || []).map((value: string) => String(value).slice(0, 10)));
-  const deadline = new Date(at); let counted = 0, guard = 0;
-  while (counted < cycleDays && guard++ < 365) { deadline.setDate(deadline.getDate() + 1); const day = deadline.getDay(), iso = deadline.toISOString().slice(0, 10); if (day !== 0 && day !== 6 && !holidays.has(iso)) counted++; }
-  const nextDeadline = deadline.toISOString();
-  const content = `Status: Waiting Reply -> Reviewing | Round: ${currentRound} -> ${nextRound}`;
-  db.exec('SAVEPOINT builder_reply_status');
-  try {
-    db.prepare("UPDATE drawings SET status='Reviewing',current_round=?,review_deadline=? WHERE project_id=? AND id=? AND status='Waiting Reply'").run(nextRound, nextDeadline, projectId, drawingId);
-    db.prepare('INSERT INTO drawing_status_history(id,drawing_id,content,created_at) VALUES(?,?,?,?)').run(randomUUID(), drawingId, content, atISO);
-    db.prepare("INSERT INTO audit_log(table_name,row_id,project_id,action,detail,created_at) VALUES('drawings',?,?,'STATUS',?,?)").run(drawingId, projectId, JSON.stringify({ customId: row.custom_id, drawingNo: row.drawing_no, from: 'Waiting Reply', to: 'Reviewing', round: { from: currentRound, to: nextRound }, source: `Builder import (${exportId})` }), atISO);
-    db.prepare('UPDATE projects SET last_updated=? WHERE id=?').run(atISO, projectId);
-    db.exec('RELEASE builder_reply_status'); return 'Reviewing';
-  } catch (e) { db.exec('ROLLBACK TO builder_reply_status; RELEASE builder_reply_status'); throw e; }
+  transitionDrawingStatus(storage, realtime, projectId, drawingId, 'Reviewing', `Builder import (${exportId})`);
+  return 'Reviewing';
 }
 
 function zipEntries(bytes: Buffer): Array<{ name: string; bytes?: Buffer; error?: string }> {
@@ -133,7 +116,7 @@ export class PcfBuilderReplies {
       return true;
     }).map((r: any) => ({ ...r, importSetId: x.name })); } catch { return []; } });
   }
-  apply(projectId: string, setId: string, ids: string[], batchId: string) {
+  async apply(projectId: string, setId: string, ids: string[], batchId: string) {
     const file = path.join(this.dir(projectId, setId), 'manifest.json'), manifest = JSON.parse(readFileSync(file, 'utf8'));
     if (manifest.projectId !== projectId || !Array.isArray(ids) || ids.length > MAX_FILES) throw Error('Invalid import set or file list');
     const results = [];
@@ -143,18 +126,21 @@ export class PcfBuilderReplies {
       if (row.htmlPath !== row.id + '.html') { results.push({ id, category: 'failed', reason: 'Invalid stored reply path' }); continue; }
       const html = readFileSync(path.join(this.dir(projectId, setId), row.id + '.html'), 'utf8');
       try {
+        await this.storage.serial(projectId, row.drawingId, () => {
         const fresh = this.exchange.preview(projectId, row.drawingId, { html });
         if (fresh.repeated) throw Error('duplicate');
-        if (fresh.conflicts.length) { row.category = 'conflict'; row.conflicts = fresh.conflicts.length; row.previewToken = fresh.previewToken; results.push({ id, category: 'conflict', conflicts: fresh.conflicts.length }); continue; }
+        if (fresh.conflicts.length) { row.category = 'conflict'; row.conflicts = fresh.conflicts.length; row.previewToken = fresh.previewToken; results.push({ id, category: 'conflict', conflicts: fresh.conflicts.length }); return; }
         const outcome = this.exchange.apply(projectId, row.drawingId, { step: 'apply', html, previewToken: fresh.previewToken, batchId, ignoreOwner: true, adminPassword: this.adminPassword }, { clientId: 'builder-import', clientName: `Builder import (${fresh.exportId})`, ip: '127.0.0.1' });
         const state = outcome.result.applied.length
-          ? updateBuilderReplyPapcStatus(this.storage.db, projectId, row.drawingId, fresh.exportId)
+          ? updateBuilderReplyPapcStatus(this.storage, this.realtime, projectId, row.drawingId, fresh.exportId)
           : `status unchanged (${row.papcStatus})`;
         if (!outcome.replayed && outcome.result.applied.length) {
-          this.realtime.changed(projectId + '/' + row.drawingId, outcome.result, outcome.actor);
+          const latest = this.storage.load(projectId, row.drawingId);
+          this.realtime.changed(projectId + '/' + row.drawingId, { ...outcome.result, rev: latest.rev, data: this.storage.publicData(latest.data) }, outcome.actor);
           this.realtime.projectChanged(projectId, row.drawingId, ['builder-reply', 'status']);
         }
         row.category = 'applied'; row.result = state; results.push({ id, category: 'applied', applied: outcome.result.applied.length, status: state });
+        });
       } catch (e: any) { results.push({ id, category: e.message === 'duplicate' ? 'duplicate' : 'failed', reason: e.message || 'Apply failed' }); }
     }
     writeFileSync(file, JSON.stringify(manifest, null, 2)); return { results };

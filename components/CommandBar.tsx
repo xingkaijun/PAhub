@@ -4,6 +4,26 @@ import { Terminal, Send, Lock } from 'lucide-react';
 import { useStore } from '../store';
 import { DrawingStatus } from '../types';
 
+export type ManualOwnershipField = 'comments' | 'version' | 'round';
+
+// UI ownership guard: PCF owns its summary fields, and the server owns round transitions.
+// Returning a message means the whole command must be blocked (including mixed batches).
+export function manualFieldBlockMessage(
+  drawings: Array<{ hasPcf?: boolean; customId?: string }>,
+  field: ManualOwnershipField
+): string | null {
+  const hasPcf = drawings.some(d => d.hasPcf === true);
+  if (field === 'round') {
+    return hasPcf
+      ? '当前轮次由 PCF 管理，不能手工修改。'
+      : '当前轮次由服务端状态流转管理，不能手工修改。';
+  }
+  if (!hasPcf) return null;
+  return field === 'comments'
+    ? '意见数由 PCF 管理，不能手工修改。'
+    : '版本由 PCF 管理，不能手工修改。';
+}
+
 export const CommandBar: React.FC = () => {
   const [input, setInput] = useState('');
   const { activeProjectId, data, addRemark, deleteRemark, updateDrawing, batchUpdateDrawings, setFilterQuery, isEditMode } = useStore();
@@ -83,17 +103,8 @@ export const CommandBar: React.FC = () => {
         const commentMatch = actionPart.match(/^c[:：](\d+)\/(\d+)$/i);
         if (commentMatch) {
           if (!isEditMode) { alert("Edit Mode Required for Comments Update"); return; }
-          if (import.meta.env.MODE === 'hub') {
-            try {
-              const token = import.meta.env.VITE_DATA_API_TOKEN?.trim();
-              const response = await fetch('/api/pcf/' + encodeURIComponent(activeProjectId) + '/index', { headers: token ? { Authorization: 'Bearer ' + token } : {} });
-              if (!response.ok) throw Error('PCF 状态查询失败');
-              const index: { drawing_id: string }[] = await response.json();
-              if (validDrawings.some(d => index.some(row => row.drawing_id === d.id)) && !confirm('意见数由 PCF 自动维护。仍要手工修改吗？下次 PCF 保存会覆盖此值。')) return;
-            } catch {
-              if (!confirm('无法确认 PCF 状态；已有 PCF 的图纸会在下次保存时覆盖手工意见数。继续吗？')) return;
-            }
-          }
+          const blocked = manualFieldBlockMessage(validDrawings, 'comments');
+          if (blocked) { alert(blocked); return; }
           const [, total, open] = commentMatch;
           validDrawings.forEach(d => updateDrawing(d.id, {
             manualCommentsCount: parseInt(total),
@@ -107,10 +118,14 @@ export const CommandBar: React.FC = () => {
         if (!actionHandled && overrideMatch) {
           if (!isEditMode) { alert("Edit Mode Required for Version/Round Update"); return; }
           const [, type, value] = overrideMatch;
-          const updatePayload: any = {};
-          if (type.toLowerCase() === 'v') updatePayload.version = value.trim();
-          if (type.toLowerCase() === 'rd') updatePayload.currentRound = value.trim();
-          validDrawings.forEach(d => updateDrawing(d.id, updatePayload));
+          if (type.toLowerCase() === 'rd') {
+            // Round changes always come from the server transition (or PCF when present).
+            alert(manualFieldBlockMessage(validDrawings, 'round'));
+            return;
+          }
+          const blocked = manualFieldBlockMessage(validDrawings, 'version');
+          if (blocked) { alert(blocked); return; }
+          validDrawings.forEach(d => updateDrawing(d.id, { version: value.trim() }));
           actionHandled = true;
         }
 

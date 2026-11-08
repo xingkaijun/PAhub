@@ -18,6 +18,7 @@ export interface DrawingLog {
 }
 
 export interface Drawing {
+  hasPcf?: boolean;
   id: string;
   customId: string;
   drawingNo: string;
@@ -113,7 +114,8 @@ export type ReviewTrackerData = Record<string, Record<string, ReviewTrackerEntry
 
 // 增量保存 payload
 export interface DeltaPayload {
-  updatedDrawings?: Drawing[];
+  projectName?: string;
+  updatedDrawings?: (Drawing | { id: string; changes: Partial<Drawing> })[];
   deletedDrawingIds?: string[];
   conf?: ProjectConfig;
   reviewTracker?: ReviewTrackerData;
@@ -130,6 +132,7 @@ export interface WriteVerification {
 export interface SaveResult {
   success: boolean;
   verification?: WriteVerification;
+  drawings?: Drawing[];
 }
 
 // 服务端写入日志条目（audit_log 里 action 为 STATUS / COMMENTS 的行）

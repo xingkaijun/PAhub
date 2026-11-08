@@ -133,6 +133,8 @@ export const DrawingRow = memo(({
     const liveRemarkCount = drawing.remarks?.length || 0;
     const liveOpenRemarkCount = drawing.remarks?.filter(r => !r.resolved).length || 0;
     const reviewDeadline = toValidDate(drawing.reviewDeadline);
+    const pcfManaged = drawing.hasPcf === true;
+    const pcfManagedTitle = pcfManaged ? '由 PCF 管理' : undefined;
 
     return (
         <React.Fragment>
@@ -169,14 +171,16 @@ export const DrawingRow = memo(({
                 <td className="px-3 py-2">
                     <input
                         disabled={!isEditMode}
+                        readOnly={pcfManaged}
+                        title={pcfManagedTitle}
                         type="text"
                         value={drawing.version}
                         onChange={(e) => updateDrawing(drawing.id, { version: e.target.value })}
-                        className={`w-full bg-slate-100/50 border-none rounded-md text-[9px] font-black text-center py-0.5 focus:bg-white ${!isEditMode ? 'cursor-not-allowed text-slate-400' : ''}`}
+                        className={`w-full bg-slate-100/50 border-none rounded-md text-[9px] font-black text-center py-0.5 focus:bg-white ${!isEditMode || pcfManaged ? 'cursor-not-allowed text-slate-400' : ''}`}
                     />
                 </td>
                 <td className="px-3 py-2 text-center">
-                    <span className="text-[8px] font-black text-slate-400">{drawing.currentRound}</span>
+                    <span className="text-[8px] font-black text-slate-400" title={pcfManagedTitle}>{drawing.currentRound}</span>
                 </td>
                 <td className="px-3 py-2">
                     <select
@@ -297,9 +301,11 @@ export const DrawingRow = memo(({
                         type="number"
                         min="0"
                         disabled={!isEditMode}
+                        readOnly={pcfManaged}
+                        title={pcfManagedTitle}
                         value={drawing.manualCommentsCount}
                         onChange={(e) => updateDrawing(drawing.id, { manualCommentsCount: parseInt(e.target.value) || 0 })}
-                        className={`w-full bg-slate-100/50 border-none rounded-md text-[10px] font-black text-center py-0.5 focus:bg-white focus:ring-1 focus:ring-teal-500/30 ${!isEditMode ? 'cursor-not-allowed text-slate-400' : ''}`}
+                        className={`w-full bg-slate-100/50 border-none rounded-md text-[10px] font-black text-center py-0.5 focus:bg-white focus:ring-1 focus:ring-teal-500/30 ${!isEditMode || pcfManaged ? 'cursor-not-allowed text-slate-400' : ''}`}
                     />
                 </td>
                 <td className="px-3 py-2 text-center">
@@ -307,9 +313,11 @@ export const DrawingRow = memo(({
                         type="number"
                         min="0"
                         disabled={!isEditMode}
+                        readOnly={pcfManaged}
+                        title={pcfManagedTitle}
                         value={drawing.manualOpenCommentsCount}
                         onChange={(e) => updateDrawing(drawing.id, { manualOpenCommentsCount: parseInt(e.target.value) || 0 })}
-                        className={`w-full border-none rounded-md text-[10px] font-black text-center py-0.5 focus:bg-white focus:ring-1 focus:ring-teal-500/30 ${drawing.manualOpenCommentsCount > 0 ? 'bg-red-50 text-red-500' : 'bg-slate-100/50 text-slate-400'} ${!isEditMode ? 'cursor-not-allowed' : ''}`}
+                        className={`w-full border-none rounded-md text-[10px] font-black text-center py-0.5 focus:bg-white focus:ring-1 focus:ring-teal-500/30 ${drawing.manualOpenCommentsCount > 0 ? 'bg-red-50 text-red-500' : 'bg-slate-100/50 text-slate-400'} ${!isEditMode || pcfManaged ? 'cursor-not-allowed' : ''}`}
                     />
                 </td>
                 <td className="px-3 py-2 text-center">
