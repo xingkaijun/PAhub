@@ -1,14 +1,16 @@
+> **当前存储/副本协议**：架构优化阶段 2 已用 JSON 文档和快照取代权威 HTML。本文保留早期分期历史；旧版提示及 `hub:upgrade-pcf` 描述仅适用于未迁移 HTML。完整副本新协议与停服迁移优先见 [PCF_JSON_MIGRATION.md](PCF_JSON_MIGRATION.md)。
+
 # PCF 托管模式（第 2 / 3 期）
 
-每张图的完整 HTML 是权威数据；SQLite 只保存指针、意见数量、审批/轮次摘要及匿名变更元数据，不保存意见正文或图片。原始 PG-PCF-v1.9-source.html 不修改；PG-PCF-hub.html 检测 window.PAHUB 后启用托管适配，否则沿用独立文件保存、自动保存和导出。
+每张图的 JSON 文件是权威数据（2026-11-08 架构阶段 2 修订）；SQLite 只保存指针、意见数量、审批/轮次摘要及匿名变更元数据，不保存意见正文或图片。原始 PG-PCF-v1.9-source.html 不修改；PG-PCF-hub.html 检测 window.PAHUB 后启用托管适配，否则沿用独立文件保存、自动保存和导出。
 
 ## 存储和恢复
 
-数据根目录 PAHUB_DATA_DIR 默认 data/，默认数据库位于其中的 papc.db，PAPC_DB_PATH 可独立覆盖。当前文件为 pcf/<projectId>/<drawingId>.html，旧版为 pcf/<projectId>/.history/<drawingId>/<rev>-<epoch毫秒>-<uuid>.html。ID 只允许 1–128 位字母、数字、下划线或短横线，不使用图号作文件名。
+数据根目录 PAHUB_DATA_DIR 默认 data/，默认数据库位于其中的 papc.db，PAPC_DB_PATH 可独立覆盖。当前文件为 pcf/<projectId>/<drawingId>.json，旧版快照为 pcf/<projectId>/.history/<drawingId>/<rev>-<epoch毫秒>-<uuid>.json。ID 只允许 1–128 位字母、数字、下划线或短横线，不使用图号作文件名。
 
-非 DOM 的 script 扫描器定位唯一 id=pcf-data、type=application/json 块，兼容属性顺序和空白；JSON 的 <、>、& 转义为 Unicode 转义，与模板 snapshotHTML 一致。每图 Promise 队列串行处理写入；先保存旧版，再同目录临时文件、fsync、rename。
+权威文件直接 JSON.parse/JSON.stringify；HTML 导入/导出才使用非 DOM 的 script 扫描器定位唯一 id=pcf-data、type=application/json 块，兼容属性顺序和空白；JSON 的 <、>、& 转义为 Unicode 转义，与模板 snapshotHTML 一致。每图 Promise 队列串行处理写入；先保存旧版，再同目录临时文件、fsync、rename。
 
-pcf_index、pcf_changes、drawings、projects、audit_log 在同一个同步 SQLite SAVEPOINT 内写入，事务期间没有 await。文件和 SQLite 不是跨资源原子事务：常规异常会补偿还原文件；若 rename 后、SQLite 提交前进程崩溃，下一次读/meta/index 利用 HTML 中 hub.rev 和 hub.lastChange 修复索引、回写和审计。变更日志的图纸/rev 唯一约束避免重复审计。若数据库版本比文件新则明确报错，不静默覆盖。停服后一起备份数据库和全部 HTML；历史暂不自动清理。
+pcf_index、pcf_changes、drawings、projects、audit_log 在同一个同步 SQLite SAVEPOINT 内写入，事务期间没有 await。文件和 SQLite 不是跨资源原子事务：常规异常会补偿还原文件；若 rename 后、SQLite 提交前进程崩溃，下一次读/meta/index 利用 JSON 中 hub.rev 和 hub.lastChange 修复索引、回写和审计。变更日志的图纸/rev 唯一约束避免重复审计。若数据库版本比文件新则明确报错，不静默覆盖。停服后一起备份整个 data（JSON 文档/历史、往来 HTML、数据库/密钥）。历史保留遵循现有编辑段合并和最近 50 份 + 每项目日最后一份策略。
 
 ## API 与身份
 
@@ -28,7 +30,7 @@ pcf_index、pcf_changes、drawings、projects、audit_log 在同一个同步 SQL
 
 额外 GET /api/pcf/:projectId/index 返回项目下所有摘要。GET /pcf/:projectId/:drawingId 自动 create，再在 head 尾注入 PAHUB（projectId、drawingId、rev、apiBase、credential）。页面和接口均禁止缓存。
 
-未设置 API_TOKEN 时匿名访问；设置后支持原 Worker 相同的 Authorization: Bearer API_TOKEN。PCF 页面也可用 X-PCF-Token：HMAC 签名、限单张图、12 小时有效。页面本身不会公开绕过鉴权：PAPC 图名链接使用现有构建 token 调 session，或直接打开时要求输入共享 token。会话 cookie 是 HttpOnly/SameSite=Strict，API 不以 cookie 授权，而使用限图 header；全局 token 不放 URL/localStorage/PCF 文件。下载和模板另存均移除 pahub-context。PUT HTML 也移除该注入。
+未设置 API_TOKEN 时匿名访问；设置后支持原 Worker 相同的 Authorization: Bearer API_TOKEN。PCF 页面也可用 X-PCF-Token：HMAC 签名、限单张图、12 小时有效。页面本身不会公开绕过鉴权：PAPC 图名链接使用现有构建 token 调 session，或直接打开时要求输入共享 token。会话 cookie 是 HttpOnly/SameSite=Strict，API 不以 cookie 授权，而使用限图 header；全局 token 不放 URL/localStorage/PCF 文件。下载和模板另存均移除 pahub-context；PUT HTML 只解析数据，不保存传入模板/注入脚本。
 
 这不是个人账户系统。clientId 首次生成后存 localStorage；底栏可设昵称；服务器记录 IP（socket 地址，不信任任意 X-Forwarded-For）、时间及匿名身份。现有 PAPC 的 VITE_DATA_API_TOKEN 仍会公开在构建资源中，这是原认证机制的限制；局域网 HTTP 无加密，不能据此宣称具备公网安全。限图凭据过期后需重新打开页面。
 
@@ -61,7 +63,7 @@ pcf_index、pcf_changes、drawings、projects、audit_log 在同一个同步 SQL
 
 project 白名单：name、planNo、planTitle、revision、folder、approval、currentRound。roundRegister 白名单：revision、ownerRef、ownerDate、replyRef、replyDate。settings：fontSize、autoSaveSeconds。意见 meta 的 page/tags 共用 clock；轮次登记一行共用 clock，owner/reply 内容则独立。
 
-所有 clocks 存在 HTML data.hub.entities[key]={rev,clientId,clientName,at}；rev 使用最后修改它的文档版本号，并镜像 comment.rev/statusRev/metaRev、round.rev/ownerRev/replyRev。子内容更改同时提升聚合 record clock，避免删除他人刚修改的内容。一次请求内所有 op 用请求开始时的 clocks 判定，支持先重开再编辑/编辑后删除；跨请求以最新文件为准。
+所有 clocks 存在权威 JSON data.hub.entities[key]={rev,clientId,clientName,at}；rev 使用最后修改它的文档版本号，并镜像 comment.rev/statusRev/metaRev、round.rev/ownerRev/replyRev。子内容更改同时提升聚合 record clock，避免删除他人刚修改的内容。一次请求内所有 op 用请求开始时的 clocks 判定，支持先重开再编辑/编辑后删除；跨请求以最新文件为准。
 
 冲突 op 不应用，返回 server 当前值、entityRev、updatedBy 和 commentNumber；其它 op 照常提交。空操作/全冲突不增加版本。成功批次文档 rev+1，assigned 按新增 UUID 返回服务器编号。删除使用 tombstone；关闭意见须重开才可编辑，有 Builder 回复的轮次不能删除。整意见删除/恢复按原模板实际函数重排显示编号，UUID 才是稳定身份（nextCommentNumber=现存意见数+1）。审批按模板 countOpen/reconcileApproval 自动 Approved/重新 Under review，保留手动覆盖语义。
 
@@ -132,7 +134,7 @@ GET /api/pcf/:projectId/presence 返回 {drawings:{drawingId:[presence,...]}}，
 
 托管客户端每批生成 UUID batchId；未收到确认时重试同一 body 和 batchId。服务端兼容第二期无 batchId 的调用（不享受批次回执），验证 UUID；相同 ID 若 body 指纹不同返回 409。
 
-回执保存在权威 HTML 的 hub.receipts，最近 1000 批且 24 小时内有效。回执包含请求 SHA-256 和返回的 rev/applied/conflicts/assigned，不保存整个 data 的重复快照。重复提交从当前 HTML 或该 rev 的历史 HTML 重建原 data，移除内部 receipts 后返回与首次完全相同的结果；即使其它人继续提交、进程重启也不再应用/广播。全冲突/空批回执原子写入同一 HTML，不增加 rev、不产生审计。正文与冲突值只在 HTML 中，不进入 SQLite；原 pcf_changes 仍仅记录白名单摘要。历史需要保留至少整个去重窗口（当前不清理）。
+回执保存在权威 JSON 的 hub.receipts，最近 1000 批且 24 小时内有效。回执包含请求 SHA-256 和返回的 rev/applied/conflicts/assigned，不保存整个 data 的重复快照。重复提交从当前 JSON 或该 rev 的历史 JSON 重建原 data，移除内部 receipts 后返回与首次完全相同的结果；即使其它人继续提交、进程重启也不再应用/广播。全冲突/空批回执原子写入同一 JSON，不增加 rev、不产生审计。正文与冲突值只在 JSON 中，不进入 SQLite；原 pcf_changes 仍仅记录白名单摘要。历史需要保留至少整个去重窗口（当前不清理）。
 
 IndexedDB 数据库 pahub-pcf-offline / documents，以 documentId 为 key，保存旧基线、实体 clocks、当前脏本地数据、未确认批次 body/snapshot 和未处理冲突；不保存签名凭据。输入 touch 即持久化，发送前等待写入事务完成。网络失败保留原批次，点击保存重试；刷新/重开提示“有 N 项未同步修改”，可恢复重提或按文档丢弃。仅脏数据、尚未发请求的修改同样可恢复；恢复遇到服务器更新仍进入正常冲突处理。同步确认后清理本地记录；beforeunload 对脏值、在途/未确认批次及未处理冲突提示。存储禁用/配额不足会提示下载副本，但无法承诺浏览器被强杀/输入瞬间断电时最后一个尚未完成的 IndexedDB 事务已经持久化。
 
@@ -144,7 +146,7 @@ IndexedDB 数据库 pahub-pcf-offline / documents，以 documentId 为 key，保
 
 ## 第 4 期：船厂往来与模板升级（2026-11-07）
 
-权威正文仍是每图一个完整 HTML。SQLite 新表 pcf_exports 仅记录 exportId、project/drawing/documentId、baseRev、导出轮次/时间、匿名 clientId/昵称/IP、文件名和 exported/imported/void 状态，不存意见或图片。
+权威正文是每图一个 JSON。SQLite 新表 pcf_exports 仅记录 exportId、project/drawing/documentId、baseRev、导出轮次/时间、匿名 clientId/昵称/IP、文件名和 exported/imported/void 状态，不存意见或图片。
 
 ### 操作入口与接口
 
@@ -290,7 +292,7 @@ When a hosted PCF is first created from a PAPC drawing, PAPC `current_round` is 
 
 两者使用与现有 API 相同的 API_TOKEN Bearer 鉴权。筛选参数为 discipline、drawingStatus、commentStatus（保留原值）、round（数字或 A/B 字母）、tag、q、openOlderThanDays。多次传入同一分类参数表示该分类内 OR，不同分类之间为 AND；q 对图纸字段及所有有效轮次的正文、回复、姓名、标签作不区分大小写的子串搜索。openOlderThanDays 是严格大于，不包含 Closed；账龄从首次创建时间起按完整 24 小时计算，未来时间记 0，无有效日期记 0。Closed 不区分大小写，其余状态归入未关闭。ageing 为 0–7 / 8–14 / 15–30 / >30 天，topDrawings 按未关闭数优先、关闭数次之列前 10。无 PCF 的图纸不进入清单。
 
-Comments 是当前项目 PCF HTML 的只读汇总，不是内部备忘或数据库中的人工意见计数。每条 active、未被 tombstone 删除的意见只占一个逻辑结果行；已删除意见及轮次不参与汇总。轮次取该意见最新的有效轮次，显示通过 `roundToLetters` 转为 A、B、…、Z、AA。船东意见和 Builder reply 分别取所有有效轮次中最近的非空正文，相关姓名和日期随各自正文来源，不以最新空轮次覆盖旧正文。
+Comments 是当前项目 PCF JSON 的只读汇总，不是内部备忘或数据库中的人工意见计数。每条 active、未被 tombstone 删除的意见只占一个逻辑结果行；已删除意见及轮次不参与汇总。轮次取该意见最新的有效轮次，显示通过 `roundToLetters` 转为 A、B、…、Z、AA。船东意见和 Builder reply 分别取所有有效轮次中最近的非空正文，相关姓名和日期随各自正文来源，不以最新空轮次覆盖旧正文。
 
 全文搜索覆盖全部有效轮次的船东意见与 Builder reply，不只搜索列表显示的最近正文；因此旧轮次命中时，结果行仍显示最近非空正文，完整往来需打开 PCF 查看。筛选与搜索先产生同一个完整结果子集，再用于列表分页及所有统计（total / open / closed、专业与意见状态、轮次、图纸状态、ageing、top drawings）；统计不局限于当前显示页。读取失败的图纸以 warnings 显式返回，不静默伪装为零条意见。
 
@@ -302,7 +304,7 @@ Comments 是当前项目 PCF HTML 的只读汇总，不是内部备忘或数据�
 
 最终不启用 profile 的完整验收：hub:build 通过，hub:test 69/69（第 8 期为 52 项），冷请求 1072.10 ms、缓存命中 184.79 ms、ETag 304 为 26.50 ms。浏览器脚本 hub-server/test/phase9-browser-smoke.mjs 使用 data-p9 副本，仅监听 127.0.0.1:8082，结束自动关闭；验证筛选、Excel、整行点击、跨页与隐藏筛选定位、未知 ID、SSE stale/manual Refresh，pageerrors=0。深浅主题及定位截图在 hub-server/test/artifacts/phase9-*.png，日志在同目录，不提交数据或截图。
 
-索引仅驻留服务器内存：逐文件以 mtime 为基础并结合 ctime、size 和 `pcf_index` rev 判断失效；文件内容或索引 rev 改变后重新解析。意见正文与图片不写入数据库，也不生成磁盘缓存。完整 PCF HTML 仍是唯一正文权威源，重启后的索引由文件重新构建。
+索引仅驻留服务器内存：逐文件以 mtime 为基础并结合 ctime、size 和 `pcf_index` rev 判断失效；文件内容或索引 rev 改变后重新解析。意见正文与图片不写入数据库，也不生成磁盘缓存。PCF JSON 是唯一正文权威源，重启后的索引由文件重新构建。
 
 收到 drawing SSE 变更通知时，Comments 当前结果标记为 stale，并提供 **Refresh**。通知不意味着当前列表及统计已经更新，也不直接替换正在查看的结果；点击 Refresh 重新查询当前筛选子集。导出前应刷新过期结果。
 

@@ -11,3 +11,11 @@
 POST /api/pcf/:projectId/exports/batch，body 为 {drawingIds,batchId}（UUID）。鉴权与 PCF 写接口一致。先验证整批归属；无 PCF 跳过；当前服务器 rev 导出，每图一条签名基线。批次与 manifest 持久化，同 batchId 同图纸列表复用 exportId；不同列表返回 409。单张或 ZIP 失败回滚本批记录与基线文件。成功返回 application/zip，RFC 5987 中文附件名，manifest.csv 带 BOM。Send All 仅在状态保存与回读成功后调用，打包失败不回滚状态。
 
 npm run hub:test 保留所有原有测试并增加 Send All 覆盖。旧数据迁移见 [一次性迁移说明](../docs/d1-migration.md)，PCF 使用见 [操作手册](../MANUAL.md)。备份应停止 Hub 并复制完整数据目录，包含 .pcf-export-key。核心数据 API 同源；部分可选报表资源仍来自第三方 CDN，不承诺全部报表离线。
+
+## JSON 存储维护
+
+PCF 文档与历史直接读写 JSON；模板启动时缓存，`hub:dev` 下按文件变更重新加载。数据库启动只运行 001 结构迁移，002 PCF 文件迁移由 `hub:migrate-pcf-json` 显式执行并用 `PRAGMA user_version=2` 记录完成；不会启动时悄悄转换 HTML。
+
+`npm run hub:migrate-pcf-json -- --data-dir <副本> --dry-run` 校验；`--hub-stopped` 实跑并自动备份。数据库必须直接位于数据根目录以保证整体备份包含 DB/WAL。
+
+`npm run hub:export-pcf -- --project <ID> --data-dir <目录> --output <新ZIP> --hub-stopped` 导出完整 HTML 副本项目 ZIP，基线留在 data/ 中，完整 data 备份仍必需。细节见 [迁移说明](../docs/PCF_JSON_MIGRATION.md)。小改动可用 `node hub-server/scripts/test-related.mjs hub-server/test/<name>.test.ts` 只执行相关测试；全量构建/测试只在阶段完成时运行。

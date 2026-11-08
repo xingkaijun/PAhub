@@ -8,7 +8,7 @@
 
 ## Comments：全项目意见汇总
 
-选择项目后点击顶部 Comments，无需进入 Edit。统计卡片、专业/轮次/账龄图和意见清单只汇总已有 PCF 的图纸，正文仍以各 PCF HTML 为准，不另存入数据库。损坏文件会显示 drawing warnings，其他图纸仍可查看。
+选择项目后点击顶部 Comments，无需进入 Edit。统计卡片、专业/轮次/账龄图和意见清单只汇总已有 PCF 的图纸，正文仍以各 PCF JSON 为准，不另存入数据库。损坏文件会显示 drawing warnings，其他图纸仍可查看。
 
 选择专业、图纸状态、意见状态、轮次、实际意见标签、未关闭天数，或输入全文关键词，然后点击 Apply filters；Reset 清除筛选。标签自动包含 Cost Affect 等新增值。全文搜索覆盖所有有效轮次；表格显示最新有效轮次及最近非空正文，Builder 回复摘要最多 200 字。点击列头排序，用 Rows per page 和翻页按钮查看更多意见。
 
@@ -44,4 +44,16 @@ ZIP 含每张有 PCF 图纸的船厂版 HTML 和带 BOM 的 manifest.csv；无 P
 
 ## 备份与恢复
 
-建议在无人编辑时停止 Hub，备份整个数据目录：数据库、权威 PCF HTML、历史、导出基线、导入回执及 .pcf-export-key。仅复制数据库不能完整恢复 PCF 往来。恢复时停止 Hub，再替换已核实的完整数据目录。密钥需与基线一起恢复；备份目录应限制访问。旧系统一次性迁移见 docs/d1-migration.md。
+建议在无人编辑时停止 Hub，备份整个数据目录：数据库、权威 PCF JSON、JSON 历史、导出基线、导入回执及 .pcf-export-key。仅复制数据库不能完整恢复 PCF 往来。恢复时停止 Hub，再替换已核实的完整数据目录。密钥需与基线一起恢复；备份目录应限制访问。旧系统一次性迁移见 docs/d1-migration.md。
+
+## 完整离线副本与外发版
+
+PCF 的 Download HTML copy 与 Export JSON 用于自己的完整离线副本：保留流转记录、审批历史、已删除记录和其它业务字段，只移除协同时钟、回执、clientId、IP 等 Hub 内部字段。服务器记录导出及当时的基线；离线编辑后保留 documentId 和 export 元数据，经完整副本导入入口预览三方合并。服务器新增历史不会被离线旧版本清空，同字段双方都改动时必须明确选择。
+
+发给第三方请用外发版；船厂往来使用 Exchanges / Send All 的锁 Owner 船厂版，仍只导入当前轮次未关闭意见的 Builder 回复。不要把外发白名单版本当作完整备份或整份替换原文档。
+
+项目级离线文档备份：停服后执行 `npm run hub:export-pcf -- --project <项目ID> --data-dir <数据目录> --output <新ZIP路径> --hub-stopped`，生成全部已有 PCF 的完整 HTML ZIP 并保存导出基线。无 PCF 图纸列在 manifest 中，不会自动创建 PCF。此 ZIP 可作为离线副本导回；要回退整个部署版本仍须恢复完整 data 备份。
+
+## 从旧 HTML 存储迁移
+
+先停止 Hub，复制整个 data 到新的目录（含 DB/WAL、历史、往来基线和密钥）。先对副本执行 `npm run hub:migrate-pcf-json -- --data-dir <副本目录> --dry-run`，再加 `--hub-stopped` 实跑。查看文档/快照数及字节统计；检查页面、编辑、导出和船厂回复。原 HTML 目录保留为 `pcf-html-backup-*`，整体 data 备份位于数据目录同级。正式切换和回滚步骤见 [迁移说明](docs/PCF_JSON_MIGRATION.md)。认证开关仍默认关闭，不设置 API_TOKEN/Basic Auth 时内网匿名使用不变。

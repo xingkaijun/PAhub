@@ -1,6 +1,6 @@
 # PAhub
 
-单 Node.js 24 进程、同源 HTTP 服务：PAPC 图纸工作流、Review Tracker、PCF 在线协作编辑及船厂回复三方合并。SQLite 使用 Node 内置 node:sqlite，PCF 权威正文保存在 HTML 文件中。
+单 Node.js 24 进程、同源 HTTP 服务：PAPC 图纸工作流、Review Tracker、PCF 在线协作编辑及船厂回复三方合并。SQLite 使用 Node 内置 node:sqlite，PCF 权威正文及历史快照保存在 JSON 文件中；页面套用内存中的单文件 HTML 模板，外发与离线副本仍是 HTML。
 
 ## 快速开始
 
@@ -46,3 +46,11 @@ npm run hub:dev 启动同源开发模式；npm run hub:build 构建前端与服�
 worker/src 与 worker/sql 是由 Hub 打包执行的现有业务 API 和 SQL；不是独立部署目标。生产数据与日志不应提交。完整备份应含数据目录及 PCF 导出签名密钥。
 
 使用手册：[MANUAL.md](MANUAL.md)。运行配置：[hub-server/README.md](hub-server/README.md)。旧数据一次性迁移：[docs/d1-migration.md](docs/d1-migration.md)。
+
+## PCF JSON 存储、迁移与备份
+
+- 权威文件：`data/pcf/<项目ID>/<图纸ID>.json`，历史：`.history/<图纸ID>/*.json`。SQLite 只存指针和摘要。
+- 旧 HTML 数据必须停服迁移：`npm run hub:migrate-pcf-json -- --data-dir <副本目录> --dry-run` 先校验；确认副本无服务使用后以 `--hub-stopped` 实跑。脚本自动完整备份并保留 `pcf-html-backup-*` 目录，原始往来 HTML 不转换。详见 [迁移与回滚](docs/PCF_JSON_MIGRATION.md)。
+- 完整副本保留业务历史，外发版继续按白名单裁剪；Send All 仍是船厂版 ZIP。完整副本导回使用导出基线三方合并。
+- `npm run hub:export-pcf -- --project <项目ID> --data-dir <数据目录> --output <新ZIP路径> --hub-stopped` 导出项目完整 HTML 副本（记录基线）。ZIP 不包含数据库、全部审计或密钥，不能替代停服后备份整个 `data/`。
+- 生产模板更新后重启即可，不需要 `hub:upgrade-pcf` 批量改写 JSON；该旧命令仅供未迁移 HTML 的维护。
