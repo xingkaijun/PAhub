@@ -261,7 +261,8 @@ const App: React.FC = () => {
   }, [activeProjectId, showProjectSelector, data.settings.autoSyncInterval, currentProject?.conf?.autoSyncInterval, currentProject?.conf?.password, isEditMode, loadProject, saveProject]);
 
   useEffect(() => {
-    if (import.meta.env.MODE !== 'hub' || !activeProjectId || showProjectSelector || !['drawings', 'tracker'].includes(activeTab)) return;
+    // One stream per open project, kept across tab switches (switching tabs used to drop and reopen it, refetching everything).
+    if (import.meta.env.MODE !== 'hub' || !activeProjectId || showProjectSelector) return;
     const projectId = activeProjectId;
     const url = projectsApi.eventsUrl(projectId);
     let closed = false, retryDelay = 1000, retryTimer: ReturnType<typeof setTimeout> | undefined;
@@ -274,10 +275,13 @@ const App: React.FC = () => {
       pollTimer = setInterval(refreshPresence, document.hidden ? 60000 : 15000);
     };
     const stopPoll = () => { if (pollTimer) clearInterval(pollTimer); pollTimer = undefined; };
+    // Conditional (ETag) read: when nothing changed the server answers 304 and nothing is merged.
     const fullRefresh = () => {
       void useStore.getState().refreshProjectPreservingDirty(projectId).catch(() => {});
       refreshPresence();
     };
+    // A whole-project save announces every drawing; past this many ids one conditional full read is cheaper.
+    const MAX_BY_ID = 200;
     const event = (name: string, data: any) => {
       if (closed) return;
       if (name === 'presence' && data?.drawings) {
@@ -286,9 +290,13 @@ const App: React.FC = () => {
         changedIds.add(data.drawingId);
         if (!mergeTimer) mergeTimer = setTimeout(async () => {
           mergeTimer = undefined;
-          const count = changedIds.size; changedIds.clear();
-          const merged = await useStore.getState().refreshProjectPreservingDirty(projectId).catch(() => 0);
-          if (!closed && count > 0 && merged >= 0) setRemoteUpdateCount(count);
+          const ids = [...changedIds]; changedIds.clear();
+          const store = useStore.getState();
+          // Only the drawings that changed; fall back to a full (conditional) read if that fails or the batch is huge.
+          const merged = ids.length > MAX_BY_ID
+            ? await store.refreshProjectPreservingDirty(projectId).catch(() => 0)
+            : await store.refreshDrawingsPreservingDirty(projectId, ids).catch(() => store.refreshProjectPreservingDirty(projectId).catch(() => 0));
+          if (!closed && ids.length > 0 && merged >= 0) setRemoteUpdateCount(ids.length);
         }, 100);
       }
     };
@@ -333,13 +341,14 @@ const App: React.FC = () => {
       } else { fullRefresh(); if (pollTimer) { clearInterval(pollTimer); pollTimer = setInterval(refreshPresence, 15000); } }
     };
     document.addEventListener('visibilitychange', onVisibility);
-    fullRefresh(); connect();
+    // The project was just loaded; the first open of the stream does the (conditional) catch-up read.
+    refreshPresence(); connect();
     return () => {
       closed = true; source?.close(); controller?.abort(); stopPoll();
       if (retryTimer) clearTimeout(retryTimer); if (mergeTimer) clearTimeout(mergeTimer);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [activeProjectId, activeTab, showProjectSelector]);
+  }, [activeProjectId, showProjectSelector]);
 
 
   const handleGlobalRefresh = async () => {

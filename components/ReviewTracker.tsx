@@ -161,7 +161,7 @@ export const ReviewTracker: React.FC = () => {
     }, [reviewingDrawings, reviewTracker]);
 
     const handleRefresh = () => {
-        if (activeProjectId) loadReviewTracker(activeProjectId);
+        if (activeProjectId) loadReviewTracker(activeProjectId, true);
     };
 
     const handleSync = async () => {

@@ -36,6 +36,8 @@ export interface ProjectSlice {
   fetchProjectList: () => Promise<void>;
   loadProject: (projectId: string, passwordInput?: string) => Promise<void>;
   refreshProjectPreservingDirty: (projectId: string) => Promise<number>;
+  /** Refetch only these drawings (drawing-changed) and merge them like a full refresh would, keeping unsaved edits. */
+  refreshDrawingsPreservingDirty: (projectId: string, drawingIds: string[]) => Promise<number>;
   testConnection: (url: string, user: string, pass: string, proxyUrl?: string) => Promise<{
     success: boolean;
     message: string;
@@ -56,7 +58,8 @@ export interface ProjectSlice {
 }
 export interface ReviewTrackerSlice {
   reviewTracker: ReviewTrackerData;
-  loadReviewTracker: (projectId: string) => Promise<void>;
+  /** force: read even if this page already loaded the tracker for this project (manual refresh). */
+  loadReviewTracker: (projectId: string, force?: boolean) => Promise<void>;
   toggleAssigneeDone: (drawingId: string, assignee: string) => void;
   clearTrackerForDrawings: (drawingIds: string[]) => void;
   verifySentDrawings: (projectId: string, expected: SentDrawingExpectation[]) => Promise<SendVerification>;

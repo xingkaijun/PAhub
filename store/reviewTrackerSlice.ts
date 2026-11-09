@@ -2,17 +2,25 @@ import type { Project, ReviewTrackerData } from '../types';
 import { projectsApi } from '../services/api/projectsApi';
 import { mergeReviewTracker, clearReviewTracker, verifySentState, type SentDrawingExpectation, type SendVerification } from '../lib/review-tracker';
 import type { ReviewTrackerSlice, SliceCreator } from './types';
+// Project whose tracker this page has loaded once (see loadReviewTracker).
+let trackerLoadedFor: string | null = null;
+
 export const createReviewTrackerSlice: SliceCreator<ReviewTrackerSlice> = (set, get) => ({
   reviewTracker: {},
-  loadReviewTracker: async (projectId: string) => {
-    const { data, reviewTracker: localTracker, _dirtyTrackerDrawingIds } = get();
-    const project = data.projects.find(p => p.id === projectId);
+  loadReviewTracker: async (projectId: string, force = false) => {
+    // In the hub build the project's live stream keeps the tracker current after the first load, so a tab
+    // mounting (Inventory <-> Tracker) does not need to read it again; the Refresh button passes force.
+    if (!force && import.meta.env.MODE === 'hub' && trackerLoadedFor === projectId)
+      return;
+    const project = get().data.projects.find(p => p.id === projectId);
     if (!project)
       return;
     try {
       const remote = await projectsApi.loadReviewTracker(project.id);
+      const { reviewTracker: localTracker, _dirtyTrackerDrawingIds } = get();
       const merged = mergeReviewTracker(localTracker, remote || {}, _dirtyTrackerDrawingIds);
       set({ reviewTracker: merged });
+      trackerLoadedFor = projectId;
     }
     catch (e) {
       console.warn('loadReviewTracker failed', e);

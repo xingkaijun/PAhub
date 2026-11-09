@@ -1,7 +1,8 @@
 import type { Router } from './router.ts';
 import { errorResponse } from './router.ts';
 import { safeId } from './pcf-model.ts';
-import { getProjectDetail, getProjectList } from './project-read.ts';
+import { getProjectDetail, getProjectDrawings, getProjectList, MAX_DRAWING_IDS } from './project-read.ts';
+import { conditionalJson } from './etag.ts';
 import type { ProjectWriter } from './project-write.ts';
 
 export function registerProjectRoutes(router: Router, writer: ProjectWriter) {
@@ -16,9 +17,29 @@ export function registerProjectRoutes(router: Router, writer: ProjectWriter) {
         if (!body.password) return errorResponse('PASSWORD_REQUIRED',401);
         if (body.password !== password) return errorResponse('INVALID_PASSWORD',401);
       }
-      return Response.json(project);
+      // ETag + 304: a refresh that finds nothing new costs a header instead of the whole project.
+      return conditionalJson(ctx.request,project);
     }
     if (ctx.request.method === 'PUT') return Response.json({success:true,verification:await writer.save(p,body.project,body.reviewTracker)});
     return Response.json(await writer.patch(p,body));
+  }});
+  // Only the named drawings (ids=a,b or repeated ids=), with their review-tracker rows, for drawing-changed events.
+  // Same protection as the full read: a project password must come along in X-Project-Password (URI-encoded, headers are Latin-1).
+  router.add({pattern:/^\/api\/projects\/([^/]+)\/drawings$/,methods:['GET'],handle:ctx => {
+    const p = safeId(ctx.params[0]);
+    const ids = ctx.url.searchParams.getAll('ids').flatMap(value => value.split(',')).map(id => id.trim()).filter(Boolean);
+    if (!ids.length) return errorResponse('ids is required',400);
+    if (new Set(ids).size > MAX_DRAWING_IDS) return errorResponse('Too many ids (max ' + MAX_DRAWING_IDS + ')',400);
+    const db = writer.storage.db;
+    const password = db.prepare("SELECT setting_value FROM project_settings WHERE project_id=? AND setting_key='password'").get(p)?.setting_value;
+    if (typeof password === 'string' && password.trim()) {
+      let supplied = ctx.request.headers.get('x-project-password');
+      try { supplied = supplied && decodeURIComponent(supplied); } catch { /* sent raw */ }
+      if (!supplied) return errorResponse('PASSWORD_REQUIRED',401);
+      if (supplied !== password) return errorResponse('INVALID_PASSWORD',401);
+    }
+    const result = getProjectDrawings(db,p,ids);
+    if (!result) return errorResponse('Project not found: ' + p,404);
+    return conditionalJson(ctx.request,result);
   }});
 }

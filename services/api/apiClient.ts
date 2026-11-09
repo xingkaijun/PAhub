@@ -46,7 +46,8 @@ export function createApiClient(config: ApiClientConfig = {}) {
     const response = await (config.fetch || globalThis.fetch)(url(resource), {
       ...init, headers, body: json === undefined ? body : JSON.stringify(json),
     });
-    if (!response.ok) {
+    // 304 only comes back when the caller sent its own If-None-Match; the caller then reuses what it holds.
+    if (!response.ok && response.status !== 304) {
       const raw = await response.text();
       let message = raw;
       let data: any;

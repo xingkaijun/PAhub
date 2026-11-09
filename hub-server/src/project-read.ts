@@ -23,14 +23,16 @@ export function getProjectConfiguration(db: DatabaseSync, projectId: string) {
     password:settings.password ?? null,displayName:settings.displayName ?? null,autoSyncInterval:integer(settings.autoSyncInterval,null),
     projectSummary:parse(settings.projectSummary,null),defaultAssignees:assignees };
 }
-export function getProjectDetail(db: DatabaseSync, projectId: string) {
-  const project = db.prepare('SELECT * FROM projects WHERE id=?').get(projectId); if (!project) return null;
+// Drawing rows in the project-read shape. With ids, only those drawings (json_each keeps one statement per table).
+function readDrawings(db: DatabaseSync, projectId: string, ids?: string[]) {
+  const scope = ids ? 'SELECT id FROM drawings WHERE project_id=? AND id IN (SELECT value FROM json_each(?))' : 'SELECT id FROM drawings WHERE project_id=?';
+  const args: string[] = ids ? [projectId, JSON.stringify(ids)] : [projectId];
   const group = (rows: Row[]) => { const map = new Map<string,Row[]>(); for (const row of rows) { const id = String(row.drawing_id); const {drawing_id,...child} = row; const list = map.get(id) || []; list.push(child); map.set(id,list); } return map; };
-  const assignees = group(db.prepare('SELECT drawing_id,reviewer_id FROM drawing_assignees WHERE drawing_id IN (SELECT id FROM drawings WHERE project_id=?)').all(projectId));
-  const remarks = group(db.prepare('SELECT drawing_id,id,COALESCE(content,\'\') AS content,COALESCE(created_at,\'\') AS createdAt,resolved FROM drawing_remarks WHERE drawing_id IN (SELECT id FROM drawings WHERE project_id=?)').all(projectId));
-  const history = group(db.prepare('SELECT drawing_id,id,COALESCE(content,\'\') AS content,COALESCE(created_at,\'\') AS createdAt FROM drawing_status_history WHERE drawing_id IN (SELECT id FROM drawings WHERE project_id=?)').all(projectId));
-  const pcf = new Set(db.prepare('SELECT drawing_id FROM pcf_index WHERE project_id=?').all(projectId).map(row => String(row.drawing_id)));
-  const drawings = db.prepare('SELECT * FROM drawings WHERE project_id=? AND IFNULL(_deleted,0)!=1').all(projectId).map(row => { const drawingAssignees = (assignees.get(String(row.id)) || []).map(a => a.reviewer_id), drawingRemarks = remarks.get(String(row.id)) || []; return {
+  const assignees = group(db.prepare('SELECT drawing_id,reviewer_id FROM drawing_assignees WHERE drawing_id IN (' + scope + ')').all(...args));
+  const remarks = group(db.prepare('SELECT drawing_id,id,COALESCE(content,\'\') AS content,COALESCE(created_at,\'\') AS createdAt,resolved FROM drawing_remarks WHERE drawing_id IN (' + scope + ')').all(...args));
+  const history = group(db.prepare('SELECT drawing_id,id,COALESCE(content,\'\') AS content,COALESCE(created_at,\'\') AS createdAt FROM drawing_status_history WHERE drawing_id IN (' + scope + ')').all(...args));
+  const pcf = new Set(db.prepare('SELECT drawing_id FROM pcf_index WHERE project_id=?' + (ids ? ' AND drawing_id IN (SELECT value FROM json_each(?))' : '')).all(...args).map(row => String(row.drawing_id)));
+  return db.prepare('SELECT * FROM drawings WHERE project_id=? AND IFNULL(_deleted,0)!=1' + (ids ? ' AND id IN (SELECT value FROM json_each(?))' : '')).all(...args).map(row => { const drawingAssignees = (assignees.get(String(row.id)) || []).map(a => a.reviewer_id), drawingRemarks = remarks.get(String(row.id)) || []; return {
     id:row.id,customId:row.custom_id ?? '',drawingNo:row.drawing_no ?? '',title:row.title ?? '',discipline:row.discipline ?? '',
     assignees:drawingAssignees,status:row.status ?? 'Pending',currentRound:row.current_round ?? 'A',version:row.version ?? '',
     manualCommentsCount:row.manual_comments_count ?? 0,manualOpenCommentsCount:row.manual_open_comments_count ?? 0,reviewDeadline:row.review_deadline,
@@ -39,7 +41,21 @@ export function getProjectDetail(db: DatabaseSync, projectId: string) {
     // Revision the app sends back as baseRev; matches drawing-write results.
     rev:drawingRevision(row,drawingAssignees,drawingRemarks as any),
   }; });
+}
+export function getProjectDetail(db: DatabaseSync, projectId: string) {
+  const project = db.prepare('SELECT * FROM projects WHERE id=?').get(projectId); if (!project) return null;
+  const drawings = readDrawings(db,projectId);
   return { id:project.id,name:project.name,drawings,storagePath:project.storage_path || undefined,conf:getProjectConfiguration(db,projectId),lastUpdated:project.last_updated || undefined };
+}
+export const MAX_DRAWING_IDS = 500;
+// Only the named drawings plus their tracker rows; ids not returned (deleted / never existed) are listed in missing.
+export function getProjectDrawings(db: DatabaseSync, projectId: string, ids: string[]) {
+  if (!db.prepare('SELECT 1 FROM projects WHERE id=?').get(projectId)) return null;
+  const unique = [...new Set(ids)], drawings = readDrawings(db,projectId,unique), found = new Set(drawings.map(d => String(d.id)));
+  const reviewTracker: ReturnType<typeof getReviewTracker> = {};
+  const rows = db.prepare('SELECT COALESCE(drawing_id,raw_drawing_ref) AS drawing_id,reviewer_id,done,done_at FROM review_tracker WHERE project_id=? AND IFNULL(_deleted,0)!=1 AND COALESCE(drawing_id,raw_drawing_ref) IN (SELECT value FROM json_each(?)) ORDER BY COALESCE(drawing_id,raw_drawing_ref),reviewer_id').all(projectId,JSON.stringify(unique));
+  for (const row of rows) (reviewTracker[String(row.drawing_id)] ||= {})[String(row.reviewer_id)] = {done:row.done ? 1 : 0,doneAt:row.done_at};
+  return { drawings, missing: unique.filter(id => !found.has(id)), reviewTracker };
 }
 export function getSettings(db: DatabaseSync) {
   const firstProject = db.prepare('SELECT id FROM projects LIMIT 1').get();

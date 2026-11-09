@@ -13,6 +13,7 @@ const TESTS = [
   'phase9-browser-smoke.mjs',
   'v26-browser-smoke.mjs',
   'save-conflict-browser-smoke.mjs',
+  'load-browser-smoke.mjs',
 ];
 
 const run = (args, label) => new Promise(resolve => {

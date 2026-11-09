@@ -45,11 +45,13 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     const stub = initial.data.projects.find(p => p.id === projectId);
     if (!stub)
       return 0;
+    // Conditional reads: null means 304, the server still has exactly what this client last read.
     const [rawProject, remoteTracker] = await Promise.all([
-      projectsApi.loadProject(stub, stub.conf?.password),
-      projectsApi.loadReviewTracker(stub.id).catch(() => ({})),
+      projectsApi.loadProjectIfChanged(stub, stub.conf?.password),
+      projectsApi.loadReviewTrackerIfChanged(stub.id).catch(() => null),
     ]);
-    const remote = normalizeProjectDrawingIds(rawProject, generateId);
+    if (!rawProject && !remoteTracker)
+      return 0;
     let changed = 0;
     set(state => {
       if (state.activeProjectId !== projectId)
@@ -57,7 +59,45 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
       const local = state.data.projects.find(p => p.id === projectId);
       if (!local)
         return state;
-      const merged = mergeProjectPreservingDirty(local, remote, state._dirtyDrawingIds, state._deletedDrawingIds, state._dirtyConfKeys.size ? state._dirtyConfKeys : state._dirtyConf, state.reviewTracker, remoteTracker || {}, state._dirtyTrackerDrawingIds, state._dirtyTracker, state._dirtyDrawingFields);
+      const remote = rawProject ? normalizeProjectDrawingIds(rawProject, generateId) : local;
+      const merged = mergeProjectPreservingDirty(local, remote, state._dirtyDrawingIds, state._deletedDrawingIds, state._dirtyConfKeys.size ? state._dirtyConfKeys : state._dirtyConf, state.reviewTracker, remoteTracker || state.reviewTracker, state._dirtyTrackerDrawingIds, state._dirtyTracker, state._dirtyDrawingFields);
+      changed = merged.changedDrawings;
+      return {
+        data: { ...state.data, projects: state.data.projects.map(p => p.id === projectId ? merged.project : p) },
+        reviewTracker: merged.reviewTracker,
+      };
+    });
+    return changed;
+  },
+  refreshDrawingsPreservingDirty: async (projectId: string, drawingIds: string[]) => {
+    const stub = get().data.projects.find(p => p.id === projectId);
+    if (!stub || !drawingIds.length)
+      return 0;
+    const result = await projectsApi.loadDrawings(projectId, drawingIds, stub.conf?.password);
+    const fetched = new Map(normalizeProjectDrawingIds({ ...stub, drawings: result.drawings || [] }, generateId).drawings.map(d => [d.id, d]));
+    const gone = new Set(result.missing || []);
+    let changed = 0;
+    set(state => {
+      if (state.activeProjectId !== projectId)
+        return state;
+      const local = state.data.projects.find(p => p.id === projectId);
+      if (!local)
+        return state;
+      // A remote copy that differs from local only in the fetched drawings; the shared merge then keeps
+      // unsaved fields, rev/base for conflict checks, and dirty tracker rows exactly as a full refresh does.
+      const seen = new Set<string>();
+      const drawings = local.drawings.flatMap(d => {
+        seen.add(d.id);
+        if (gone.has(d.id)) return [];
+        return [fetched.get(d.id) || d];
+      });
+      for (const [id, d] of fetched) if (!seen.has(id)) drawings.push(d);
+      const remoteTracker = { ...state.reviewTracker };
+      for (const id of drawingIds) {
+        if (result.reviewTracker?.[id]) remoteTracker[id] = result.reviewTracker[id];
+        else delete remoteTracker[id];
+      }
+      const merged = mergeProjectPreservingDirty(local, { ...local, drawings }, state._dirtyDrawingIds, state._deletedDrawingIds, state._dirtyConfKeys.size ? state._dirtyConfKeys : state._dirtyConf, state.reviewTracker, remoteTracker, state._dirtyTrackerDrawingIds, state._dirtyTracker, state._dirtyDrawingFields);
       changed = merged.changedDrawings;
       return {
         data: { ...state.data, projects: state.data.projects.map(p => p.id === projectId ? merged.project : p) },
