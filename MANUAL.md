@@ -21,7 +21,7 @@
 系统只有两种身份，不按人分账号：
 
 - **审图人员**（无密码）：打开站点即为审图人员。可浏览项目、图纸列表、Comments、Activity Report、Daily Log（均只读），可导出报表；在 PCF 页面内可正常审图、写/改/关闭意见并保存。不能做任何批量或项目级写操作。
-- **管理员**（输入管理员密码）：在页面右上角或列表、Tracker 的 Admin Sign-in 输入服务端 `ADMIN_PASSWORD`。登录成功由服务端设置 12 小时会话（httpOnly、SameSite=Strict），页面据此解锁；再次点击可退出登录。会话以服务端为准，刷新页面后仍然有效，服务器重启后失效。
+- **管理员**（输入管理员密码）：在页面右上角或列表、Tracker 的 Admin Sign-in 输入服务端 `ADMIN_PASSWORD`。登录成功由服务端设置 12 小时会话（httpOnly、SameSite=Strict），页面据此解锁；再次点击可退出登录。会话以服务端为准，刷新页面后仍然有效，服务器重启后失效。会话 cookie 仅在请求为 HTTPS 时附加 Secure：直连 HTTPS，或经反向代理且 `X-Forwarded-Proto` 首项为 `https`（不依据 `NODE_ENV` 判断）。
 
 | 操作 | 审图人员 | 管理员 |
 | --- | --- | --- |

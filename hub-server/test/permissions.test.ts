@@ -161,6 +161,35 @@ test('PCF document edits are open to reviewers; JSON replacement and reply/impor
   } finally { await f.cleanup(); }
 });
 
+test('the session cookie is Secure only when the request is HTTPS, regardless of NODE_ENV', async () => {
+  const previousNodeEnv = process.env.NODE_ENV;
+  try {
+    process.env.NODE_ENV = 'production';
+    const session = createAdminSession({ password: 'secret', apiToken: '' });
+    const login = (url: string, forwarded?: string) => session.login(new Request(url, {
+      method: 'POST',
+      headers: forwarded ? { 'X-Forwarded-Proto': forwarded } : {},
+      body: JSON.stringify({ password: 'secret' }),
+    }));
+    const setCookie = async (response: Response) => response.headers.get('set-cookie') || '';
+
+    const plainHttp = await setCookie(await login('http://local/api/session'));
+    assert.match(plainHttp, /HttpOnly/);
+    assert.doesNotMatch(plainHttp, /;\s*Secure/i, 'NODE_ENV=production must not mark a plain HTTP cookie Secure');
+
+    assert.match(await setCookie(await login('https://local/api/session')), /;\s*Secure/i, 'direct HTTPS');
+    assert.match(await setCookie(await login('http://local/api/session', 'https')), /;\s*Secure/i, 'forwarded HTTPS');
+    assert.match(await setCookie(await login('http://local/api/session', 'HTTPS, http')), /;\s*Secure/i, 'first forwarded entry is case-insensitive');
+    assert.doesNotMatch(await setCookie(await login('http://local/api/session', 'http, https')), /;\s*Secure/i, 'only the first forwarded entry counts');
+    assert.doesNotMatch(await setCookie(await login('http://local/api/session', 'http')), /;\s*Secure/i, 'forwarded HTTP');
+
+    const logout = session.logout(new Request('http://local/api/session', { headers: { 'X-Forwarded-Proto': 'https' } }));
+    assert.match(logout.headers.get('set-cookie') || '', /;\s*Secure/i, 'logout follows the same rule');
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV; else process.env.NODE_ENV = previousNodeEnv;
+  }
+});
+
 test('sessions expire after 12 hours, tampering fails and a server restart invalidates them', async () => {
   let now = 1000;
   const clock = createAdminSession({ password: 'secret', now: () => now, apiToken: '' });

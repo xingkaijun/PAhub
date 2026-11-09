@@ -10,6 +10,7 @@ import { DrawingRow } from './DrawingRow';
 import { inventoryStyles } from './inventoryStyles';
 import { BuilderRepliesImport, type BuilderRepliesImportHandle } from './BuilderRepliesImport';
 import { AdminLoginDialog } from './AdminLoginDialog';
+import { ModalOverlay } from './ModalOverlay';
 
 const ADMIN_REQUIRED = '需要管理员权限 (Administrator permission required)';
 
@@ -796,13 +797,12 @@ export const DrawingList: React.FC = () => {
       <AdminLoginDialog open={showAdminLogin} onClose={() => setShowAdminLogin(false)} />
 
       {showImportModal && (
-        // ... (Modal Content kept same)
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-md no-print">
-          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-lg border border-slate-200 flex flex-col p-6 animate-in zoom-in-95">
+        <ModalOverlay onClose={() => setShowImportModal(false)} labelledBy="bulk-entry-title" className="max-w-lg rounded-[2rem] shadow-2xl">
+          <div className="bg-white rounded-[2rem] w-full border border-slate-200 flex flex-col p-6 animate-in zoom-in-95">
             {/* ... modal content ... */}
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Fleet Bulk Entry</h3>
+                <h3 id="bulk-entry-title" className="text-sm font-black text-slate-900 uppercase tracking-widest">Fleet Bulk Entry</h3>
                 <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-1">Format: ID, Drawing No., Discipline, Title</p>
               </div>
               <button onClick={() => setShowImportModal(false)} className="p-1 text-slate-300 hover:text-slate-600 transition-all">X</button>
@@ -818,12 +818,12 @@ export const DrawingList: React.FC = () => {
               <button onClick={handleBulkImport} className="px-6 py-2 bg-teal-600 text-white text-[9px] font-black uppercase tracking-widest rounded-xl shadow-lg shadow-teal-500/20 hover:bg-teal-700 active:scale-95 transition-all">Execute Import</button>
             </div>
           </div>
-        </div>
+        </ModalOverlay>
       )}
 
       {showTeamSetupModal && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-md no-print">
-          <div className="bg-white rounded-[2rem] shadow-2xl w-full max-w-2xl border border-slate-200 flex flex-col max-h-[80vh] animate-in zoom-in-95">
+        <ModalOverlay onClose={() => setShowTeamSetupModal(false)} labelledBy="team-setup-title" className="max-w-2xl rounded-[2rem] shadow-2xl">
+          <div className="bg-white rounded-[2rem] w-full border border-slate-200 flex flex-col max-h-[80vh] animate-in zoom-in-95">
             <div className="p-6 border-b border-slate-100">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -831,7 +831,7 @@ export const DrawingList: React.FC = () => {
                     <Layers size={20} className="text-indigo-600" />
                   </div>
                   <div>
-                    <h3 className="text-sm font-black text-slate-900 uppercase tracking-widest">Team Setup</h3>
+                    <h3 id="team-setup-title" className="text-sm font-black text-slate-900 uppercase tracking-widest">Team Setup</h3>
                     <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest mt-0.5">Configure default assignees for each discipline</p>
                   </div>
                 </div>
@@ -922,7 +922,7 @@ export const DrawingList: React.FC = () => {
               </button>
             </div>
           </div>
-        </div>
+        </ModalOverlay>
       )}
     </div>
   );

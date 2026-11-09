@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Lock, ShieldCheck, X } from 'lucide-react';
 import { useStore } from '../store';
+import { ModalOverlay } from './ModalOverlay';
 
 /**
  * Administrator sign-in. The password is checked by the server (POST /api/session);
@@ -14,12 +15,8 @@ export const AdminLoginDialog: React.FC<{ open: boolean; onClose: () => void }> 
   const input = useRef<HTMLInputElement>(null);
 
   useEffect(() => {
-    if (!open) { setPassword(''); setMessage(''); setBusy(false); return; }
-    const focus = setTimeout(() => input.current?.focus(), 0);
-    const onKey = (event: KeyboardEvent) => { if (event.key === 'Escape') onClose(); };
-    document.addEventListener('keydown', onKey);
-    return () => { clearTimeout(focus); document.removeEventListener('keydown', onKey); };
-  }, [open, onClose]);
+    if (!open) { setPassword(''); setMessage(''); setBusy(false); }
+  }, [open]);
 
   if (!open) return null;
 
@@ -34,8 +31,8 @@ export const AdminLoginDialog: React.FC<{ open: boolean; onClose: () => void }> 
   };
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 bg-slate-900/40 backdrop-blur-md no-print" role="dialog" aria-modal="true" aria-labelledby="admin-login-title">
-      <form onSubmit={submit} className="bg-white rounded-[2rem] shadow-2xl w-full max-w-sm border border-slate-200 p-6 animate-in zoom-in-95">
+    <ModalOverlay onClose={onClose} labelledBy="admin-login-title" initialFocus={input} className="max-w-sm rounded-[2rem] shadow-2xl">
+      <form onSubmit={submit} className="bg-white rounded-[2rem] w-full border border-slate-200 p-6 animate-in zoom-in-95">
         <div className="flex items-start justify-between mb-4">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-teal-50 rounded-xl"><Lock size={18} className="text-teal-700" /></div>
@@ -64,6 +61,6 @@ export const AdminLoginDialog: React.FC<{ open: boolean; onClose: () => void }> 
           </button>
         </div>
       </form>
-    </div>
+    </ModalOverlay>
   );
 };

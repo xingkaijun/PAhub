@@ -45,7 +45,7 @@ export function createAdminSession(options: AdminSessionOptions = {}) {
   const secure = (request: Request) => {
     if (options.secure) return options.secure(request);
     const proto = request.headers.get('X-Forwarded-Proto')?.split(',')[0].trim().toLowerCase();
-    return new URL(request.url).protocol === 'https:' || proto === 'https' || process.env.NODE_ENV === 'production';
+    return new URL(request.url).protocol === 'https:' || proto === 'https';
   };
   const cookie = (request: Request, value: string, maxAge: number) =>
     ADMIN_COOKIE + '=' + value + '; Path=/; HttpOnly; SameSite=Strict; Max-Age=' + maxAge + (secure(request) ? '; Secure' : '');
