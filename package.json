@@ -11,6 +11,7 @@
     "hub:start": "node hub-server/dist/server.mjs",
     "hub:dev": "node hub-server/scripts/dev.mjs",
     "hub:test": "node hub-server/scripts/test.mjs",
+    "hub:e2e": "node hub-server/scripts/e2e.mjs",
     "hub:upgrade-pcf": "node hub-server/scripts/upgrade-pcf.mjs",
     "hub:migrate-pcf-json": "node hub-server/scripts/migrate-pcf-json.mjs",
     "hub:export-pcf": "node hub-server/scripts/export-pcf.mjs"
