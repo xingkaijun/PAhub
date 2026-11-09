@@ -1,7 +1,8 @@
 /// <reference types="vite/client" />
 
 export class ApiError extends Error {
-  constructor(message: string, public readonly status: number) {
+  // data: parsed JSON error body when the server sent one (e.g. 409 conflict details).
+  constructor(message: string, public readonly status: number, public readonly data?: any) {
     super(message);
     this.name = 'ApiError';
   }
@@ -48,11 +49,12 @@ export function createApiClient(config: ApiClientConfig = {}) {
     if (!response.ok) {
       const raw = await response.text();
       let message = raw;
+      let data: any;
       try {
-        const data = JSON.parse(raw);
+        data = JSON.parse(raw);
         message = typeof data.error === 'string' ? data.error : typeof data.message === 'string' ? data.message : '';
       } catch { /* Legacy APIs return text and reverse proxies may return HTML. */ }
-      throw new ApiError(message || 'API request failed: ' + response.status, response.status);
+      throw new ApiError(message || 'API request failed: ' + response.status, response.status, data && typeof data === 'object' ? data : undefined);
     }
     return response;
   };

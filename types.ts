@@ -39,6 +39,7 @@ export interface Drawing {
   logs: DrawingLog[];
   remarks: Remark[];
   statusHistory: Remark[];
+  rev?: string; // 服务端内容版本，保存时作为 baseRev 回传
 }
 
 export interface Reviewer {
@@ -113,9 +114,32 @@ export interface ReviewTrackerEntry {
 export type ReviewTrackerData = Record<string, Record<string, ReviewTrackerEntry>>;
 
 // 增量保存 payload
+// 备注增量：按 id 新增、修改、删除，base 是本地开始改之前的内容
+export interface RemarkOps {
+  add?: Remark[];
+  update?: Array<{ id: string; content?: string; resolved?: boolean; base?: { content: string; resolved?: boolean } }>;
+  remove?: Array<{ id: string; base?: { content: string; resolved?: boolean } }>;
+}
+
+export interface DrawingPatch {
+  id: string;
+  changes: Partial<Drawing>;
+  baseRev?: string;
+  base?: Partial<Drawing>;
+  remarkOps?: RemarkOps;
+}
+
+// 409 DRAWING_CONFLICT：别人先保存了同一张图纸的同一字段，整批没有写入
+export interface DrawingConflict {
+  id: string;
+  customId?: string;
+  fields: string[];
+  current: Drawing | null;
+}
+
 export interface DeltaPayload {
   projectName?: string;
-  updatedDrawings?: (Drawing | { id: string; changes: Partial<Drawing> })[];
+  updatedDrawings?: (Drawing | DrawingPatch)[];
   deletedDrawingIds?: string[];
   conf?: ProjectConfig;
   reviewTracker?: ReviewTrackerData;

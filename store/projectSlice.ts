@@ -1,8 +1,10 @@
-import type { AppData, Drawing, Project, ReviewTrackerData, DeltaPayload } from '../types';
+import type { AppData, Drawing, DrawingConflict, Project, ReviewTrackerData, DeltaPayload } from '../types';
 import { projectsApi } from '../services/api/projectsApi';
 import { mergeProjectPreservingDirty } from '../lib/merge-project';
 import { calculateDeadline, projectDateKey } from '../lib/deadline';
-import { drawingFieldPatch, PCF_MANAGED_FIELDS, type DirtyDrawingFields } from '../lib/drawing-fields';
+import { buildDrawingPatch, PCF_MANAGED_FIELDS, type DirtyDrawingBase, type DirtyDrawingFields } from '../lib/drawing-fields';
+import { describeDrawingConflicts } from '../lib/project-save';
+import { ApiError } from '../services/api/apiClient';
 import { ensureDrawingHasId, normalizeProjectDrawingIds, stripProjectPayload, recalculateReviewDeadline } from '../lib/project';
 import { editableDrawingUpdates, applyDrawingUpdates } from '../lib/drawing-edit';
 import { describeVerification } from '../lib/project-save';
@@ -30,8 +32,11 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
   activeProjectId: null,
   _dirtyDrawingIds: new Set<string>(),
   _dirtyDrawingFields: {},
+  _dirtyDrawingBase: {},
   _deletedDrawingIds: new Set<string>(),
   _dirtyConf: false,
+  saveConflict: null,
+  clearSaveConflict: () => set({ saveConflict: null }),
   refreshProjectPreservingDirty: async (projectId: string) => {
     const initial = get();
     const stub = initial.data.projects.find(p => p.id === projectId);
@@ -297,7 +302,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     return get().saveProject(activeProjectId);
   },
   saveProject: async (projectId: string) => {
-    const { data, reviewTracker, _dirtyDrawingIds, _dirtyDrawingFields, _deletedDrawingIds, _dirtyConf, _dirtyTracker, _dirtyTrackerDrawingIds } = get();
+    const { data, reviewTracker, _dirtyDrawingIds, _dirtyDrawingFields, _dirtyDrawingBase, _deletedDrawingIds, _dirtyConf, _dirtyTracker, _dirtyTrackerDrawingIds } = get();
     const project = data.projects.find(p => p.id === projectId);
     if (!project)
       return false;
@@ -316,7 +321,10 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     }
     set({ isLoading: true, error: null });
     try {
-      const updatedDrawings = project.drawings.filter(d => dirtyDrawingSnapshot.has(d.id)).map(d => drawingFieldPatch(d, fieldSnapshot[d.id] || new Set(Object.keys(d) as (keyof Drawing)[])));
+      // 只发改过的字段，并带上开始修改时的版本和旧值，服务端据此判断是否被别人先改了
+      const updatedDrawings = project.drawings.filter(d => dirtyDrawingSnapshot.has(d.id)).map(d => buildDrawingPatch(d,
+        fieldSnapshot[d.id] || new Set(Object.keys(d) as (keyof Drawing)[]),
+        _dirtyDrawingBase[d.id] || (d.rev ? { rev: d.rev, values: {} } : undefined)));
       const payload: DeltaPayload = { projectName: project.name };
       if (deletedDrawingSnapshot.size)
         payload.deletedDrawingIds = [...deletedDrawingSnapshot];
@@ -348,6 +356,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
         const currentProject = state.data.projects.find(p => p.id === projectId);
         const nextDirtyDrawingIds = new Set(state._dirtyDrawingIds);
         const nextFields = { ...state._dirtyDrawingFields };
+        const nextBase: DirtyDrawingBase = { ...state._dirtyDrawingBase };
         const acknowledged = new Map((saveResult?.drawings || []).map(d => [d.id, d]));
         const mergedDrawings = currentProject?.drawings.map(d => {
           const remote = acknowledged.get(d.id);
@@ -374,9 +383,22 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
           if (!remaining.size || currentDrawing === previousDrawing) {
             nextDirtyDrawingIds.delete(id);
             delete nextFields[id];
+            delete nextBase[id];
           }
-          else
+          else {
             nextFields[id] = remaining;
+            const entry = nextBase[id];
+            if (entry) {
+              // 已确认的字段不再参与比对；同一字段保存期间又改了，新的旧值就是这次服务端确认的值
+              const values = { ...entry.values };
+              const remote = acknowledged.get(id);
+              for (const field of Object.keys(values) as (keyof Drawing)[]) {
+                if (!remaining.has(field)) delete values[field];
+                else if (fieldSnapshot[id]?.has(field) && remote && field in remote) values[field] = JSON.parse(JSON.stringify(remote[field] ?? null));
+              }
+              nextBase[id] = { rev: entry.rev, values };
+            }
+          }
         });
         const nextDeletedDrawingIds = new Set(state._deletedDrawingIds);
         deletedDrawingSnapshot.forEach(id => nextDeletedDrawingIds.delete(id));
@@ -393,6 +415,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
           error: verificationMessage ?? state.error,
           _dirtyDrawingIds: nextDirtyDrawingIds,
           _dirtyDrawingFields: nextFields,
+          _dirtyDrawingBase: nextBase,
           data: mergedDrawings ? { ...state.data, projects: state.data.projects.map(p => p.id === projectId ? { ...p, drawings: mergedDrawings } : p) } : state.data,
           _deletedDrawingIds: nextDeletedDrawingIds,
           _dirtyConf: nextDirtyConf,
@@ -403,6 +426,50 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
       return unverifiedIds.size === 0;
     }
     catch (err: any) {
+      if (err instanceof ApiError && err.status === 409 && err.data?.code === 'DRAWING_CONFLICT' && Array.isArray(err.data.conflicts)) {
+        // 整批没有写入。冲突字段换成服务端最新值并放弃本地修改，其余未冲突的修改保留，下次自动保存再发
+        const conflicts = err.data.conflicts as DrawingConflict[];
+        const message = describeDrawingConflicts(conflicts);
+        console.warn(`[Save] ${message}`);
+        set(state => {
+          const byId = new Map(conflicts.map(c => [c.id, c]));
+          const nextDirtyDrawingIds = new Set(state._dirtyDrawingIds);
+          const nextFields = { ...state._dirtyDrawingFields };
+          const nextBase: DirtyDrawingBase = { ...state._dirtyDrawingBase };
+          const drawings: Drawing[] = [];
+          for (const d of state.data.projects.find(p => p.id === projectId)?.drawings || []) {
+            const conflict = byId.get(d.id);
+            if (!conflict) { drawings.push(d); continue; }
+            if (!conflict.current) { // 别人已删除
+              nextDirtyDrawingIds.delete(d.id); delete nextFields[d.id]; delete nextBase[d.id];
+              continue;
+            }
+            const merged = { ...d } as Drawing;
+            const discard = new Set(conflict.fields as (keyof Drawing)[]);
+            for (const field of discard) (merged as any)[field] = (conflict.current as any)[field];
+            const remaining = new Set([...(nextFields[d.id] || [])].filter(f => !discard.has(f)));
+            if (remaining.size) {
+              nextFields[d.id] = remaining;
+              const entry = nextBase[d.id];
+              if (entry) nextBase[d.id] = { rev: entry.rev, values: Object.fromEntries(Object.entries(entry.values).filter(([f]) => !discard.has(f as keyof Drawing))) };
+            }
+            else { nextDirtyDrawingIds.delete(d.id); delete nextFields[d.id]; delete nextBase[d.id]; Object.assign(merged, conflict.current); }
+            drawings.push(merged);
+          }
+          return {
+            isLoading: false,
+            error: message,
+            saveConflict: { message, drawingIds: conflicts.map(c => c.id), at: Date.now() },
+            _dirtyDrawingIds: nextDirtyDrawingIds,
+            _dirtyDrawingFields: nextFields,
+            _dirtyDrawingBase: nextBase,
+            data: { ...state.data, projects: state.data.projects.map(p => p.id === projectId ? { ...p, drawings } : p) },
+          };
+        });
+        // 载入别人的其他改动（不覆盖仍在编辑的字段）
+        void get().refreshProjectPreservingDirty(projectId).catch(e => console.warn('[Save] Refresh after conflict failed', e));
+        return false;
+      }
       console.error("Push failed", err);
       set({ isLoading: false, error: err.message });
       return false;
@@ -498,6 +565,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
         isLoading: false,
         _dirtyDrawingIds: new Set<string>(),
         _dirtyDrawingFields: {},
+        _dirtyDrawingBase: {},
         _deletedDrawingIds: new Set<string>(),
         _dirtyConf: false,
         _dirtyTracker: false,

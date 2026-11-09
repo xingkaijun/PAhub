@@ -9,9 +9,11 @@ export function errorResponse(message: string, status = 500, headers?: HeadersIn
   return Response.json({ error: message }, { status, headers: { 'Cache-Control': 'no-store', ...Object.fromEntries(new Headers(headers)) } });
 }
 export function caughtError(error: unknown): Response {
-  const detail = error as { status?: number; message?: string };
+  const detail = error as { status?: number; message?: string; body?: Record<string, unknown> };
   const status = error instanceof SyntaxError || error instanceof URIError ? 400 : detail?.status || 500;
   if (status >= 500) console.error('PAhub request failed:', error);
+  // Structured client errors (e.g. 409 DRAWING_CONFLICT) keep their details.
+  if (status < 500 && detail?.body && typeof detail.body === 'object') return Response.json({ ...detail.body, error: detail.message || 'Invalid request' }, { status, headers: { 'Cache-Control': 'no-store' } });
   return errorResponse(status >= 500 ? 'Internal server error' : detail.message || 'Invalid request', status);
 }
 

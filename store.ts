@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import { persist } from 'zustand/middleware';
-import { changedDrawingFields } from './lib/drawing-fields';
+import { changedDrawingFields, recordDrawingBase } from './lib/drawing-fields';
 import { createProjectSlice } from './store/projectSlice';
 import { createReviewTrackerSlice } from './store/reviewTrackerSlice';
 import { createUiSlice } from './store/uiSlice';
@@ -24,6 +24,7 @@ useStore.subscribe((state, previous) => {
   const before = previous.data.projects.find(p => p.id === state.activeProjectId);
   if (!project) return;
   const next = { ...state._dirtyDrawingFields };
+  let base = state._dirtyDrawingBase;
   let changed = false;
   for (const d of project.drawings) {
     if (!state._dirtyDrawingIds.has(d.id)) continue;
@@ -31,7 +32,11 @@ useStore.subscribe((state, previous) => {
     if (old === d) continue;
     const fields = changedDrawingFields(old, d);
     if (!fields.size) continue;
+    // First edit since the last acknowledged save: drop any stale base entry.
+    if (!next[d.id]?.size && base[d.id]) { base = { ...base }; delete base[d.id]; }
     next[d.id] = new Set([...(next[d.id] || []), ...fields]); changed = true;
+    // Remember the server revision and pre-edit values for the save-time conflict check.
+    base = recordDrawingBase(base, old, fields);
   }
-  if (changed) useStore.setState({ _dirtyDrawingFields: next });
+  if (changed) useStore.setState({ _dirtyDrawingFields: next, _dirtyDrawingBase: base });
 });

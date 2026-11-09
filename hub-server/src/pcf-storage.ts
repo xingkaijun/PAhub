@@ -22,6 +22,12 @@ export class PcfStorage {
     const next = previous.catch(() => {}).then(task); this.queues.set(key, next);
     try { return await next; } finally { if (this.queues.get(key) === next) this.queues.delete(key); }
   }
+  // Holds the per-drawing locks of every id (sorted, so two batches cannot deadlock) while task runs.
+  async serialMany<T>(p: string, ids: string[], task: () => T | Promise<T>): Promise<T> {
+    const keys = [...new Set(ids)].sort();
+    const run = (i: number): Promise<T> => i >= keys.length ? Promise.resolve().then(task) : this.serial(p, keys[i], () => run(i + 1));
+    return run(0);
+  }
   private drawing(p: string, d: string) {
     const row = this.db.prepare('SELECT d.*, p.name AS project_name FROM drawings d JOIN projects p ON p.id=d.project_id WHERE d.project_id=? AND d.id=? AND COALESCE(d._deleted,0)=0').get(p, d);
     if (!row) fail('Drawing not found', 404); return row;

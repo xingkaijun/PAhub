@@ -1,5 +1,6 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { writeDrawing } from './drawing-write.ts';
+import { randomUUID } from 'node:crypto';
+import { drawingConflict, writeDrawing, writeDrawingLocked } from './drawing-write.ts';
 import type { PcfStorage } from './pcf-storage.ts';
 import type { PcfRealtime } from './pcf-realtime.ts';
 import { fail, safeId } from './pcf-model.ts';
@@ -110,16 +111,18 @@ export class ProjectWriter {
     for (const row of this.storage.db.prepare('SELECT id FROM drawings WHERE project_id=?').all(projectId)) this.realtime.projectChanged(projectId,String(row.id),['project-data']);
   }
   private async remove(projectId: string, id: string): Promise<void> {
-    await this.storage.serial(projectId, safeId(id), () => {
-      transaction(this.storage.db, 'delete_drawing', () => {
-        // Scope every child deletion by ownership, including legacy tracker rows.
-        if (!this.storage.db.prepare('SELECT 1 FROM drawings WHERE project_id=? AND id=?').get(projectId,id)) return;
-        for (const table of ['drawing_assignees','drawing_status_history','drawing_remarks']) this.storage.db.prepare('DELETE FROM ' + table + ' WHERE drawing_id=?').run(id);
-        this.storage.db.prepare('DELETE FROM review_tracker WHERE project_id=? AND drawing_id=?').run(projectId,id);
-        this.storage.db.prepare('DELETE FROM drawings WHERE project_id=? AND id=?').run(projectId,id);
-      });
-      this.realtime.projectChanged(projectId,id,['project-data']);
+    await this.storage.serial(projectId, safeId(id), () => this.removeLocked(projectId, id));
+  }
+  // Caller holds storage.serial(projectId, id).
+  private removeLocked(projectId: string, id: string): void {
+    transaction(this.storage.db, 'delete_drawing', () => {
+      // Scope every child deletion by ownership, including legacy tracker rows.
+      if (!this.storage.db.prepare('SELECT 1 FROM drawings WHERE project_id=? AND id=?').get(projectId,id)) return;
+      for (const table of ['drawing_assignees','drawing_status_history','drawing_remarks']) this.storage.db.prepare('DELETE FROM ' + table + ' WHERE drawing_id=?').run(id);
+      this.storage.db.prepare('DELETE FROM review_tracker WHERE project_id=? AND drawing_id=?').run(projectId,id);
+      this.storage.db.prepare('DELETE FROM drawings WHERE project_id=? AND id=?').run(projectId,id);
     });
+    this.realtime.projectChanged(projectId,id,['project-data']);
   }
   async save(projectId: string, project: RecordValue, tracker: RecordValue, source = 'app'): Promise<Verification> {
     if (!project || !Array.isArray(project.drawings)) return skipped();
@@ -146,16 +149,28 @@ export class ProjectWriter {
   async patch(projectId: string, body: RecordValue) {
     safeId(projectId);
     const db = this.storage.db;
-    db.prepare('INSERT INTO projects(id,name,last_updated) VALUES(?,?,?) ON CONFLICT(id) DO NOTHING').run(projectId,String(body.projectName || projectId),new Date().toISOString());
-    for (const id of body.deletedDrawingIds || []) await this.remove(projectId,String(id));
-    // Legacy delta response counted only the final tracker/timestamp group:
-    // configuration/deletions were drained before native drawing writes.
-    let statements = 0;
-    if (body.conf) this.configuration(projectId,body.conf,false);
-    const written: RecordValue[] = [];
-    for (const drawing of body.updatedDrawings || []) written.push(await writeDrawing(this.storage,this.realtime,projectId,drawing));
-    if (body.reviewTracker && typeof body.reviewTracker === 'object') statements += writeTracker(db,projectId,body.reviewTracker,true,this.realtime);
-    db.prepare("UPDATE projects SET last_updated=datetime('now') WHERE id=?").run(projectId); statements++;
-    return { success: true, mode: 'delta', statements, verification: verifyProjectWrite(db,projectId,written,body.reviewTracker || null), drawings: written.map(({ __expected, ...drawing }) => drawing) };
+    if (body.updatedDrawings !== undefined && !Array.isArray(body.updatedDrawings)) fail('Invalid updatedDrawings');
+    if (body.deletedDrawingIds !== undefined && !Array.isArray(body.deletedDrawingIds)) fail('Invalid deletedDrawingIds');
+    const deleted: string[] = (body.deletedDrawingIds || []).map((id: unknown) => safeId(String(id)));
+    const updates: RecordValue[] = (body.updatedDrawings || []).map((drawing: RecordValue) => {
+      if (!drawing || typeof drawing !== 'object' || Array.isArray(drawing)) fail('Invalid drawing');
+      return { ...drawing, id: safeId(drawing.id ? String(drawing.id) : randomUUID()) };
+    });
+    // Lock every touched drawing, then check revisions and write everything in
+    // one SQLite transaction: a conflict on any drawing rolls back the batch.
+    return this.storage.serialMany(projectId, [...deleted, ...updates.map(d => String(d.id))], () => transaction(db, 'project_patch', () => {
+      db.prepare('INSERT INTO projects(id,name,last_updated) VALUES(?,?,?) ON CONFLICT(id) DO NOTHING').run(projectId,String(body.projectName || projectId),new Date().toISOString());
+      const conflicts = updates.map(drawing => drawingConflict(db,projectId,drawing)).filter(Boolean);
+      if (conflicts.length) throw Object.assign(new Error('Drawing changed on the server since it was loaded'), { status: 409, body: { code: 'DRAWING_CONFLICT', conflicts } });
+      for (const id of deleted) this.removeLocked(projectId,id);
+      // Legacy delta response counted only the final tracker/timestamp group:
+      // configuration/deletions were drained before native drawing writes.
+      let statements = 0;
+      if (body.conf) this.configuration(projectId,body.conf,false);
+      const written: RecordValue[] = updates.map(drawing => writeDrawingLocked(this.storage,this.realtime,projectId,drawing));
+      if (body.reviewTracker && typeof body.reviewTracker === 'object') statements += writeTracker(db,projectId,body.reviewTracker,true,this.realtime);
+      db.prepare("UPDATE projects SET last_updated=datetime('now') WHERE id=?").run(projectId); statements++;
+      return { success: true, mode: 'delta', statements, verification: verifyProjectWrite(db,projectId,written,body.reviewTracker || null), drawings: written.map(({ __expected, ...drawing }) => drawing) };
+    }));
   }
 }

@@ -28,7 +28,10 @@ test('native normalized reads preserve the legacy view contract', async () => {
     const row = db.prepare('SELECT * FROM api_project_details').get()!;
     const expected = {...JSON.parse(String(row.project_json)),...(row.storage_path ? {storagePath:row.storage_path} : {}),conf:JSON.parse(String(row.conf_json)),lastUpdated:row.last_updated};
     expected.drawings.forEach((d:any) => d.hasPcf=false);
-    assert.deepEqual(JSON.parse(JSON.stringify(getProjectDetail(db,'proj-test-001'))),expected);
+    // rev is additive (optimistic-concurrency token for app saves); the legacy view contract is otherwise unchanged.
+    const actual = JSON.parse(JSON.stringify(getProjectDetail(db,'proj-test-001')));
+    for (const d of actual.drawings) { assert.match(d.rev,/^[0-9a-f]{16}$/); delete d.rev; }
+    assert.deepEqual(actual,expected);
     assert.deepEqual(getSettings(db),JSON.parse(String(db.prepare('SELECT value FROM api_settings').get()!.value)));
     assert.deepEqual(getReviewTracker(db,'proj-test-001'),JSON.parse(String(db.prepare('SELECT data_json FROM api_review_trackers').get()!.data_json)));
     db.prepare("UPDATE drawings SET _deleted=1 WHERE id='dwg-006'").run();

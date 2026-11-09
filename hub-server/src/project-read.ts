@@ -1,4 +1,5 @@
 import type { DatabaseSync, SQLOutputValue } from 'node:sqlite';
+import { drawingRevision } from './drawing-revision.ts';
 type Row = Record<string, SQLOutputValue>;
 
 function parse(value: SQLOutputValue | undefined, fallback: unknown): any {
@@ -29,13 +30,15 @@ export function getProjectDetail(db: DatabaseSync, projectId: string) {
   const remarks = group(db.prepare('SELECT drawing_id,id,COALESCE(content,\'\') AS content,COALESCE(created_at,\'\') AS createdAt,resolved FROM drawing_remarks WHERE drawing_id IN (SELECT id FROM drawings WHERE project_id=?)').all(projectId));
   const history = group(db.prepare('SELECT drawing_id,id,COALESCE(content,\'\') AS content,COALESCE(created_at,\'\') AS createdAt FROM drawing_status_history WHERE drawing_id IN (SELECT id FROM drawings WHERE project_id=?)').all(projectId));
   const pcf = new Set(db.prepare('SELECT drawing_id FROM pcf_index WHERE project_id=?').all(projectId).map(row => String(row.drawing_id)));
-  const drawings = db.prepare('SELECT * FROM drawings WHERE project_id=? AND IFNULL(_deleted,0)!=1').all(projectId).map(row => ({
+  const drawings = db.prepare('SELECT * FROM drawings WHERE project_id=? AND IFNULL(_deleted,0)!=1').all(projectId).map(row => { const drawingAssignees = (assignees.get(String(row.id)) || []).map(a => a.reviewer_id), drawingRemarks = remarks.get(String(row.id)) || []; return {
     id:row.id,customId:row.custom_id ?? '',drawingNo:row.drawing_no ?? '',title:row.title ?? '',discipline:row.discipline ?? '',
-    assignees:(assignees.get(String(row.id)) || []).map(a => a.reviewer_id),status:row.status ?? 'Pending',currentRound:row.current_round ?? 'A',version:row.version ?? '',
+    assignees:drawingAssignees,status:row.status ?? 'Pending',currentRound:row.current_round ?? 'A',version:row.version ?? '',
     manualCommentsCount:row.manual_comments_count ?? 0,manualOpenCommentsCount:row.manual_open_comments_count ?? 0,reviewDeadline:row.review_deadline,
     receivedDate:row.received_date,category:row.category,deadline:row.deadline,checked:row.checked,checkedSynced:row.checked_synced,
-    logs:[],remarks:remarks.get(String(row.id)) || [],statusHistory:history.get(String(row.id)) || [],hasPcf:pcf.has(String(row.id)),
-  }));
+    logs:[],remarks:drawingRemarks,statusHistory:history.get(String(row.id)) || [],hasPcf:pcf.has(String(row.id)),
+    // Revision the app sends back as baseRev; matches drawing-write results.
+    rev:drawingRevision(row,drawingAssignees,drawingRemarks as any),
+  }; });
   return { id:project.id,name:project.name,drawings,storagePath:project.storage_path || undefined,conf:getProjectConfiguration(db,projectId),lastUpdated:project.last_updated || undefined };
 }
 export function getSettings(db: DatabaseSync) {

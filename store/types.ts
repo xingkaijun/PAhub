@@ -1,6 +1,6 @@
 import type { StateCreator } from 'zustand';
 import type { AppData, Project, Drawing, AppSettings, ProjectConfig, ReviewTrackerData, AuditEntry } from '../types';
-import type { DirtyDrawingFields } from '../lib/drawing-fields';
+import type { DirtyDrawingBase, DirtyDrawingFields } from '../lib/drawing-fields';
 import type { SentDrawingExpectation, SendVerification } from '../lib/review-tracker';
 export interface AuditLogResult {
   entries: AuditEntry[];
@@ -45,6 +45,9 @@ export interface ProjectSlice {
   loadAuditLog: (projectId: string, fromISO: string, toISO: string) => Promise<AuditLogResult>;
   _dirtyDrawingIds: Set<string>;
   _dirtyDrawingFields: DirtyDrawingFields;
+  _dirtyDrawingBase: DirtyDrawingBase;
+  saveConflict: { message: string; drawingIds: string[]; at: number } | null;
+  clearSaveConflict: () => void;
   _deletedDrawingIds: Set<string>;
   _dirtyConf: boolean;
 }
