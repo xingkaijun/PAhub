@@ -8,6 +8,7 @@ import { createHub } from '../src/app.ts';
 import { ROOT_DIR } from '../src/config.ts';
 import { parseHTML, replaceData } from '../src/pcf-storage.ts';
 import { blankContent } from '../src/pcf-model.ts';
+import { refRecord, decodeDataURL } from '../src/pcf-images.ts';
 
 test('exchange edges: whole image sets, disjoint fields, stale preview, invalid mode and JSON rendering', async () => {
   const temp=await mkdtemp(path.join(tmpdir(),'pahub-exchange-edge-'));
@@ -23,6 +24,7 @@ test('exchange edges: whole image sets, disjoint fields, stale preview, invalid 
     await ops([{type:'comment.add',id:'c1',roundIdNew:'r1'}]);
     const record=(await api('exports',{})).data,html=await (await fetch(origin+route+'exports/'+record.exportId+'/download')).text(),data=parseHTML(html);
     const image=(id:string)=>({id,name:id+'.png',mime:'image/png',data:'data:image/png;base64,AA==',width:1,height:1});
+    const refImage=(id:string)=>refRecord(image(id),decodeDataURL(image(id).data).hash);
     data.comments[0].rounds[0].reply={...blankContent(),text:'Builder body',html:'<b>Builder body</b>',images:[image('builder-image')]};
     const returned=replaceData(html,data),first=(await api('imports',{step:'preview',html:returned})).data;
     assert.equal(first.ownerTampered,false);assert.deepEqual(first.automatic.map((x:any)=>x.field),['body','images']);
@@ -32,7 +34,7 @@ test('exchange edges: whole image sets, disjoint fields, stale preview, invalid 
     assert.deepEqual(preview.automatic.map((x:any)=>x.field),['body']);assert.deepEqual(preview.conflicts.map((x:any)=>x.field),['images']);
     assert.equal(preview.conflicts[0].server.length,2);assert.equal(preview.conflicts[0].builder.length,1);
     const applied=await api('imports',{step:'apply',html:returned,previewToken:preview.previewToken,batchId:randomUUID(),choices:{'r1:images':{choice:'builder'}}});
-    assert.equal(applied.status,200);assert.equal(applied.data.data.comments[0].rounds[0].reply.text,'Builder body');assert.deepEqual(applied.data.data.comments[0].rounds[0].reply.images,[image('builder-image')]);
+    assert.equal(applied.status,200);assert.equal(applied.data.data.comments[0].rounds[0].reply.text,'Builder body');assert.deepEqual(applied.data.data.comments[0].rounds[0].reply.images,[refImage('builder-image')]); // stored as a content-addressed reference
     const invalid=structuredClone(data);invalid.export.mode='owner';assert.equal((await api('imports',{step:'preview',html:replaceData(html,invalid)})).status,409);
     const file=path.join(temp,'pcf','proj-test-001','dwg-005.json'),original=await readFile(file,'utf8');
     const page=await (await fetch(origin+'/pcf/proj-test-001/dwg-005')).text();assert.match(page,/pahub-template-version" content="6/);assert.doesNotMatch(page,/<script id="pahub-template-note-script">/);assert.equal(await readFile(file,'utf8'),original);

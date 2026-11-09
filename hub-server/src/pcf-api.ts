@@ -66,6 +66,18 @@ export class PcfApi {
     }
     safeId(d);
     if (page) {
+      const imageMatch = tail.match(/^images\/([a-f0-9]{64})$/);
+      if (imageMatch && ['GET', 'HEAD'].includes(request.method)) {
+        // Content-addressed PCF image (pcf-images.ts). Same access as the page (bearer or page cookie) or the
+        // page's scoped X-PCF-Token; the bytes behind a hash never change, so it can be cached for a year.
+        if (!this.bearer(request) && !this.validScopedCredential(this.cookieGrant(request, p, d), p, d) && !this.validScopedCredential(request.headers.get('X-PCF-Token'), p, d)) return json({ error: 'Unauthorized' }, 401);
+        const image = this.storage.images.read(p, imageMatch[1]);
+        if (!image) fail('Not found', 404);
+        return new Response(request.method === 'HEAD' ? null : image!.bytes, { headers: {
+          'Content-Type': image!.mime, 'Content-Length': String(image!.bytes.length), 'Cache-Control': 'private, max-age=31536000, immutable',
+          'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': "default-src 'none'", 'Referrer-Policy': 'no-referrer',
+        } });
+      }
       if (tail || !['GET', 'HEAD'].includes(request.method)) fail('Not found', 404);
       if (!this.bearer(request) && !this.validScopedCredential(this.cookieGrant(request, p, d), p, d)) {
         // The shared installation token is entered once per drawing/session, never in URL/storage/HTML.

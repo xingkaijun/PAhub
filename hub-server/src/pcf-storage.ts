@@ -88,7 +88,7 @@ export class PcfStorage {
     const file = this.file(p, d), old = existsSync(file) ? readFileSync(file, 'utf8') : null;
     const oldRev = old ? JSON.parse(old).hub.rev : 0;
     // Images are stored once by content hash; the PCF JSON and its history keep references only.
-    this.images.externalize(p, data, { verify: true });
+    this.images.externalize(p, data, { verify: true }); this.images.externalize(p, ops);
     let snapshot = old;
     if (old && mayHaveInlineImages(old)) { const legacy = JSON.parse(old); this.images.externalize(p, legacy); snapshot = JSON.stringify(legacy); }
     const at = this.now();

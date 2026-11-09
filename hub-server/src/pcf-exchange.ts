@@ -4,6 +4,7 @@ import path from 'node:path';
 import { PcfStorage, parseHTML, atomicWrite } from './pcf-storage.ts';
 import { createZip } from './zip.ts';
 import { renderTemplate } from './pcf-template.ts';
+import { comparableImages } from './pcf-images.ts';
 import { cleanContent, entity, applyOps, fail, safeId, cleanupLegacyImport, initData, type Actor, type PcfData, type Op } from './pcf-model.ts';
 import { validateJSON } from './pcf-schema.ts';
 import { completeData, completeExport, mergeComplete, restoreServerClocks } from './pcf-complete-merge.ts';
@@ -79,7 +80,8 @@ export class PcfExchange {
     return { exportId: id, status: 'discarded' };
   }
   create(p: string, d: string, actor: Actor, exportId = randomUUID()) {
-    const { data, rev } = this.storage.load(p, d), exportedAt = new Date().toISOString(), round = data.project.currentRound;
+    // Offline copies are self-contained: image references are re-inlined as data URLs.
+    const { data, rev } = this.storage.loadHydrated(p, d), exportedAt = new Date().toISOString(), round = data.project.currentRound;
     const external = externalData(data);
     external.export = { exportId, documentId: data.documentId, baseRev: rev, round, exportedAt, mode: 'builder' };
     external.export.ownerHmac = this.mac(readonlyPart(external, round));
@@ -96,7 +98,7 @@ export class PcfExchange {
   createComplete(p: string, d: string, actor: Actor, exportId = randomUUID()) {
     uuid(exportId);
     if (this.storage.db.prepare('SELECT 1 FROM pcf_exports WHERE export_id=?').get(exportId)) fail('exportId already exists', 409);
-    const { data, rev } = this.storage.load(p, d), exportedAt = new Date().toISOString(), round = data.project.currentRound;
+    const { data, rev } = this.storage.loadHydrated(p, d), exportedAt = new Date().toISOString(), round = data.project.currentRound;
     const complete = completeExport(data, { exportId, documentId: data.documentId, baseRev: rev, round, exportedAt, mode: 'complete' });
     const html = standaloneHTML(complete);
     const filename = String(data.project.planNo || d).replace(/[<>:"/\\|?*\x00-\x1f]/g, '_') + '_' + roundToLetters(round) + '_PCF_' + exportedAt.slice(0, 10) + '_complete.html';
@@ -207,9 +209,12 @@ export class PcfExchange {
     const ignored = ignoredDiff(readonlyPart(base, round), readonlyPart(returned, round)).map(path => ({ path, reason: 'Read-only change ignored' }));
     if (!this.matches(returned.export.ownerHmac, expected)) ignored.push({ path: 'export.ownerHmac', reason: 'Signature changed or missing' });
     const automatic: MergeItem[] = [], conflicts: MergeItem[] = [];
-    for (const bc of base.comments) for (const br of bc.rounds) {
+    // Signatures above are over the offline (inline) form both copies share. Business comparisons with the
+    // stored document use the reference form, so an inline image equals the stored reference of the same bytes.
+    const baseRefs = comparableImages(base), returnedRefs = comparableImages(returned);
+    for (const bc of baseRefs.comments) for (const br of bc.rounds) {
       if (br.number !== round || bc.status !== 'open') continue;
-      const rr = returned.comments.find((c: any) => c.id === bc.id)?.rounds.find((r: any) => r.id === br.id);
+      const rr = returnedRefs.comments.find((c: any) => c.id === bc.id)?.rounds.find((r: any) => r.id === br.id);
       if (!rr) continue;
       const builder = cleanContent(rr.reply), sc = live.data.comments.find((c: any) => c.id === bc.id), sr = sc?.rounds.find((r: any) => r.id === br.id);
       if (!sr) {
@@ -243,8 +248,10 @@ export class PcfExchange {
   // as business changes. Server tombstones are applied afterwards.
   private completeResult(p: string, d: string, returned: PcfData, choices?: Record<string, any>) {
     const live = this.storage.load(p, d);
-    const { record, base } = this.completeBaseline(p, d, returned, live);
-    const local = completeData(this.validateComplete(returned));
+    const { record, base: inlineBase } = this.completeBaseline(p, d, returned, live);
+    // The baseline and the returned copy are offline (inline images); the stored document holds references.
+    const base = comparableImages(inlineBase);
+    const local = completeData(comparableImages(this.validateComplete(returned)));
     const server = completeData(live.data);
     const tombstones: any[] = (live.data.hub?.tombstones || []);
     const tombstoned = new Set<string>();
@@ -327,6 +334,7 @@ export class PcfExchange {
       if (!this.matches(signature, this.mac(payload)) || payload.p !== p || payload.d !== d || payload.exportId !== preview.exportId || payload.hash !== this.returnedHash(body) || payload.rev !== preview.serverRev || payload.expires <= Date.now()) fail('Preview expired or server changed; preview again', 409);
     } catch (e: any) { if (e.status) throw e; fail('Invalid preview token', 409); }
     if (preview.repeated && body.overwrite !== true) fail('This complete copy was already imported; explicitly allow another merge', 409);
+    this.storage.images.externalize(p, structuredClone(returned));
     return this.applyComplete(p, d, body, returned, requestedBy, { id: batchId, hash: requestHash });
   }
   apply(p: string, d: string, body: any, requestedBy: Actor, afterApply?: () => void) {
@@ -348,6 +356,8 @@ export class PcfExchange {
         if (!this.matches(signature, this.mac(payload)) || payload.p !== p || payload.d !== d || payload.exportId !== preview.exportId || payload.hash !== hash(body.html) || payload.rev !== preview.serverRev || payload.expires <= Date.now()) fail('Preview expired or server changed; preview again', 409);
       } catch (e: any) { if (e.status) throw e; fail('Invalid preview token', 409); }
       if (preview.repeated && body.overwrite !== true) fail('This export was already imported; explicitly allow another merge', 409);
+      // Store the returned file's images (content addressed) so accepted references resolve.
+      this.storage.images.externalize(p, structuredClone(returned));
       if (preview.ownerTampered) {
         if (body.ignoreOwner !== true) fail('Read-only content changed; administrator confirmation required', 409);
         const adminPassword = process.env.ADMIN_PASSWORD?.trim();
