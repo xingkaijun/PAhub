@@ -1,11 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { inventoryStyles, inventoryBadgeClass } from './inventoryStyles';
-import { Bar, BarChart, CartesianGrid, Legend, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { AlertCircle, ArrowDown, ArrowUp, ArrowUpDown, ChevronLeft, ChevronRight, Download, ExternalLink, Image, MessageSquare, RefreshCw, Search } from 'lucide-react';
 import { safeFormatDate } from '../lib/date';
 import { roundToLetters } from '../lib/rounds';
 import { commentsQuery, exportCommentsXlsx, fetchComments, subscribeToCommentChanges } from '../services/api/commentsApi';
-import type { CommentsFilters, CommentsOptions, CommentsResponse, CommentsStatistics, CommentsStreamState, ProjectComment } from '../types/comments';
+import type { CommentsFilters, CommentsOptions, CommentsResponse, CommentsStreamState, ProjectComment } from '../types/comments';
 
 const actionClass = inventoryStyles.action;
 const inputClass = inventoryStyles.input;
@@ -43,7 +42,6 @@ function sortValue(row: ProjectComment, key: SortKey): string | number | null {
 }
 
 const statusLabel = (value: string) => value ? value.charAt(0).toUpperCase() + value.slice(1) : 'Unknown';
-const statusColor = (value: string) => value.toLowerCase() === 'open' ? '#0d9488' : value.toLowerCase() === 'closed' ? '#94a3b8' : '#475569';
 
 const SelectFilter: React.FC<{
   label: string; value: string; values: Array<{ value: string; label: string }>; onChange: (value: string) => void;
@@ -57,71 +55,6 @@ const SelectFilter: React.FC<{
     </select>
   </label>
 );
-
-const ChartSection: React.FC<{ title: string; empty: boolean; children: React.ReactNode }> = ({ title, empty, children }) => (
-  <figure className="min-w-0">
-    <figcaption className="mb-3 text-xs font-bold text-slate-700">{title}</figcaption>
-    {empty ? <div className="flex h-[210px] items-center justify-center text-xs text-slate-400">No matching data</div> : children}
-  </figure>
-);
-
-const CommentCharts = React.memo(({ statistics }: { statistics: CommentsStatistics }) => {
-  const disciplines = useMemo(() => {
-    const statuses = [...new Set(statistics.byDiscipline.map(item => item.status))];
-    const groups = new Map<string, Record<string, string | number>>();
-    for (const item of statistics.byDiscipline) {
-      const row = groups.get(item.discipline) || { discipline: item.discipline || 'Unassigned' };
-      const key = 'status' + statuses.indexOf(item.status);
-      row[key] = Number(row[key] || 0) + item.count;
-      groups.set(item.discipline, row);
-    }
-    return { statuses, rows: [...groups.values()] };
-  }, [statistics.byDiscipline]);
-  const rounds = useMemo(() => [...statistics.byRound].sort((a, b) => a.round - b.round), [statistics.byRound]);
-  const tick = { fontSize: 10, fill: 'var(--inventory-muted)' };
-  const tooltipStyle = { borderRadius: 8, borderColor: 'var(--inventory-line)', backgroundColor: 'var(--inventory-surface)', color: 'var(--inventory-ink)', fontSize: 12 };
-
-  return (
-    <section aria-label="Comment statistics charts" className="grid grid-cols-1 gap-6 border-b border-slate-100 px-5 py-5 md:grid-cols-3 md:divide-x md:divide-slate-100 md:[&>figure:not(:first-child)]:pl-6 sm:px-7">
-      <ChartSection title="Comments by discipline" empty={!disciplines.rows.length}>
-        <div className="h-[210px] overflow-y-auto">
-          <ResponsiveContainer width="100%" height={Math.max(210, disciplines.rows.length * 28 + 50)}>
-            <BarChart data={disciplines.rows} layout="vertical" margin={{ top: 0, right: 12, bottom: 0, left: 0 }}>
-              <CartesianGrid stroke="var(--inventory-line)" horizontal={false} />
-              <XAxis type="number" allowDecimals={false} tick={tick} axisLine={false} tickLine={false} />
-              <YAxis type="category" dataKey="discipline" width={100} tick={tick} axisLine={false} tickLine={false} tickFormatter={value => String(value).length > 16 ? String(value).slice(0, 15) + '…' : value} />
-              <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'var(--inventory-well)' }} />
-              <Legend wrapperStyle={{ fontSize: 10 }} />
-              {disciplines.statuses.map((status, index) => <Bar key={status} dataKey={'status' + index} name={statusLabel(status)} stackId="comments" fill={statusColor(status)} maxBarSize={16} isAnimationActive={false} />)}
-            </BarChart>
-          </ResponsiveContainer>
-        </div>
-      </ChartSection>
-      <ChartSection title="Comments by latest round" empty={!rounds.length}>
-        <ResponsiveContainer width="100%" height={210}>
-          <BarChart data={rounds} margin={{ top: 4, right: 12, bottom: 0, left: -22 }}>
-            <CartesianGrid stroke="var(--inventory-line)" vertical={false} />
-            <XAxis dataKey="round" tickFormatter={roundToLetters} tick={tick} axisLine={false} tickLine={false} />
-            <YAxis allowDecimals={false} tick={tick} axisLine={false} tickLine={false} />
-            <Tooltip contentStyle={tooltipStyle} labelFormatter={value => 'Round ' + roundToLetters(value as number)} cursor={{ fill: 'var(--inventory-well)' }} />
-            <Bar dataKey="count" name="Comments" fill="var(--inventory-accent)" radius={[3, 3, 0, 0]} maxBarSize={32} isAnimationActive={false} />
-          </BarChart>
-        </ResponsiveContainer>
-      </ChartSection>
-      <ChartSection title="Open comment ageing" empty={!statistics.ageing.length}>
-        <ResponsiveContainer width="100%" height={210}>
-          <BarChart data={statistics.ageing} margin={{ top: 4, right: 12, bottom: 0, left: -22 }}>
-            <CartesianGrid stroke="var(--inventory-line)" vertical={false} />
-            <XAxis dataKey="band" tick={tick} axisLine={false} tickLine={false} />
-            <YAxis allowDecimals={false} tick={tick} axisLine={false} tickLine={false} />
-            <Tooltip contentStyle={tooltipStyle} cursor={{ fill: 'var(--inventory-well)' }} />
-            <Bar dataKey="count" name="Open comments" fill="var(--inventory-accent)" radius={[3, 3, 0, 0]} maxBarSize={32} isAnimationActive={false} />
-          </BarChart>
-        </ResponsiveContainer>
-      </ChartSection>
-    </section>
-  );
-});
 
 export const Comments: React.FC<{ projectId: string | null }> = ({ projectId }) => {
   const [draft, setDraft] = useState<CommentsFilters>({});
@@ -241,7 +174,7 @@ export const Comments: React.FC<{ projectId: string | null }> = ({ projectId }) 
 
   const stringOptions = (values: string[]) => values.map(value => ({ value, label: value }));
   return (
-    <div className="comments-register-page flex min-w-0 flex-1 flex-col text-slate-700">
+    <div className="comments-register-page flex min-h-0 min-w-0 flex-1 flex-col text-slate-700">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 px-5 py-5 sm:px-7">
         <div>
           <h2 className="flex items-center gap-2 text-lg font-black tracking-tight text-slate-900"><MessageSquare size={20} className="text-teal-600" />Comments</h2>
@@ -271,23 +204,10 @@ export const Comments: React.FC<{ projectId: string | null }> = ({ projectId }) 
         <div>{error}{error && result && <span> Showing the previous successful results.</span>}{exportError && <p>{exportError}</p>}</div>
       </div>}
 
-      <section aria-label="Comment metrics for loaded filters" className="grid grid-cols-2 gap-y-5 border-b border-slate-100 px-5 py-5 sm:grid-cols-4 sm:px-7">
-        {[
-          { label: 'Total comments', value: data ? numberFormat.format(data.statistics.total) : '—' },
-          { label: 'Open', value: data ? numberFormat.format(data.statistics.open) : '—' },
-          { label: 'Closed', value: data ? numberFormat.format(data.statistics.closed) : '—' },
-          { label: 'Closure rate', value: data ? (data.statistics.total ? Math.round(data.statistics.closed / data.statistics.total * 100) + '%' : '—') : '—' },
-        ].map((metric, index) => <div key={metric.label} className={'border-slate-100 ' + (index ? 'sm:border-l sm:pl-6' : '')}>
-          <p className="text-[10px] font-bold uppercase tracking-widest text-slate-400">{metric.label}</p>
-          <p className={'mt-2 text-3xl font-bold tabular-nums tracking-tight ' + (metric.label === 'Open' ? 'text-teal-700' : 'text-slate-800')}>{metric.value}</p>
-        </div>)}
-      </section>
-      {data && <CommentCharts statistics={data.statistics} />}
-
       <form onSubmit={applyFilters} className={inventoryStyles.filterBar}>
         <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
           <h3 className="text-xs font-bold text-slate-700">Filters</h3>
-          <span className="text-[10px] text-slate-500">{filtersChanged ? 'Filters changed — apply to update the register.' : 'Metrics, charts and export use the loaded filters.'}</span>
+          <span className="text-[10px] text-slate-500">{filtersChanged ? 'Filters changed — apply to update the register.' : 'Filters and export use the loaded filters.'}</span>
         </div>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
           <SelectFilter label="Discipline" value={draft.discipline || ''} values={stringOptions(options.disciplines)} onChange={value => updateDraft('discipline', value)} />
@@ -309,12 +229,12 @@ export const Comments: React.FC<{ projectId: string | null }> = ({ projectId }) 
         <ul className="mt-2 space-y-1 text-slate-500">{data.warnings.map((warning, index) => <li key={warning.drawingId + ':' + index}><a className="font-semibold text-teal-700 underline underline-offset-2" href={pcfLink(projectId, warning.drawingId)} target="_blank" rel="noopener noreferrer">{warning.drawingNo || warning.drawingId}</a>: {warning.message}</li>)}</ul>
       </details>}
 
-      <section aria-label="Comments register" aria-busy={loading} className="min-w-0">
+      <section aria-label="Comments register" aria-busy={loading} className="flex min-h-[240px] min-w-0 flex-1 flex-col">
         <div className="flex flex-wrap items-center justify-between gap-2 px-5 py-3 sm:px-7">
           <h3 className="text-xs font-bold text-slate-700">Comments register <span className="ml-2 font-normal text-slate-400">{numberFormat.format(sortedRows.length)} matching comments</span></h3>
           <span role="status" className="text-[10px] text-slate-400">{loading ? 'Loading register…' : 'Click a row to open its comment in a new PCF tab.'}</span>
         </div>
-        <div className={'max-h-[640px] overflow-auto transition-opacity motion-reduce:transition-none ' + (loading && result ? 'opacity-50' : '')} tabIndex={0} role="region" aria-label="Scrollable comments table">
+        <div className={'min-h-0 flex-1 overflow-auto transition-opacity motion-reduce:transition-none ' + (loading && result ? 'opacity-50' : '')} tabIndex={0} role="region" aria-label="Scrollable comments table">
           <table className="w-full border-collapse text-left text-xs">
             <caption className="sr-only">Project comments, latest round per comment. Sort using column headings.</caption>
             <thead className="sticky top-0 z-10 bg-slate-50 text-[10px] font-bold text-slate-500">
@@ -349,7 +269,7 @@ export const Comments: React.FC<{ projectId: string | null }> = ({ projectId }) 
             </tbody>
           </table>
         </div>
-        <footer className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-5 py-4 text-[10px] text-slate-500 sm:px-7">
+        <footer className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-t border-slate-100 px-5 py-4 text-[10px] text-slate-500 sm:px-7">
           <span>{sortedRows.length ? numberFormat.format((currentPage - 1) * pageSize + 1) + '–' + numberFormat.format(Math.min(currentPage * pageSize, sortedRows.length)) : '0'} of {numberFormat.format(sortedRows.length)} comments</span>
           <div className="flex items-center gap-3">
             <label className="flex items-center gap-2">Rows per page<select className="rounded border border-slate-200 bg-white px-2 py-1.5 outline-teal-500" value={pageSize} onChange={event => { setPageSize(Number(event.target.value)); setPage(1); }}>{[25, 50, 100].map(size => <option key={size} value={size}>{size}</option>)}</select></label>
