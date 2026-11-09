@@ -1,5 +1,5 @@
 import type { Project, ReviewTrackerData } from '../types';
-import { projectsApi } from '../services/api/projectsApi';
+import { isProjectNotFound, projectsApi } from '../services/api/projectsApi';
 import { mergeReviewTracker, clearReviewTracker, verifySentState, type SentDrawingExpectation, type SendVerification } from '../lib/review-tracker';
 import type { ReviewTrackerSlice, SliceCreator } from './types';
 // Project whose tracker this page has loaded once (see loadReviewTracker).
@@ -104,12 +104,11 @@ export const createReviewTrackerSlice: SliceCreator<ReviewTrackerSlice> = (set, 
       ]);
     }
     catch (err: any) {
+      // loadProject 在服务器 404 时抛 ProjectNotFoundError
+      if (isProjectNotFound(err))
+        return { ...empty, ok: false, error: 'Project missing on server' };
       // 回读失败只说明"无法确认"，写入本身可能是成功的
       return { ...empty, ok: false, error: err?.message || 'Read-back request failed' };
-    }
-    // loadProject 在服务器 404 时会原样返回传入的本地项目，比对将失去意义
-    if (remoteProject === project) {
-      return { ...empty, ok: false, error: 'Project missing on server' };
     }
     const { failedIds, ...verification } = verifySentState(remoteProject, remoteTracker, expected);
     if (failedIds.length > 0) {

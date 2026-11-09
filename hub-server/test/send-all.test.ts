@@ -156,9 +156,11 @@ test('Send All authenticated batch ZIP, latest rev, skipped/collision manifest, 
     const tracker = await repository.loadReviewTracker(project.id);
     const cleared = Object.fromEntries(Object.entries(tracker).map(([id, entries]) => [id,
       Object.fromEntries(Object.keys(entries).map(key => [key, { done: false }]))]));
-    // Send All clears via the project save, not the single-check merge endpoint.
+    // Send All clears via the project save (PATCH delta with the drawings and their tracker rows, as the
+    // store sends it), not the single-check merge endpoint.
     project.drawings = project.drawings.map(d => d.id === 'dwg-001' || d.id === 'dwg-002' ? { ...d, status: tracker[d.id]?.__approved__?.done ? 'Approved' : 'Waiting Reply' } : d);
-    assert.equal((await repository.saveProject(project, cleared)).success, true);
+    const sent = project.drawings.filter(d => d.id === 'dwg-001' || d.id === 'dwg-002');
+    assert.equal((await repository.saveDelta(project.id, { updatedDrawings: sent, reviewTracker: cleared })).success, true);
     const savedTracker = await repository.loadReviewTracker(project.id);
     assert.equal(Boolean(savedTracker['dwg-001'].__approved__.done), false);
     assert.equal(Boolean(savedTracker['dwg-001'].engineer_a.done), false);
@@ -244,7 +246,7 @@ test('existing tracker source columns are ignored by reads, writes and verificat
     assert.equal('source' in tracker['dwg-001'].engineer_a, false);
     tracker['dwg-001'].engineer_a = { done: false };
     assert.equal((await repository.saveReviewTracker(project.id, tracker)).success, true);
-    assert.equal((await repository.saveProject(project, tracker)).success, true);
+    assert.equal((await repository.saveDelta(project.id, { reviewTracker: tracker })).success, true);
     tracker = await repository.loadReviewTracker(project.id);
     assert.equal(Boolean(tracker['dwg-001'].engineer_a.done), false); assert.equal(tracker['dwg-001'].engineer_a.doneAt ?? null, null);
     assert.ok(hub.db.prepare('PRAGMA table_info(review_tracker)').all().some(row => row.name === 'source'));

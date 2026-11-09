@@ -26,6 +26,6 @@ export async function createHub(options: {middleware?: Middleware;host?: '127.0.
  router.add({pattern:/^\/api\/admin(?:\/|$)/,auth:'none',handle:ctx=>admin.handle(ctx.request)});
  try {
   const hub=await listenHub(router,config,pcf.realtime,options);
-  return {...hub,db,close:async()=>{await hub.close();db.close();}};
+  return {...hub,db,writer,close:async()=>{await hub.close();db.close();}};
  }catch(error){pcf.realtime.close();db.close();throw error;}
 }

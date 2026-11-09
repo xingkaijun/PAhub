@@ -78,6 +78,8 @@ export interface ProjectConfig {
 
 export interface Project {
   id: string;
+  /** Set by "New project" until the server has the project; a 404 then opens the local copy instead of "project does not exist". */
+  localOnly?: boolean;
   name: string;
   drawings: Drawing[];
   storagePath?: string;

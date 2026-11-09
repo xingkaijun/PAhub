@@ -143,12 +143,13 @@ test('admin table edits cannot override PCF-managed fields', async () => {
   } finally { await f.cleanup(); previous === undefined ? delete process.env.ADMIN_PASSWORD : process.env.ADMIN_PASSWORD = previous; }
 });
 
-test('legacy full PUT cannot replace PCF counts, round or version', async () => {
+test('whole-project import save cannot replace PCF counts, round or version', async () => {
   const f = await fixture(); try {
     await f.create(); const stale = await f.project();
     await f.ops([{ type: 'roundRegister.set', round: 2, baseRev: 0, value: { revision: 'B' } }, { type: 'project.set', field: 'currentRound', value: 2, baseRev: 0 }, { type: 'comment.add', id: 'comment2', roundIdNew: 'reply2' }]);
-    const result = await f.request('/api/projects/proj-test-001', 'PUT', { project: stale, reviewTracker: {} });
-    assert.equal(result.verification.ok, true);
+    // ProjectWriter.save is only reachable from the importer and admin import now (the HTTP PUT was removed).
+    const verification = await f.hub.writer.save('proj-test-001', stale, {}, 'import');
+    assert.equal(verification.ok, true);
     const d = (await f.project()).drawings.find((d: any) => d.id === 'dwg-001');
     assert.equal(d.manualCommentsCount, 2); assert.equal(d.manualOpenCommentsCount, 2); assert.equal(d.currentRound, 'B'); assert.equal(d.version, 'B');
   } finally { await f.cleanup(); }

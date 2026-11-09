@@ -14,7 +14,7 @@ import type { Project } from '../../types';
 
 const stub = { id: 'proj-test-001' } as Project;
 
-test('hub end-to-end: real frontend repository, persisted PATCH/PUT, audit logs, SQL/JSON imports', async () => {
+test('hub end-to-end: real frontend repository, persisted PATCH, retired whole-project PUT, audit logs, SQL/JSON imports', async () => {
   const temp = await mkdtemp(path.join(tmpdir(), 'pahub-test-'));
   console.log('Test artifacts: ' + temp);
   const destination = path.join(temp, 'seed.db');
@@ -48,10 +48,11 @@ test('hub end-to-end: real frontend repository, persisted PATCH/PUT, audit logs,
     assert.equal(hub.db.prepare('SELECT status FROM drawings WHERE id = ?').get(drawing.id)!.status, 'Approved');
     console.log('PATCH /api/projects/proj-test-001 -> ' + JSON.stringify(saved));
     console.log('POST project readback + SQLite -> dwg-001 status=Approved');
+    // Whole-project replacement is import-only now (importer / admin import call ProjectWriter.save directly).
     const tracker = await api.loadReviewTracker(project.id);
-    const full = await api.saveProject(project, tracker);
-    assert.equal(full.verification?.ok, true);
-    console.log('PUT /api/projects/proj-test-001 -> ' + JSON.stringify(full));
+    const put = await fetch(base + '/api/projects/' + project.id, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ project, reviewTracker: tracker }) });
+    assert.equal(put.status, 405);
+    console.log('PUT /api/projects/proj-test-001 -> ' + put.status + ' (whole-project PUT retired)');
     const audit = await api.loadAuditLog(project.id, '2000-01-01T00:00:00.000Z', '2100-01-01T00:00:00.000Z');
     assert.ok(audit.entries.some(row => row.action === 'STATUS' && row.drawingId === drawing.id));
     console.log('GET audit -> STATUS journal persisted');

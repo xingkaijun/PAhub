@@ -126,7 +126,9 @@ export class ProjectWriter {
     });
     this.realtime.projectChanged(projectId,id,['project-data']);
   }
-  async save(projectId: string, project: RecordValue, tracker: RecordValue, source = 'app'): Promise<Verification> {
+  /** Whole-project replacement. Import-only: used by the SQL/JSON importer and the admin JSON import.
+   *  It does not check revisions, so it must not be exposed to the app again; app saves go through patch(). */
+  async save(projectId: string, project: RecordValue, tracker: RecordValue, source = 'import'): Promise<Verification> {
     if (!project || !Array.isArray(project.drawings)) return skipped();
     safeId(projectId);
     const db = this.storage.db;

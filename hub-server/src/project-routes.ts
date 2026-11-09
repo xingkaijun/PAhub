@@ -7,7 +7,10 @@ import type { ProjectWriter } from './project-write.ts';
 
 export function registerProjectRoutes(router: Router, writer: ProjectWriter) {
   router.add({pattern:/^\/api\/projects$/,methods:['GET'],handle:() => Response.json(getProjectList(writer.storage.db))});
-  router.add({pattern:/^\/api\/projects\/([^/]+)$/,methods:['POST','PUT','PATCH'],handle:async ctx => {
+  // POST reads the project; PATCH saves field deltas with revision checks. The old whole-project PUT had no
+  // caller left in the app and could overwrite concurrent edits; whole-project replacement is import-only
+  // (importer.ts and the admin JSON import call ProjectWriter.save directly).
+  router.add({pattern:/^\/api\/projects\/([^/]+)$/,methods:['POST','PATCH'],handle:async ctx => {
     const p = safeId(ctx.params[0]), body = await ctx.json();
     if (ctx.request.method === 'POST') {
       const project = getProjectDetail(writer.storage.db,p);
@@ -20,7 +23,6 @@ export function registerProjectRoutes(router: Router, writer: ProjectWriter) {
       // ETag + 304: a refresh that finds nothing new costs a header instead of the whole project.
       return conditionalJson(ctx.request,project);
     }
-    if (ctx.request.method === 'PUT') return Response.json({success:true,verification:await writer.save(p,body.project,body.reviewTracker)});
     return Response.json(await writer.patch(p,body));
   }});
   // Only the named drawings (ids=a,b or repeated ids=), with their review-tracker rows, for drawing-changed events.

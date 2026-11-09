@@ -1,6 +1,6 @@
 import type { AppData, ConfigConflict, Drawing, DrawingConflict, Project, ProjectConfig, ReviewTrackerData, DeltaPayload } from '../types';
 import { applyConfigConflicts, buildConfigPatch, describeConfigConflicts, recordConfigEdit, sameValue, type DirtyConfBase } from '../lib/project-config';
-import { projectsApi } from '../services/api/projectsApi';
+import { isProjectNotFound, projectsApi } from '../services/api/projectsApi';
 import { mergeProjectPreservingDirty } from '../lib/merge-project';
 import { calculateDeadline, projectDateKey } from '../lib/deadline';
 import { buildDrawingPatch, PCF_MANAGED_FIELDS, type DirtyDrawingBase, type DirtyDrawingFields } from '../lib/drawing-fields';
@@ -26,6 +26,12 @@ const DEFAULT_DATA: AppData = {
     otherRoundsCycle: 5,
   }
 };
+/** Made with "New project" and not confirmed on the server yet (see Project.localOnly). */
+const isLocalOnlyProject = (project: Project) => project.localOnly === true;
+const projectNotFoundMessage = (name: string, whileOpen: boolean) => whileOpen
+  ? `Project "${name}" no longer exists on the server. It may have been deleted; changes you make here cannot be saved.`
+  : `Project "${name}" does not exist on the server. It may have been deleted. The local copy was not opened.`;
+
 export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
   data: { ...DEFAULT_DATA, projects: [], settings: { ...DEFAULT_DATA.settings } },
   isLoading: false,
@@ -40,16 +46,27 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
   _dirtyConfBase: {},
   saveConflict: null,
   clearSaveConflict: () => set({ saveConflict: null }),
+  projectNotice: null,
+  clearProjectNotice: () => set({ projectNotice: null }),
   refreshProjectPreservingDirty: async (projectId: string) => {
     const initial = get();
     const stub = initial.data.projects.find(p => p.id === projectId);
     if (!stub)
       return 0;
     // Conditional reads: null means 304, the server still has exactly what this client last read.
-    const [rawProject, remoteTracker] = await Promise.all([
-      projectsApi.loadProjectIfChanged(stub, stub.conf?.password),
-      projectsApi.loadReviewTrackerIfChanged(stub.id).catch(() => null),
-    ]);
+    let rawProject: Project | null, remoteTracker: ReviewTrackerData | null;
+    try {
+      [rawProject, remoteTracker] = await Promise.all([
+        projectsApi.loadProjectIfChanged(stub, stub.conf?.password),
+        projectsApi.loadReviewTrackerIfChanged(stub.id).catch(() => null),
+      ]);
+    }
+    catch (err) {
+      if (isProjectNotFound(err) && isLocalOnlyProject(stub)) return 0; // not on the server yet: nothing to refresh
+      if (isProjectNotFound(err) && get().activeProjectId === projectId)
+        set({ projectNotice: { message: projectNotFoundMessage(stub.name, true), projectId, at: Date.now() } });
+      throw err;
+    }
     if (!rawProject && !remoteTracker)
       return 0;
     let changed = 0;
@@ -127,6 +144,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
         {
           id: crypto.randomUUID(),
           name,
+          localOnly: true,
           drawings: [],
           conf: {
             reviewers: state.data.settings.reviewers,
@@ -494,6 +512,13 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
           _dirtyTrackerDrawingIds: nextDirtyTrackerDrawingIds,
         };
       });
+      // The PATCH created the project row on the server: from now on a 404 means it was deleted.
+      if (get().data.projects.find(p => p.id === projectId)?.localOnly)
+        set(state => ({ data: { ...state.data, projects: state.data.projects.map(p => {
+          if (p.id !== projectId) return p;
+          const { localOnly: _localOnly, ...rest } = p;
+          return rest;
+        }) } }));
       return unverifiedIds.size === 0;
     }
     catch (err: any) {
@@ -620,7 +645,12 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
       return;
     set({ isLoading: true });
     try {
-      const fullProject = normalizeProjectDrawingIds(await projectsApi.loadProject(projectStub, passwordInput), generateId);
+      // 404 means the project was deleted on the server -> ProjectNotFoundError and a notice. The exception is a project
+      // just made with "New project" whose first save has not reached the server yet (localOnly): open the local
+      // copy, as before, so creating a project keeps working.
+      const remote = await projectsApi.loadProject(projectStub, passwordInput)
+        .catch(err => { if (isProjectNotFound(err) && isLocalOnlyProject(projectStub)) return projectStub; throw err; });
+      const fullProject = normalizeProjectDrawingIds(remote, generateId);
       // Inject defaults
       const globalSettings = data.settings;
       if (!fullProject.conf) {
@@ -655,7 +685,8 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
       void get().refreshAdminPresence(projectId);
     }
     catch (err: any) {
-      set({ isLoading: false, error: err.message });
+      set({ isLoading: false, error: err.message,
+        ...(isProjectNotFound(err) ? { projectNotice: { message: projectNotFoundMessage(projectStub.name, false), projectId, at: Date.now() } } : {}) });
       throw err;
     }
   },

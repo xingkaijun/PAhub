@@ -340,6 +340,15 @@ header.banner{padding:16px;gap:14px}
 .banner .banner-menu .banner-menu-panel{position:absolute;top:calc(100% + 7px);left:0;z-index:90;min-width:180px;padding:6px;display:grid;gap:3px;background:#f5fbf7;border:1px solid #b7d8cd;border-radius:15px;box-shadow:0 10px 28px #0d484a30;visibility:hidden;opacity:0;pointer-events:none;transform:translateY(-3px);transition:opacity .12s,transform .12s,visibility .12s}
 .banner .banner-menu-panel::before{content:"";position:absolute;height:9px;bottom:100%;left:0;right:0}
 .banner .banner-menu.menu-open .banner-menu-panel{visibility:visible;opacity:1;pointer-events:auto;transform:none;transition:opacity .12s,transform .12s}
+/* Builder (shipyard) file: the notice carries the primary "save a copy to return" action. */
+#builder-notice{display:flex;flex-wrap:wrap;align-items:center;gap:10px 16px;margin:0}
+#builder-notice .builder-notice-text{flex:1 1 320px;min-width:0}
+#builder-save-copy{flex:0 0 auto;display:inline-flex;align-items:center;justify-content:center;height:38px;padding:0 20px;border-radius:999px;border:1px solid #176e65;background:#176e65;color:#fff;font-family:inherit;font-size:13px;font-weight:800;line-height:1;letter-spacing:.02em;cursor:pointer;box-shadow:0 6px 16px -8px #0d484a99}
+#builder-save-copy:hover{background:#105a51;border-color:#105a51}
+#builder-save-copy:focus-visible{outline:2px solid #0d484a;outline-offset:2px}
+@media print{#builder-save-copy{display:none}}
+/* Closed menus take no space: a hidden panel must not widen the page on phones (390px). */
+.banner .banner-menu:not(.menu-open) .banner-menu-panel{display:none}
 .banner .banner-menu-panel button{justify-content:flex-start;min-width:0;width:100%;height:34px;white-space:nowrap;padding:0 12px;border-radius:9px;color:#245e54;background:transparent;font-size:10px;letter-spacing:.5px;text-align:left}
 .banner .banner-menu-panel button:hover,.banner .banner-menu-panel button:focus-visible{background:#dfefe6;border-color:transparent;color:#164d43;outline:2px solid #277f6b;outline-offset:-2px}
 .banner .banner-save-group{border-radius:999px;background:#f5fcf8;gap:0}
@@ -1063,7 +1072,13 @@ function completeUI(){
 }
 function builderUI(){
   if(!builderMode)return;
-  if(!$('#builder-notice')){const banner=document.createElement('p');banner.id='builder-notice';banner.style.cssText='padding:16px;background:#fff1c7;border:1px solid #c9a34a;font-weight:600';banner.textContent='Builder reply file — Please fill in the Builder replies, save this HTML file and return it by email. Owner comments and drawing control are read-only.';document.body.prepend(banner);}
+  let banner=$('#builder-notice');
+  if(!banner){banner=document.createElement('p');banner.id='builder-notice';banner.style.cssText='padding:16px;background:#fff1c7;border:1px solid #c9a34a;font-weight:600';const text=document.createElement('span');text.className='builder-notice-text';text.textContent='Builder reply file — Please fill in the Builder replies, save this HTML file and return it by email. Owner comments and drawing control are read-only.';banner.append(text);document.body.prepend(banner);}
+  // Primary action for the shipyard: save a copy with the replies (same flow as Save options > Save as).
+  // Files saved by older versions have the notice without the button; add it, and rebind on every open.
+  let saveCopy=banner.querySelector('#builder-save-copy');
+  if(!saveCopy){if(!banner.querySelector('.builder-notice-text')){const text=document.createElement('span');text.className='builder-notice-text';while(banner.firstChild)text.append(banner.firstChild);banner.append(text);}saveCopy=document.createElement('button');saveCopy.type='button';saveCopy.id='builder-save-copy';saveCopy.textContent='Save copy to return';saveCopy.title='Save a copy of this HTML file with your replies, then return it by email';banner.append(saveCopy);}
+  saveCopy.disabled=false;saveCopy.onclick=()=>$('#save-as-btn').click();
   $$('#overview input,#overview select,.pcf-date,.page-field,.person-input,.tag-toggle,.status-drag,.resize-handle,[data-action="add-round"],[data-action="delete-comment"],[data-action="delete-round"],[data-action="restore"],#add-btn,#fab-add,#panel-lock,#circulate-btn,#auto-height-all,#font-down,#font-up,#add-round-all,#add-round-all-btn,#bulk-round-btn,#import-json-btn,#theme-btn').forEach(el=>{el.disabled=true;el.setAttribute('aria-disabled','true');if(el.matches('input'))el.readOnly=true;if(el.matches('.status-drag,.resize-handle'))el.tabIndex=-1;});
   $$('.editor').forEach(ed=>{const c=getComment(ed.dataset.cid),r=getRound(c,ed.dataset.rid),ok=builderWritable(c,r,ed.dataset.side);ed.contentEditable=String(ok);ed.setAttribute('contenteditable',String(ok));ed.setAttribute('aria-readonly',String(!ok));});
   $$('[data-action="attach"],[data-action="delete-image"]').forEach(el=>{const c=getComment(el.dataset.cid),r=getRound(c,el.dataset.rid);el.disabled=!builderWritable(c,r,el.dataset.side);});
@@ -1886,7 +1901,8 @@ function deleteRecord(c,r){
 
 const bannerMenus=$$('.banner-menu');
 function closeBannerMenus(except=null){for(const group of bannerMenus)if(group!==except){group.classList.remove('menu-open');group.querySelector('.menu-trigger').setAttribute('aria-expanded','false');group.querySelector('.banner-menu-panel').inert=true;}}
-function openBannerMenu(group){closeBannerMenus(group);group.classList.add('menu-open');group.querySelector('.menu-trigger').setAttribute('aria-expanded','true');group.querySelector('.banner-menu-panel').inert=false;}
+function fitBannerPanel(panel){panel.style.translate='';const r=panel.getBoundingClientRect(),vw=document.documentElement.clientWidth;if(!r.width)return;let dx=0;if(r.right>vw-8)dx=vw-8-r.right;if(r.left+dx<8)dx=8-r.left;if(dx)panel.style.translate=Math.round(dx)+'px 0';}
+function openBannerMenu(group){closeBannerMenus(group);group.classList.add('menu-open');group.querySelector('.menu-trigger').setAttribute('aria-expanded','true');const panel=group.querySelector('.banner-menu-panel');panel.inert=false;fitBannerPanel(panel);}
 for(const group of bannerMenus){
   const trigger=group.querySelector('.menu-trigger'),panel=group.querySelector('.banner-menu-panel');let hoverOpened=false;
   group.addEventListener('pointerenter',e=>{if(e.pointerType==='mouse'){hoverOpened=!group.classList.contains('menu-open');openBannerMenu(group);}});

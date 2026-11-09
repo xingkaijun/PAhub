@@ -39,7 +39,7 @@ export async function buildServer() {
   await copySchema();
   await esbuild({ ...bundleOptions, outdir, entryPoints: {
     server: path.join(root, 'hub-server/src/server.ts'), app: path.join(root, 'hub-server/src/app.ts'),
-    'import-d1': path.join(root, 'hub-server/src/import-main.ts'),
+    // The one-time D1 importer is built on demand by `npm run hub:import-d1` (hub-server/scripts/import-d1.mjs).
   }, outExtension: { '.js': '.mjs' } });
 }
 

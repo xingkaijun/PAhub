@@ -15,6 +15,7 @@ const TESTS = [
   'save-conflict-browser-smoke.mjs',
   'load-browser-smoke.mjs',
   'images-browser-smoke.mjs',
+  'round5-browser-smoke.mjs',
 ];
 
 const run = (args, label) => new Promise(resolve => {

@@ -1,5 +1,5 @@
 import { apiClient } from './services/api/apiClient';
-import { projectsApi } from './services/api/projectsApi';
+import { isProjectNotFound, projectsApi } from './services/api/projectsApi';
 import { createDebouncedSave } from './lib/auto-save';
 
 
@@ -87,6 +87,8 @@ const App: React.FC = () => {
   const getUnsavedChangesCount = useStore(state => state.getUnsavedChangesCount());
   const saveConflict = useStore(state => state.saveConflict);
   const clearSaveConflict = useStore(state => state.clearSaveConflict);
+  const projectNotice = useStore(state => state.projectNotice);
+  const clearProjectNotice = useStore(state => state.clearProjectNotice);
   const currentProject = useMemo(
     () => data.projects.find(p => p.id === activeProjectId),
     [data.projects, activeProjectId]
@@ -179,6 +181,10 @@ const App: React.FC = () => {
           }
         }, 50);
         return;
+      } else if (isProjectNotFound(e)) {
+        // The store shows the "project does not exist" notice; stay on the selector. The local entry is kept
+        // (it may hold work that never reached the server), it is just not opened.
+        setShowProjectSelector(true);
       } else {
         alert("Failed to load project: " + e.message);
       }
@@ -396,6 +402,12 @@ const App: React.FC = () => {
         }
       `}</style>
 
+      {projectNotice && (
+        <div role="alert" data-testid="project-not-found" className="fixed left-1/2 top-4 z-[10001] flex w-[min(92vw,640px)] -translate-x-1/2 items-start justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-900 shadow-lg">
+          <span>{projectNotice.message}</span>
+          <button className="shrink-0 rounded px-2 py-1 text-rose-800 hover:bg-white/70" onClick={clearProjectNotice} aria-label="Dismiss project notice">×</button>
+        </div>
+      )}
       {/* New Project Selector Overlay (Static Prototype) */}
       {showProjectSelector && !isLoading && (
         <div className="fixed inset-0 z-[10000] flex flex-col bg-[radial-gradient(circle_at_top_left,_rgba(156,242,232,0.35),_transparent_24%),linear-gradient(180deg,#f4fbfa_0%,#f7fafc_42%,#eefaf7_100%)] overflow-hidden">

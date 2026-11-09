@@ -8,7 +8,7 @@ import { roundToLetters } from '../lib/rounds';
 
 const label: Record<string,string> = { clean: 'Ready to apply', conflict: 'Conflict', unchanged: 'No changes', unmatched: 'Unable to match', 'owner-tampered': 'Owner changed', duplicate: 'Duplicate import', applied: 'Applied', failed: 'Failed', skipped: 'Skipped' };
 
-export type BuilderRepliesImportHandle = { openWithFiles: (files: File[]) => void };
+export type BuilderRepliesImportHandle = { openWithFiles: (files: File[]) => void; open: () => void };
 
 export const BuilderRepliesImport = forwardRef<BuilderRepliesImportHandle, { projectId: string }>(function BuilderRepliesImport({ projectId }, ref) {
   const loadProject = useStore(s => s.loadProject), refreshPcfPresence = useStore(s => s.refreshPcfPresence);
@@ -21,7 +21,7 @@ export const BuilderRepliesImport = forwardRef<BuilderRepliesImportHandle, { pro
     if (!valid.length) return;
     setRows([]); setSetId(''); setMessage(''); setFiles(valid); setOpen(true);
   };
-  useImperativeHandle(ref, () => ({ openWithFiles }), [projectId]);
+  useImperativeHandle(ref, () => ({ openWithFiles, open: () => setOpen(true) }), [projectId]);
   useEffect(() => {
     if (!open) return;
     const previousOverflow = document.body.style.overflow;

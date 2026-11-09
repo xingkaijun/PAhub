@@ -35,13 +35,17 @@ try {
   assert.equal(await builder.locator('#add-btn').isDisabled(), true);
   for (let i = 1; i <= 2; i++) await builder.locator('.editor[data-side="reply"]').nth(i - 1).fill('Builder Chrome reply ' + i);
   await builder.screenshot({ path: path.join(artifacts, 'builder-offline.png'), fullPage: true });
-  // Save as lives in the dropdown next to Save (#save-menu-panel).
-  await builder.locator('#save-menu-btn').click(); await builder.locator('#save-as-btn').waitFor({ state: 'visible' });
-  const returnedDownload = builder.waitForEvent('download'); await builder.locator('#save-as-btn').click();
+  // Builder files show a primary "Save copy to return" button inside the Builder notice (same flow as
+  // Save options > Save as, which still exists in the dropdown next to Save).
+  const saveCopy = builder.locator('#builder-notice #builder-save-copy');
+  assert.equal(await saveCopy.isVisible(), true); assert.equal(await saveCopy.innerText(), 'Save copy to return');
+  assert.equal(await builder.locator('#save-as-btn').count(), 1);
+  const returnedDownload = builder.waitForEvent('download'); await saveCopy.click();
   const returned = await returnedDownload, returnedPath = path.join(temp, 'builder-return.html'); await returned.saveAs(returnedPath);
   await builder.getByRole('button', { name: 'I have saved the copy', exact: true }).click();
   const reopened = await offlineContext.newPage(); reopened.on('pageerror', e => errors.push(e.message)); await reopened.goto(pathToFileURL(returnedPath).href);
   assert.equal(await reopened.locator('.editor[data-side="reply"]').first().innerText(), 'Builder Chrome reply 1');
+  assert.equal(await reopened.locator('#builder-save-copy').count(), 1); assert.equal(await reopened.locator('#builder-save-copy').isVisible(), true);
   // Force one real server-vs-Builder conflict for the shared comparison component.
   await host.locator('.editor[data-side="reply"]').nth(1).fill('Server Chrome alternative'); await host.locator('#save-btn').click();
   await host.waitForFunction(() => document.querySelector('#save-state').textContent.includes('Saved to server'));
@@ -58,7 +62,7 @@ try {
   assert.match(await host.locator('#modal-body').innerText(), /Imported/); await host.locator('#modal-footer [data-action="close-modal"]').click();
   await host.screenshot({ path: path.join(artifacts, 'builder-import-applied.png'), fullPage: true });
   assert.deepEqual(errors, []);
-  console.log('Chrome: Hub Export -> file:// Owner locked -> two Builder replies -> Save as/download -> reopened saved HTML -> upload preview (1 automatic/1 conflict) -> manual merge -> Confirm -> replies visible; correspondence Imported; pageerrors=0');
+  console.log('Chrome: Hub Export -> file:// Owner locked -> two Builder replies -> primary Save copy/download -> reopened saved HTML -> upload preview (1 automatic/1 conflict) -> manual merge -> Confirm -> replies visible; correspondence Imported; pageerrors=0');
   console.log('Screenshots: hub-server/test/artifacts/builder-offline.png; builder-import-preview.png; builder-import-applied.png');
   console.log('Smoke data: ' + temp);
 } finally { await browser?.close(); await hub.close(); }

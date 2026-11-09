@@ -4,7 +4,7 @@ import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import { useStore } from '../store';
 import { Drawing, DrawingStatus } from '../types';
 import { Search, FileUp, Layers, FilterX, Printer, ChevronLeft, ChevronRight as ChevronRightIcon,
-  Lock, Unlock, X, Cloud, Clock } from 'lucide-react';
+  Lock, Unlock, X, Cloud, Clock, MoreHorizontal, DownloadCloud } from 'lucide-react';
 import { isAfter, differenceInCalendarDays, differenceInDays } from 'date-fns';
 import { DrawingRow } from './DrawingRow';
 import { inventoryStyles } from './inventoryStyles';
@@ -163,6 +163,16 @@ export const DrawingList: React.FC = () => {
   const [statusFilters, setStatusFilters] = useState<Set<string>>(new Set());
   const [showImportModal, setShowImportModal] = useState(false);
   const [showTeamSetupModal, setShowTeamSetupModal] = useState(false);
+  // Phones (< md): secondary toolbar actions live in a "More" menu.
+  const [showMoreMenu, setShowMoreMenu] = useState(false);
+  const moreMenuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!showMoreMenu) return;
+    const close = (e: Event) => { if (!moreMenuRef.current?.contains(e.target as Node)) setShowMoreMenu(false); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') setShowMoreMenu(false); };
+    document.addEventListener('pointerdown', close); document.addEventListener('keydown', onKey);
+    return () => { document.removeEventListener('pointerdown', close); document.removeEventListener('keydown', onKey); };
+  }, [showMoreMenu]);
   const [importText, setImportText] = useState('');
   const [columnWidths, setColumnWidths] = useState<Record<string, number>>({});
   const [daysSortDirection, setDaysSortDirection] = useState<'none' | 'asc' | 'desc'>('none');
@@ -387,12 +397,13 @@ export const DrawingList: React.FC = () => {
       e.preventDefault(); builderRepliesImport.current?.openWithFiles(files);
     }}>
       {/* Main scrollable area - everything scrolls together */}
-      <div className="overflow-auto flex-1 no-print" style={{ position: 'relative' }}>
+      <div className="overflow-auto flex-1 no-print" style={{ position: 'relative', containerType: 'inline-size' }}>
         <div style={{ minWidth: '1400px' }}>
-          {/* Search and Filters - scrolls away */}
-          <div className={inventoryStyles.filterBar}>
-            <div className="flex items-center justify-between">
-              <div className="relative w-72">
+          {/* Search and Filters - scrolls away vertically. It is only as wide as the visible area (100cqw of the
+              scroll container) and sticks to the left edge, so the 1400px table never pushes the toolbar off screen. */}
+          <div data-inventory-toolbar="true" className={inventoryStyles.filterBar + ' sticky left-0 z-[45]'} style={{ width: '100cqw', maxWidth: '100%' }}>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="relative w-full md:w-72">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-300" size={14} />
                 <input
                   type="text"
@@ -450,7 +461,7 @@ export const DrawingList: React.FC = () => {
                 />
               </div>
               <div className="flex items-center gap-2">
-                {activeProjectId && <BuilderRepliesImport ref={builderRepliesImport} projectId={activeProjectId} />}
+                {activeProjectId && <div className="hidden md:contents"><BuilderRepliesImport ref={builderRepliesImport} projectId={activeProjectId} /></div>}
                 <button
                   onClick={async () => {
                     if (!isEditMode) {
@@ -481,24 +492,59 @@ export const DrawingList: React.FC = () => {
                 </button>
                 <button
                   onClick={() => window.print()}
-                  className="px-4 py-2.5 bg-white/85 border border-slate-200 text-slate-600 rounded-full text-[9px] font-black uppercase tracking-[0.18em] flex items-center gap-2 hover:bg-white hover:border-teal-200 hover:text-teal-700 active:scale-95 transition-all shadow-sm"
+                  className="hidden md:flex px-4 py-2.5 bg-white/85 border border-slate-200 text-slate-600 rounded-full text-[9px] font-black uppercase tracking-[0.18em] flex items-center gap-2 hover:bg-white hover:border-teal-200 hover:text-teal-700 active:scale-95 transition-all shadow-sm"
                 >
                   <Printer size={14} /> Print List
                 </button>
                 <button
                   onClick={() => isEditMode && setShowTeamSetupModal(true)}
                   disabled={!isEditMode}
-                  className={`px-4 py-2.5 bg-white/85 border border-slate-200 rounded-full text-[9px] font-black uppercase tracking-[0.18em] flex items-center gap-2 transition-all shadow-sm ${!isEditMode ? 'opacity-50 cursor-not-allowed text-slate-400' : 'text-slate-500 hover:bg-white hover:border-teal-200 hover:text-teal-700 active:scale-95'}`}
+                  className={`hidden md:flex px-4 py-2.5 bg-white/85 border border-slate-200 rounded-full text-[9px] font-black uppercase tracking-[0.18em] items-center gap-2 transition-all shadow-sm ${!isEditMode ? 'opacity-50 cursor-not-allowed text-slate-400' : 'text-slate-500 hover:bg-white hover:border-teal-200 hover:text-teal-700 active:scale-95'}`}
                 >
                   <Layers size={14} /> Team Setup
                 </button>
                 <button
                   onClick={() => isEditMode && setShowImportModal(true)}
                   disabled={!isEditMode}
-                  className={`px-4 py-2.5 rounded-full text-[9px] font-black uppercase tracking-[0.18em] flex items-center gap-2 transition-all ${!isEditMode ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-[linear-gradient(135deg,#005c55_0%,#0f766e_100%)] text-white border border-transparent shadow-[0_12px_24px_-16px_rgba(13,148,136,0.45)] hover:brightness-105 active:scale-95'}`}
+                  className={`hidden md:flex px-4 py-2.5 rounded-full text-[9px] font-black uppercase tracking-[0.18em] items-center gap-2 transition-all ${!isEditMode ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-[linear-gradient(135deg,#005c55_0%,#0f766e_100%)] text-white border border-transparent shadow-[0_12px_24px_-16px_rgba(13,148,136,0.45)] hover:brightness-105 active:scale-95'}`}
                 >
                   <FileUp size={14} /> Bulk Load
                 </button>
+                <div ref={moreMenuRef} className="relative md:hidden">
+                  <button
+                    type="button"
+                    aria-haspopup="menu"
+                    aria-expanded={showMoreMenu}
+                    aria-label="More actions"
+                    data-inventory-more="true"
+                    onClick={() => setShowMoreMenu(v => !v)}
+                    className="px-3 py-2.5 bg-white/85 border border-slate-200 text-slate-600 rounded-full text-[9px] font-black uppercase tracking-[0.18em] flex items-center gap-1.5 hover:bg-white hover:border-teal-200 hover:text-teal-700 active:scale-95 transition-all shadow-sm"
+                  >
+                    <MoreHorizontal size={14} /> More
+                  </button>
+                  {showMoreMenu && (
+                    <div role="menu" className="absolute right-0 top-full mt-2 z-[60] w-56 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-xl">
+                      {[
+                        { key: 'replies', label: 'Import Builder Replies', icon: <DownloadCloud size={14} />, disabled: !activeProjectId, run: () => builderRepliesImport.current?.open() },
+                        { key: 'print', label: 'Print List', icon: <Printer size={14} />, disabled: false, run: () => window.print() },
+                        { key: 'team', label: 'Team Setup', icon: <Layers size={14} />, disabled: !isEditMode, run: () => setShowTeamSetupModal(true) },
+                        { key: 'bulk', label: 'Bulk Load', icon: <FileUp size={14} />, disabled: !isEditMode, run: () => setShowImportModal(true) },
+                      ].map(item => (
+                        <button
+                          key={item.key}
+                          type="button"
+                          role="menuitem"
+                          disabled={item.disabled}
+                          title={item.disabled && item.key !== 'replies' ? 'Unlock Edit Mode first' : undefined}
+                          onClick={() => { setShowMoreMenu(false); item.run(); }}
+                          className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-wider text-slate-600 hover:bg-teal-50 hover:text-teal-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                        >
+                          {item.icon} {item.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
                 <button
                   onClick={() => {
                     if (isEditMode) {

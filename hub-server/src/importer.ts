@@ -93,7 +93,7 @@ export async function importData(source: string, destination: string) {
 export async function runImport(args = process.argv.slice(2)) {
   const config = readConfig();
   if (args.includes('--help') || !args.length) {
-    console.log('Usage: node hub-server/scripts/import-d1.ts SOURCE.sql|SOURCE.json [--db PATH]');
+    console.log('Usage: npm run hub:import-d1 -- SOURCE.sql|SOURCE.json [--db PATH]');
     return;
   }
   if (args.length !== 1 && (args.length !== 3 || args[1] !== '--db')) throw new Error('Invalid arguments; use --help');

@@ -71,10 +71,11 @@ test('apiClient preserves network cancellation and successful 204 responses', as
   await assert.rejects(client.request('cancelled', { signal: controller.signal }), error => error instanceof DOMException && error.name === 'AbortError');
 });
 
-test('projectsApi preserves local new-project 404 fallback but does not hide password errors', async () => {
+test('projectsApi turns 404 into ProjectNotFoundError (no local copy handed back) and does not hide password errors', async () => {
+  // The local new-project fallback moved to the store (only for projects never read from the server).
   const project = { id: 'new' } as Project;
   const { client } = fixture(() => Response.json({ error: 'Not found' }, { status: 404 }));
-  assert.strictEqual(await createProjectsApi(client).loadProject(project), project);
+  await assert.rejects(createProjectsApi(client).loadProject(project), (error: any) => error?.code === 'PROJECT_NOT_FOUND' && error.projectId === 'new');
   const denied = fixture(() => Response.json({ error: 'PASSWORD_REQUIRED' }, { status: 401 }));
   await assert.rejects(createProjectsApi(denied.client).loadProject(project), /PASSWORD_REQUIRED/);
 });

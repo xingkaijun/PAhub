@@ -7,6 +7,16 @@ export const projectResource = (projectId: string, resource = '') => 'projects/'
 export interface DrawingsByIdResult { drawings: Drawing[]; missing: string[]; reviewTracker: ReviewTrackerData }
 /** null when the server answered 304: nothing changed since the copy this client already holds. */
 export type IfChanged<T> = T | null;
+/** The server has no project with this id (404): it was deleted, or never reached the server. */
+export class ProjectNotFoundError extends Error {
+  readonly code = 'PROJECT_NOT_FOUND';
+  constructor(readonly projectId: string, readonly projectName?: string) { super('PROJECT_NOT_FOUND'); this.name = 'ProjectNotFoundError'; }
+}
+export const isProjectNotFound = (error: unknown): error is ProjectNotFoundError => error instanceof ProjectNotFoundError || (error as { code?: string } | null)?.code === 'PROJECT_NOT_FOUND';
+const notFound = (project: Project, error: unknown): never => {
+  if (error instanceof ApiError && error.status === 404) throw new ProjectNotFoundError(project.id, project.name);
+  throw error;
+};
 
 export function createProjectsApi(client: ApiClient) {
   // Last body + ETag per read, so a refresh can ask "changed?" and get a bodyless 304 back.
@@ -39,19 +49,19 @@ export function createProjectsApi(client: ApiClient) {
     fetchProjectList: (signal?: AbortSignal) => client.json<ProjectListItem[]>('projects', { signal }),
     // Always a fresh object (parsed from the held body on 304), so callers may keep and normalise it.
     async loadProject(project: Project, passwordInput?: string, signal?: AbortSignal): Promise<Project> {
+      // A 404 throws ProjectNotFoundError: handing back the local copy would show a deleted project as if it existed.
       try { return JSON.parse((await projectRead(project, passwordInput, true, signal)).text) as Project; }
-      catch (error) { if (error instanceof ApiError && error.status === 404) return project; throw error; }
+      catch (error) { return notFound(project, error); }
     },
     /** Like loadProject, but null when the server copy is the one this client last read (304). */
     async loadProjectIfChanged(project: Project, passwordInput?: string): Promise<IfChanged<Project>> {
       try { const read = await projectRead(project, passwordInput, false); return read.changed ? JSON.parse(read.text) as Project : null; }
-      catch (error) { if (error instanceof ApiError && error.status === 404) return project; throw error; }
+      catch (error) { return notFound(project, error); }
     },
     /** Only these drawings and their review-tracker rows; ids the server no longer has come back in missing. */
     loadDrawings: (projectId: string, ids: string[], password?: string | null, signal?: AbortSignal) => client.json<DrawingsByIdResult>(
       projectResource(projectId, 'drawings') + '?' + new URLSearchParams({ ids: ids.join(',') }),
       { headers: password ? { 'X-Project-Password': encodeURIComponent(password) } : undefined, cache: 'no-store', signal }),
-    saveProject: (project: Project, reviewTracker: ReviewTrackerData, signal?: AbortSignal) => client.json<SaveResult>(projectResource(project.id), { method: 'PUT', json: { project, reviewTracker }, signal }),
     saveDelta: (projectId: string, payload: DeltaPayload, signal?: AbortSignal) => client.json<SaveResult>(projectResource(projectId), { method: 'PATCH', json: payload, signal }),
     loadReviewTracker: async (projectId: string, signal?: AbortSignal): Promise<ReviewTrackerData> => JSON.parse((await trackerRead(projectId, true, signal)).text),
     async loadReviewTrackerIfChanged(projectId: string): Promise<IfChanged<ReviewTrackerData>> {
