@@ -8,13 +8,15 @@ import { atomicWrite } from './atomic-write.ts';
 export { parseHTML, replaceData, scriptJSON } from './pcf-html.ts';
 export { atomicWrite } from './atomic-write.ts';
 import { historyEntries, prepareHistory } from './pcf-history.ts';
+import { PcfImageStore, mayHaveInlineImages } from './pcf-images.ts';
 import * as modelV26 from './pcf-v26.ts';
 import { validateJSON } from './pcf-schema.ts';
 import { initData, reconcile, roundNumber, roundLabel, registerFields, fail, type PcfData, type Actor, type Op, applyOps } from './pcf-model.ts';
 
 export class PcfStorage {
   private queues = new Map<string, Promise<unknown>>();
-  constructor(readonly db: DatabaseSync, readonly dataDir: string, private readonly now: () => number = Date.now) {}
+  readonly images: PcfImageStore;
+  constructor(readonly db: DatabaseSync, readonly dataDir: string, private readonly now: () => number = Date.now) { this.images = new PcfImageStore(dataDir); }
   file(p: string, d: string) { return path.join(this.dataDir, 'pcf', p, d + '.json'); }
   historyDir(p: string, d: string) { return path.join(this.dataDir, 'pcf', p, '.history', d); }
   async serial<T>(p: string, d: string, task: () => T | Promise<T>): Promise<T> {
@@ -44,8 +46,10 @@ export class PcfStorage {
   load(p: string, d: string) {
     this.drawing(p, d); const file = this.file(p, d);
     if (!existsSync(file)) fail('PCF not found', 404);
-    const data: PcfData = JSON.parse(readFileSync(file, 'utf8')), rev = Number(data.hub?.rev);
+    const text = readFileSync(file, 'utf8'), data: PcfData = JSON.parse(text), rev = Number(data.hub?.rev);
     if (!Number.isSafeInteger(rev) || rev < 1) fail('Invalid stored PCF revision', 500);
+    // Legacy inline images (before hub:migrate-pcf-images) are served as references; the next save persists them.
+    if (mayHaveInlineImages(text)) this.images.externalize(p, data);
     const meta = this.db.prepare('SELECT rev FROM pcf_index WHERE project_id=? AND drawing_id=?').get(p, d);
     if (meta?.rev !== rev) {
       if (meta && Number(meta.rev) > rev) fail('PCF file/index revision mismatch; restore backup', 500);
@@ -53,6 +57,8 @@ export class PcfStorage {
     }
     return { data, rev };
   }
+  /** load() with every image reference re-inlined as a data URL, for self-contained offline copies. */
+  loadHydrated(p: string, d: string) { const { data, rev } = this.load(p, d); return { data: this.images.hydrate(p, data), rev }; }
   create(p: string, d: string, actor: Actor) {
     if (existsSync(this.file(p, d))) return this.meta(p, d);
     if (existsSync(path.join(this.dataDir, 'pcf', p, d + '.html'))) fail('Legacy HTML storage: stop Hub and run hub:migrate-pcf-json', 503);
@@ -81,10 +87,14 @@ export class PcfStorage {
   private save(p: string, d: string, data: PcfData, actor: Actor, ops: unknown[], commit?: () => void) {
     const file = this.file(p, d), old = existsSync(file) ? readFileSync(file, 'utf8') : null;
     const oldRev = old ? JSON.parse(old).hub.rev : 0;
+    // Images are stored once by content hash; the PCF JSON and its history keep references only.
+    this.images.externalize(p, data, { verify: true });
+    let snapshot = old;
+    if (old && mayHaveInlineImages(old)) { const legacy = JSON.parse(old); this.images.externalize(p, legacy); snapshot = JSON.stringify(legacy); }
     const at = this.now();
     reconcile(data); data.hub.rev = oldRev + 1; data.updatedAt = new Date(at).toISOString();
     data.hub.lastChange = { ...actor, ops }; const next = JSON.stringify(data);
-    const history = old ? prepareHistory(this.historyDir(p, d), oldRev, old, actor.clientId, at, atomicWrite) : undefined;
+    const history = old ? prepareHistory(this.historyDir(p, d), oldRev, snapshot!, actor.clientId, at, atomicWrite) : undefined;
     // Synchronous section: Worker cannot interleave in an open SQLite transaction.
     let renamed = false;
     try { this.transaction(() => { this.indexWrite(p, d, data); commit?.(); atomicWrite(file, next); renamed = true; }); }
@@ -169,7 +179,11 @@ export class PcfStorage {
   private historyData(p: string, d: string, rev: number): { data: PcfData } | undefined {
     const entry = historyEntries(this.historyDir(p, d)).find(item => item.rev === rev);
     if (!entry) return undefined;
-    try { return { data: JSON.parse(readFileSync(path.join(this.historyDir(p, d), entry.filename), 'utf8')) }; }
+    try {
+      const text = readFileSync(path.join(this.historyDir(p, d), entry.filename), 'utf8'), data = JSON.parse(text);
+      if (mayHaveInlineImages(text)) this.images.externalize(p, data);
+      return { data };
+    }
     catch (error: any) { if (error.code === 'ENOENT') return undefined; throw error; }
   }
   history(p: string, d: string) {

@@ -44,7 +44,13 @@ export function cleanContent(value: any) {
     return '<' + m[1] + (safe ? ' style="' + safe.replace(/"/g, '&quot;') + '"' : '') + '>';
   });
   const images = value.images.map((im: any) => {
-    safeId(im.id); if (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=\r\n]*$/.test(im.data || '')) fail('Invalid image');
+    safeId(im.id);
+    // Stored images are content-addressed references (pcf-images.ts); offline copies and new uploads carry data URLs.
+    if (im.data === undefined && typeof im.hash === 'string') {
+      if (!/^[a-f0-9]{64}$/.test(im.hash)) fail('Invalid image');
+      return { id: im.id, name: String(im.name || ''), mime: String(im.mime || ''), hash: im.hash, width: Number(im.width) || 0, height: Number(im.height) || 0 };
+    }
+    if (!/^data:image\/(png|jpeg|webp);base64,[A-Za-z0-9+/=\r\n]*$/.test(im.data || '')) fail('Invalid image');
     return { id: im.id, name: String(im.name || ''), mime: String(im.mime || ''), data: im.data, width: Number(im.width) || 0, height: Number(im.height) || 0 };
   });
   return { text: value.text, html, fill: /^#[a-f0-9]{6}$/i.test(value.fill || '') ? value.fill : '', images };

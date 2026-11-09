@@ -87,8 +87,15 @@ export function validateJSON(data: PcfData){
     arr(x.images,path+'.images');
     const safe=cleanContent({...x,images:[]}).html;if(safe!==x.html){x.html=safe;stats.sanitized++;}
     for(const [i,im]of x.images.entries()){
-      const q=path+'.images['+i+']';obj(im,q);id(im.id,q+'.id');str(im.name,q+'.name');str(im.data,q+'.data');
+      const q=path+'.images['+i+']';obj(im,q);id(im.id,q+'.id');str(im.name,q+'.name');
       if(!['image/png','image/jpeg','image/webp'].includes(im.mime))fail(q+'.mime','only PNG, JPEG and WebP images are supported');
+      // Hub storage form: a content-addressed reference (pcf-images.ts) instead of inline bytes.
+      if(im.data===undefined&&typeof im.hash==='string'){
+        if(!/^[a-f0-9]{64}$/.test(im.hash))fail(q+'.hash','invalid image reference');
+        for(const k of ['width','height'])if(!Number.isSafeInteger(im[k])||im[k]<1)fail(q+'.'+k,'invalid image dimensions');
+        if(im.width*im.height>60000000)fail(q,'image resolution is too large');stats.images++;continue;
+      }
+      str(im.data,q+'.data');
       const prefix='data:'+im.mime+';base64,';
       if(!im.data.startsWith(prefix))fail(q+'.data','expected an embedded image matching its MIME type');
       const b64=im.data.slice(prefix.length);

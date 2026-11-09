@@ -12,6 +12,9 @@ export const SQL_DIR = path.join(ROOT_DIR, 'hub-server/dist/sql');
 // PCF history policy: independent of revision clocks, audit logs and receipts.
 export const PCF_HISTORY_COALESCE_MS = 10 * 60 * 1000;
 export const PCF_HISTORY_RECENT_LIMIT = 50;
+// History retention bands (see pcf-history.ts): daily below 30 days, weekly up to 180 days, monthly beyond.
+export const PCF_HISTORY_DAILY_DAYS = 30;
+export const PCF_HISTORY_WEEKLY_DAYS = 180;
 
 export function readConfig() {
   if (Number(process.versions.node.split('.')[0]) !== 24) {
