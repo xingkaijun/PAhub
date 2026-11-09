@@ -15,7 +15,7 @@ const dataOf=html=>JSON.parse(html.match(/<script id="pcf-data"[^>]*>([\s\S]*?)<
 const unzip=bytes=>{const files=new Map();let at=0;while(bytes.readUInt32LE(at)===0x04034b50){const method=bytes.readUInt16LE(at+8),size=bytes.readUInt32LE(at+18),n=bytes.readUInt16LE(at+26),x=bytes.readUInt16LE(at+28),name=bytes.subarray(at+30,at+30+n).toString('utf8'),start=at+30+n+x,payload=bytes.subarray(start,start+size);files.set(name,method===8?inflateRawSync(payload):payload);at=start+size;}return files;};
 try{
   hub.db.exec(await readFile(path.join(root,'hub-server/test/fixtures/seed-test-data.sql'),'utf8'));
-  browser=await chromium.launch({channel:'chrome',headless:true});const errors=[];
+  browser=await chromium.launch({channel:process.env.PAHUB_BROWSER_CHANNEL||'chromium',headless:true});const errors=[];
   const ca=await browser.newContext({viewport:{width:1500,height:1100},acceptDownloads:true}),cb=await browser.newContext({viewport:{width:1500,height:1100},acceptDownloads:true});
   const a=await ca.newPage(),b=await cb.newPage();for(const p of [a,b])p.on('pageerror',e=>errors.push(e.message));
   const origin='http://127.0.0.1:'+hub.port,endpoint=origin+'/api/pcf/proj-test-001/dwg-005/',url=origin+'/pcf/proj-test-001/dwg-005';

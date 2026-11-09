@@ -1,7 +1,9 @@
-// Run after npm run hub:build, with the parent's preview-data copy prepared.
-// Browser/server port is ALWAYS 8082. This never starts/stops 8080 or 8081.
+// Run after npm run hub:build: node hub-server/test/phase9-browser-smoke.mjs
+// Without PAHUB_DATA_DIR it builds a throwaway data dir from hub-server/test/fixtures (random port).
+// With PAHUB_DATA_DIR=<copied preview data> it runs against that copy on port 8082, as before.
 import assert from 'node:assert/strict';
-import { mkdir, readFile, realpath, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, realpath, stat } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
@@ -9,14 +11,17 @@ import { chromium } from '@playwright/test';
 import { createHub } from '../dist/app.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
-const requestedData = process.env.PAHUB_DATA_DIR || 'data-p9';
-const dataDir = await realpath(path.resolve(root, requestedData));
-const originalPreview = path.resolve(root, '../PAhub-preview/data');
-const originalReal = await realpath(originalPreview).catch(() => originalPreview);
-assert.notEqual(dataDir.toLowerCase(), originalReal.toLowerCase(), 'Use copied preview data, never PAhub-preview/data');
-assert.notEqual(path.basename(dataDir).toLowerCase(), 'data', 'PAHUB_DATA_DIR must name a dedicated copied-data directory');
+const useFixtures = !process.env.PAHUB_DATA_DIR;
+const dataDir = useFixtures ? await mkdtemp(path.join(tmpdir(), 'pahub-phase9-')) : await realpath(path.resolve(root, process.env.PAHUB_DATA_DIR));
 const dbPath = path.join(dataDir, 'papc.db');
-assert.ok((await stat(dbPath)).isFile(), 'Prepare the existing preview DB copy before running this smoke');
+if (!useFixtures) {
+  const originalPreview = path.resolve(root, '../PAhub-preview/data');
+  const originalReal = await realpath(originalPreview).catch(() => originalPreview);
+  assert.notEqual(dataDir.toLowerCase(), originalReal.toLowerCase(), 'Use copied preview data, never PAhub-preview/data');
+  assert.notEqual(path.basename(dataDir).toLowerCase(), 'data', 'PAHUB_DATA_DIR must name a dedicated copied-data directory');
+  assert.ok((await stat(dbPath)).isFile(), 'Prepare the existing preview DB copy before running this smoke');
+}
+const port = useFixtures ? 0 : 8082;
 const artifacts = path.join(root, 'hub-server/test/artifacts');
 const suffix = Date.now() + '-' + randomUUID().slice(0, 8);
 const projectId = 'p9-browser-' + suffix, projectName = 'Phase 9 Browser ' + suffix;
@@ -24,11 +29,11 @@ const hullId = 'p9-hull-' + suffix, machineId = 'p9-machine-' + suffix, noPcfId 
 const hullNo = 'P9-HULL-' + suffix, machineNo = 'P9-MACH-' + suffix;
 const keys = ['PORT', 'PAHUB_DATA_DIR', 'PAPC_DB_PATH', 'API_TOKEN'];
 const old = Object.fromEntries(keys.map(key => [key, process.env[key]]));
-Object.assign(process.env, { PORT: '8082', PAHUB_DATA_DIR: dataDir, PAPC_DB_PATH: dbPath, API_TOKEN: '' });
+Object.assign(process.env, { PORT: String(port), PAHUB_DATA_DIR: dataDir, PAPC_DB_PATH: dbPath, API_TOKEN: '' });
 let hub, browser, page;
 const errors = [], apiFailures = [], commentRequests = [];
 const screenshots = [];
-const origin = 'http://127.0.0.1:8082';
+let origin = 'http://127.0.0.1:8082';
 const blank = text => ({ text, html: text, fill: '', images: [] });
 const screenshot = async (target, name) => {
   const filename = path.join(artifacts, 'phase9-' + name + '.png');
@@ -65,8 +70,10 @@ const row = (owner, tags = ['Safety'], closed = false) => ({ commentId: randomUU
 const selected = row('Phase9 目标中文意见 — 核实阀门及燃气管路'), closed = row('Phase9 closed excluded marker', ['Safety'], true);
 const wrongTag = row('Phase9 wrong tag excluded marker', ['Structure']), machinery = row('Phase9 machinery excluded marker');
 try {
-  hub = await createHub({ host: '127.0.0.1' }); assert.equal(hub.port, 8082); await mkdir(artifacts, { recursive: true });
+  hub = await createHub({ host: '127.0.0.1' }); if (!useFixtures) assert.equal(hub.port, 8082); await mkdir(artifacts, { recursive: true });
+  origin = 'http://127.0.0.1:' + hub.port;
   const db = hub.db;
+  if (useFixtures) db.exec(await readFile(path.join(root, 'hub-server/test/fixtures/seed-test-data.sql'), 'utf8'));
   const demoProjectsBefore = db.prepare('SELECT id,name FROM projects ORDER BY id').all();
   const demoDrawingsBefore = db.prepare('SELECT id,project_id,drawing_no FROM drawings ORDER BY id').all();
   db.prepare('INSERT INTO projects(id,name,last_updated) VALUES (?,?,?)').run(projectId, projectName, new Date().toISOString());
@@ -77,7 +84,7 @@ try {
   await seedDrawing(hullId, [selected, closed, wrongTag]); await seedDrawing(machineId, [machinery]);
   const seeded = await json('/api/projects/' + projectId + '/comments');
   assert.equal(seeded.comments.length, 4); assert.equal(seeded.statistics.open, 3); assert.equal(seeded.statistics.closed, 1);
-  browser = await chromium.launch({ headless: true, channel: process.env.PAHUB_BROWSER_CHANNEL || 'chrome' });
+  browser = await chromium.launch({ headless: true, channel: process.env.PAHUB_BROWSER_CHANNEL || 'chromium' });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1100 }, locale: 'en-US', colorScheme: 'light', acceptDownloads: true });
   await context.addInitScript(expectedOrigin => {
     if (location.origin === expectedOrigin) localStorage.setItem('pahub.clientName', 'Phase 9 Browser');
@@ -107,12 +114,11 @@ try {
   console.log('Comments initial snapshot:', (await register.innerText()).slice(0, 2200));
   await screenshot(page, 'comments-all');
   await screenshot(page, 'comments-light');
+  // Since 147a6b8 the Comments page follows the global (light) platform theme; it has no dark mode of its own.
+  const lightBackground = await page.locator('.comments-register-page select').first().evaluate(el => getComputedStyle(el).backgroundColor);
   await page.emulateMedia({ colorScheme: 'dark' });
-  assert.equal(await page.locator('.comments-register-page').evaluate(el => getComputedStyle(el).backgroundColor), 'rgb(15, 23, 42)');
-  await page.waitForFunction(() => getComputedStyle(document.querySelector('.comments-register-page select')).backgroundColor === 'rgb(15, 23, 42)');
-  await screenshot(page, 'comments-dark');
+  assert.equal(await page.locator('.comments-register-page select').first().evaluate(el => getComputedStyle(el).backgroundColor), lightBackground, 'Comments page follows the global theme, not the OS dark scheme');
   await page.emulateMedia({ colorScheme: 'light' });
-  await page.waitForFunction(() => getComputedStyle(document.querySelector('.comments-register-page select')).backgroundColor === 'rgb(255, 255, 255)');
 
   await page.getByLabel('Discipline', { exact: true }).selectOption('Hull');
   await page.getByLabel('Drawing status', { exact: true }).selectOption('Under Review');
@@ -202,7 +208,7 @@ try {
   assert.deepEqual(db.prepare('SELECT id,name FROM projects WHERE id<>? ORDER BY id').all(projectId), demoProjectsBefore, 'existing demo projects preserved');
   assert.deepEqual(db.prepare('SELECT id,project_id,drawing_no FROM drawings WHERE project_id<>? ORDER BY id').all(projectId), demoDrawingsBefore, 'existing demo drawings preserved');
   assert.deepEqual(errors, [], 'pageerrors=0, including missing focus ID'); assert.deepEqual(apiFailures, []);
-  console.log(JSON.stringify({ result: 'PASS', port: 8082, dataDir, dedicatedProject: projectId, seedRows: 4, filteredRows: 1, requests: commentRequests, pageErrors: errors, screenshots }, null, 2));
+  console.log(JSON.stringify({ result: 'PASS', port: hub.port, dataDir, dedicatedProject: projectId, seedRows: 4, filteredRows: 1, requests: commentRequests, pageErrors: errors, screenshots }, null, 2));
   console.log('Dedicated smoke data retained in the copied data directory; no demo data deleted.');
 } catch (error) {
   // No retries: repeated failures must be reported by the caller, not looped here.

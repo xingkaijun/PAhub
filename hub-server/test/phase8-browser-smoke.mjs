@@ -14,7 +14,7 @@ const hub = await createHub(); let browser;
 const artifacts = path.join(root, 'hub-server/test/artifacts'); await mkdir(artifacts, { recursive: true });
 try {
   hub.db.exec(await readFile(path.join(root, 'hub-server/test/fixtures/seed-test-data.sql'), 'utf8'));
-  browser = await chromium.launch({ headless: true, channel: process.env.PAHUB_BROWSER_CHANNEL || 'chrome' });
+  browser = await chromium.launch({ headless: true, channel: process.env.PAHUB_BROWSER_CHANNEL || 'chromium' });
   const contextA = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true, locale: 'en-US' });
   const contextB = await browser.newContext({ viewport: { width: 1440, height: 900 }, acceptDownloads: true, locale: 'en-US' });
   const a = await contextA.newPage(), errors = [];
@@ -45,7 +45,9 @@ try {
   await b.goto(base + '/pcf/proj-test-001/dwg-005');
   await b.locator('#pahub-export').waitFor({ state: 'attached' });
   assert.equal(await b.locator('#pahub-import').innerText(), 'Import Builder Reply');
-  assert.equal((await b.locator('.pahub-hosted-actions').innerText()).includes('Export to Builder'), true);
+  // The hosted-actions strip was folded into the unified toolbar: Export to Builder is the split button in the exchange menu.
+  assert.equal(await b.locator('header.banner.pahub-unified .pahub-toolbar #pahub-export').getAttribute('aria-label'), 'Export to Builder');
+  assert.equal(await b.locator('#pahub-hosted-actions').count(), 0);
 
   // An unsaved edit must be saved before the export baseline is created.
   await b.locator('#add-btn').click();
@@ -80,21 +82,24 @@ try {
       await b.waitForFunction(value => document.documentElement.dataset.theme === value, theme);
       await b.mouse.move(0, 0);
       await pcfHeader.evaluate(() => new Promise(resolve => requestAnimationFrame(() => requestAnimationFrame(resolve))));
+      // Phase 8's centered .pahub-hosted-actions strip became the unified .pahub-toolbar (pcf-banner-toolbar.ts):
+      // check that toolbar instead: one line, between title and tools, no overflow, Export to Builder enabled.
       const metrics = await pcfHeader.evaluate(el => {
         const box = node => node.getBoundingClientRect(), brand = box(el.querySelector('.brand')),
-          hosted = box(el.querySelector('.pahub-hosted-actions')), tools = box(el.querySelector('.banner-actions')),
-          actionBoxes = [...el.querySelectorAll('.pahub-hosted-actions button')].map(box),
-          actionButton = el.querySelector('.pahub-hosted-actions button:nth-child(2)'), style = getComputedStyle(actionButton);
+          hosted = box(el.querySelector('.pahub-toolbar')), tools = box(el.querySelector('.banner-actions')),
+          visible = node => node.getClientRects().length > 0 && !node.closest('.banner-menu-panel, [hidden], [inert]'),
+          actionBoxes = [...el.querySelectorAll('.pahub-toolbar button')].filter(visible).map(box),
+          actionButton = el.querySelector('#pahub-export'), style = getComputedStyle(actionButton);
         return { theme: document.documentElement.dataset.theme, height: box(el).height, paddingTop: getComputedStyle(el).paddingTop, paddingBottom: getComputedStyle(el).paddingBottom,
           titleSize: getComputedStyle(el.querySelector('.brand h1')).fontSize, logoHeight: getComputedStyle(el.querySelector('.logo')).height,
-          hostedCenter: (hosted.left + hosted.right) / 2, availableCenter: (brand.right + tools.left) / 2,
-          singleLine: actionBoxes.every(item => Math.abs(item.top - actionBoxes[0].top) <= 1),
+          toolbarLeft: hosted.left, toolbarRight: hosted.right, brandRight: brand.right, toolsLeft: tools.left, visibleButtons: actionBoxes.length,
+          singleLine: actionBoxes.length > 0 && actionBoxes.every(item => Math.abs((item.top + item.bottom) / 2 - (actionBoxes[0].top + actionBoxes[0].bottom) / 2) <= 1),
           hostedButton: { color: style.color, background: style.backgroundColor, borderRadius: style.borderRadius, height: style.height, disabled: actionButton.disabled },
           overflow: el.scrollWidth > el.clientWidth };
       });
-      assert.ok(Math.abs(metrics.hostedCenter - metrics.availableCenter) <= 2, 'hosted actions must be centered between title and tools');
+      assert.ok(metrics.toolbarLeft >= metrics.brandRight - 1 && metrics.toolbarRight <= metrics.toolsLeft + 1, 'toolbar must sit between title and tools: ' + JSON.stringify(metrics));
       assert.equal(metrics.overflow, false, 'banner must not overflow horizontally at desktop viewport');
-      assert.equal(metrics.singleLine, true, 'desktop hosted actions must remain on one line');
+      assert.equal(metrics.singleLine, true, 'desktop toolbar buttons must remain on one line');
       assert.equal(metrics.logoHeight, '32px');
       assert.equal(metrics.hostedButton.disabled, false);
       bannerMeasurements.push({ viewport: viewport.width + 'x' + viewport.height, theme, papcHeight, pcfHeight: metrics.height,
@@ -105,11 +110,11 @@ try {
   console.log('banner measurements:', JSON.stringify(bannerMeasurements));
   assert.ok(bannerMeasurements.every(x => x.difference <= 2), 'PAPC/PCF banner height difference must be <= 2 px at both viewports and themes');
   await b.setViewportSize({ width: 900, height: 900 });
-  const narrowBanner = await b.locator('header.banner').evaluate(el => ({ overflow: el.scrollWidth > el.clientWidth, height: el.getBoundingClientRect().height, actionCount: el.querySelectorAll('.pahub-hosted-actions button').length }));
+  const narrowBanner = await b.locator('header.banner').evaluate(el => ({ overflow: el.scrollWidth > el.clientWidth, height: el.getBoundingClientRect().height, actionCount: el.querySelectorAll('.pahub-toolbar :is(#pahub-export,#pahub-import,#pahub-exchange)').length }));
   assert.equal(narrowBanner.overflow, false, 'narrow banner must wrap without horizontal overflow');
   assert.equal(narrowBanner.actionCount, 3);
   await b.emulateMedia({ media: 'print' });
-  assert.equal(await b.locator('#pahub-hosted-actions').evaluate(el => getComputedStyle(el).display), 'none', 'hosted actions must not print');
+  assert.equal(await b.locator('.pahub-toolbar').evaluate(el => getComputedStyle(el).display), 'none', 'hosted toolbar must not print');
   await b.emulateMedia({ media: 'screen' });
 
   // The main list entry uses the same dialog. Only ZIP / HTML drops may open it.

@@ -14,7 +14,7 @@ const hub = await createHub(); let browser;
 const artifacts = path.join(root, 'hub-server/test/artifacts'); await mkdir(artifacts, { recursive: true });
 try {
   hub.db.exec(await readFile(path.join(root, 'hub-server/test/fixtures/seed-test-data.sql'), 'utf8'));
-  browser = await chromium.launch({ headless: true, channel: process.env.PAHUB_BROWSER_CHANNEL || 'chrome' });
+  browser = await chromium.launch({ headless: true, channel: process.env.PAHUB_BROWSER_CHANNEL || 'chromium' });
   const contexts = await Promise.all(['A工','B工'].map(async nickname => { const context = await browser.newContext({ viewport: { width: 1440, height: 1100 } }); await context.addInitScript(name => localStorage.setItem('pahub.clientName', name), nickname); return context; }));
   const [a,b] = await Promise.all(contexts.map(context => context.newPage()));
   const errors = []; for (const page of [a,b]) page.on('pageerror', error => errors.push(error.message));

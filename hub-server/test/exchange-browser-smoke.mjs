@@ -13,7 +13,7 @@ const hub = await createHub(); let browser;
 const artifacts = path.join(root, 'hub-server/test/artifacts'); await mkdir(artifacts, { recursive: true });
 try {
   hub.db.exec(await readFile(path.join(root, 'hub-server/test/fixtures/seed-test-data.sql'), 'utf8'));
-  browser = await chromium.launch({ headless: true, channel: process.env.PAHUB_BROWSER_CHANNEL || 'chrome' });
+  browser = await chromium.launch({ headless: true, channel: process.env.PAHUB_BROWSER_CHANNEL || 'chromium' });
   const context = await browser.newContext({ viewport: { width: 1600, height: 1600 }, acceptDownloads: true, locale: 'en-US' });
   const host = await context.newPage(), errors = []; host.on('pageerror', e => errors.push(e.message));
   const url = 'http://127.0.0.1:' + hub.port + '/pcf/proj-test-001/dwg-005';
@@ -35,6 +35,8 @@ try {
   assert.equal(await builder.locator('#add-btn').isDisabled(), true);
   for (let i = 1; i <= 2; i++) await builder.locator('.editor[data-side="reply"]').nth(i - 1).fill('Builder Chrome reply ' + i);
   await builder.screenshot({ path: path.join(artifacts, 'builder-offline.png'), fullPage: true });
+  // Save as lives in the dropdown next to Save (#save-menu-panel).
+  await builder.locator('#save-menu-btn').click(); await builder.locator('#save-as-btn').waitFor({ state: 'visible' });
   const returnedDownload = builder.waitForEvent('download'); await builder.locator('#save-as-btn').click();
   const returned = await returnedDownload, returnedPath = path.join(temp, 'builder-return.html'); await returned.saveAs(returnedPath);
   await builder.getByRole('button', { name: 'I have saved the copy', exact: true }).click();
