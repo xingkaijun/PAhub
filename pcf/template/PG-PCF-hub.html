@@ -1694,10 +1694,10 @@ function guide(){openModal('Working with this PCF','<div class="help-section"><h
 let jsonReadBusy=false, dataEpoch=0;
 const JSON_MAX_BYTES=250*1024*1024;
 function jsonReady(){if(writeBusy||pendingImages||connectionBusy||pickerBusy){toast('Wait for saving or image processing to finish.');return false;}return true;}
-function exportJSON(){
+async function exportJSON(){
   if(!jsonReady())return;
   if(hubMode&&!completeMode){exportCompleteJSON();return;}
-  try{const blob=new Blob([JSON.stringify(hubMode?hubExternal(state):state,null,2)],{type:'application/json;charset=utf-8'});if(blob.size>JSON_MAX_BYTES)throw Error('JSON exceeds the 250 MB supported backup size. Save a complete HTML copy instead.');download(blob,suggestedName().replace(/\.html$/,'.json'));toast('Complete JSON exported, including all active comments, history and images. HTML save status is unchanged.');}
+  try{const blob=new Blob([JSON.stringify(hubMode?await hubInlineImages(hubExternal(state)):state,null,2)],{type:'application/json;charset=utf-8'});if(blob.size>JSON_MAX_BYTES)throw Error('JSON exceeds the 250 MB supported backup size. Save a complete HTML copy instead.');download(blob,suggestedName().replace(/\.html$/,'.json'));toast('Complete JSON exported, including all active comments, history and images. HTML save status is unchanged.');}
   catch(e){toast('JSON export failed: '+e.message);}
 }
 function validateJSON(data){
