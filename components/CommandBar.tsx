@@ -158,7 +158,7 @@ export const CommandBar: React.FC = () => {
           const isRemove = modifier === '-';
           const fullTag = `#${tagName.trim()}`;
           validDrawings.forEach(d => {
-            if (isRemove) deleteRemark(d.id, fullTag);
+            if (isRemove) (d.remarks || []).filter(r => r.content === fullTag).forEach(r => deleteRemark(d.id, r.id));
             else addRemark(d.id, fullTag);
           });
           actionHandled = true;

@@ -4,6 +4,8 @@ import { drawingConflict, writeDrawing, writeDrawingLocked } from './drawing-wri
 import type { PcfStorage } from './pcf-storage.ts';
 import type { PcfRealtime } from './pcf-realtime.ts';
 import { fail, safeId } from './pcf-model.ts';
+import { mergeConfiguration } from './project-config-merge.ts';
+import { getProjectConfiguration } from './project-read.ts';
 
 export type RecordValue = Record<string, any>;
 export type Verification = { ok: boolean; checked: number; mismatched: { id: string; customId?: string; fields: string[] }[]; error?: string };
@@ -161,16 +163,20 @@ export class ProjectWriter {
     return this.storage.serialMany(projectId, [...deleted, ...updates.map(d => String(d.id))], () => transaction(db, 'project_patch', () => {
       db.prepare('INSERT INTO projects(id,name,last_updated) VALUES(?,?,?) ON CONFLICT(id) DO NOTHING').run(projectId,String(body.projectName || projectId),new Date().toISOString());
       const conflicts = updates.map(drawing => drawingConflict(db,projectId,drawing)).filter(Boolean);
-      if (conflicts.length) throw Object.assign(new Error('Drawing changed on the server since it was loaded'), { status: 409, body: { code: 'DRAWING_CONFLICT', conflicts } });
+      // Settings travel key by key with the values they had when editing started (confBase).
+      const config = body.conf && typeof body.conf === 'object' ? mergeConfiguration(db,projectId,body.conf,body.confBase) : null;
+      const confConflicts = config?.conflicts || [];
+      if (conflicts.length) throw Object.assign(new Error('Drawing changed on the server since it was loaded'), { status: 409, body: { code: 'DRAWING_CONFLICT', conflicts, confConflicts } });
+      if (confConflicts.length) throw Object.assign(new Error('Project settings changed on the server since they were loaded'), { status: 409, body: { code: 'CONFIG_CONFLICT', conflicts: [], confConflicts } });
       for (const id of deleted) this.removeLocked(projectId,id);
       // Legacy delta response counted only the final tracker/timestamp group:
       // configuration/deletions were drained before native drawing writes.
       let statements = 0;
-      if (body.conf) this.configuration(projectId,body.conf,false);
+      if (config) this.configuration(projectId,config.conf,false);
       const written: RecordValue[] = updates.map(drawing => writeDrawingLocked(this.storage,this.realtime,projectId,drawing));
       if (body.reviewTracker && typeof body.reviewTracker === 'object') statements += writeTracker(db,projectId,body.reviewTracker,true,this.realtime);
       db.prepare("UPDATE projects SET last_updated=datetime('now') WHERE id=?").run(projectId); statements++;
-      return { success: true, mode: 'delta', statements, verification: verifyProjectWrite(db,projectId,written,body.reviewTracker || null), drawings: written.map(({ __expected, ...drawing }) => drawing) };
+      return { success: true, mode: 'delta', statements, verification: verifyProjectWrite(db,projectId,written,body.reviewTracker || null), drawings: written.map(({ __expected, ...drawing }) => drawing), ...(config ? { conf: getProjectConfiguration(db,projectId) } : {}) };
     }));
   }
 }

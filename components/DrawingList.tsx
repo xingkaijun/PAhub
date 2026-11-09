@@ -379,10 +379,10 @@ export const DrawingList: React.FC = () => {
 
   return (
     <div data-drawing-list-root="true" className="flex-1 flex flex-col overflow-hidden" onDragOver={e => {
-      const files = Array.from(e.dataTransfer.files || []);
+      const files = Array.from<File>(e.dataTransfer.files || []);
       if (files.some(file => /\.(zip|html?)$/i.test(file.name))) e.preventDefault();
     }} onDrop={e => {
-      const files = Array.from(e.dataTransfer.files || []).filter(file => /\.(zip|html?)$/i.test(file.name));
+      const files = Array.from<File>(e.dataTransfer.files || []).filter(file => /\.(zip|html?)$/i.test(file.name));
       if (!files.length) return;
       e.preventDefault(); builderRepliesImport.current?.openWithFiles(files);
     }}>

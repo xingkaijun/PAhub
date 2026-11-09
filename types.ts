@@ -137,11 +137,20 @@ export interface DrawingConflict {
   current: Drawing | null;
 }
 
+// 409 里的项目设置冲突：key 被别人先改了；按专业分行存的 map 设置会带上 entry（专业名）
+export interface ConfigConflict {
+  key: string;
+  entry?: string;
+  current: unknown;
+}
+
 export interface DeltaPayload {
   projectName?: string;
   updatedDrawings?: (Drawing | DrawingPatch)[];
   deletedDrawingIds?: string[];
-  conf?: ProjectConfig;
+  // 只含改过的设置项；confBase 是这些项开始修改时的值，服务端据此判断是否被别人先改了
+  conf?: Partial<ProjectConfig>;
+  confBase?: Partial<Record<keyof ProjectConfig, unknown>>;
   reviewTracker?: ReviewTrackerData;
 }
 
@@ -157,6 +166,7 @@ export interface SaveResult {
   success: boolean;
   verification?: WriteVerification;
   drawings?: Drawing[];
+  conf?: ProjectConfig;
 }
 
 // 服务端写入日志条目（audit_log 里 action 为 STATUS / COMMENTS 的行）

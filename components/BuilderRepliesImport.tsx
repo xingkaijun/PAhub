@@ -36,7 +36,7 @@ export const BuilderRepliesImport = forwardRef<BuilderRepliesImportHandle, { pro
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') { event.preventDefault(); setOpen(false); }
       if (event.key !== 'Tab') return;
-      const focusable = Array.from(dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not([hidden]),a[href],[tabindex="0"]') || []);
+      const focusable = Array.from<HTMLElement>(dialog.current?.querySelectorAll<HTMLElement>('button:not(:disabled),input:not([hidden]),a[href],[tabindex="0"]') || []);
       const first = focusable[0], last = focusable[focusable.length - 1];
       if (event.shiftKey && (document.activeElement === first || document.activeElement === dialog.current)) { event.preventDefault(); last?.focus(); }
       else if (!event.shiftKey && (document.activeElement === last || document.activeElement === dialog.current)) { event.preventDefault(); first?.focus(); }

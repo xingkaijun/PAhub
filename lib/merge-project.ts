@@ -7,7 +7,8 @@ export function mergeProjectPreservingDirty(
   remote: Project,
   dirtyDrawingIds: Set<string>,
   deletedDrawingIds: Set<string>,
-  dirtyConf: boolean,
+  // true keeps the whole local conf (legacy); a key set keeps only those local keys over the remote conf
+  dirtyConf: boolean | ReadonlySet<string>,
   localTracker: ReviewTrackerData,
   remoteTracker: ReviewTrackerData,
   dirtyTrackerDrawingIds: Set<string>,
@@ -38,8 +39,16 @@ export function mergeProjectPreservingDirty(
   }
   const tracker = mergeReviewTracker(localTracker, remoteTracker || {}, dirtyTrackerDrawingIds, dirtyTracker);
   return {
-    project: { ...local, ...remote, id: local.id, conf: dirtyConf ? local.conf : remote.conf, drawings },
+    project: { ...local, ...remote, id: local.id, conf: mergeConf(local, remote, dirtyConf), drawings },
     reviewTracker: tracker,
     changedDrawings,
   };
+}
+
+function mergeConf(local: Project, remote: Project, dirtyConf: boolean | ReadonlySet<string>) {
+  if (typeof dirtyConf === 'boolean') return dirtyConf ? local.conf : remote.conf;
+  if (!dirtyConf.size) return remote.conf;
+  const conf = { ...(remote.conf || local.conf) } as any;
+  for (const key of dirtyConf) conf[key] = (local.conf as any)?.[key];
+  return conf;
 }

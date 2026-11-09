@@ -1,4 +1,5 @@
-import type { AppData, Drawing, DrawingConflict, Project, ReviewTrackerData, DeltaPayload } from '../types';
+import type { AppData, ConfigConflict, Drawing, DrawingConflict, Project, ProjectConfig, ReviewTrackerData, DeltaPayload } from '../types';
+import { applyConfigConflicts, buildConfigPatch, describeConfigConflicts, recordConfigEdit, sameValue, type DirtyConfBase } from '../lib/project-config';
 import { projectsApi } from '../services/api/projectsApi';
 import { mergeProjectPreservingDirty } from '../lib/merge-project';
 import { calculateDeadline, projectDateKey } from '../lib/deadline';
@@ -35,6 +36,8 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
   _dirtyDrawingBase: {},
   _deletedDrawingIds: new Set<string>(),
   _dirtyConf: false,
+  _dirtyConfKeys: new Set<keyof ProjectConfig>(),
+  _dirtyConfBase: {},
   saveConflict: null,
   clearSaveConflict: () => set({ saveConflict: null }),
   refreshProjectPreservingDirty: async (projectId: string) => {
@@ -54,7 +57,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
       const local = state.data.projects.find(p => p.id === projectId);
       if (!local)
         return state;
-      const merged = mergeProjectPreservingDirty(local, remote, state._dirtyDrawingIds, state._deletedDrawingIds, state._dirtyConf, state.reviewTracker, remoteTracker || {}, state._dirtyTrackerDrawingIds, state._dirtyTracker, state._dirtyDrawingFields);
+      const merged = mergeProjectPreservingDirty(local, remote, state._dirtyDrawingIds, state._deletedDrawingIds, state._dirtyConfKeys.size ? state._dirtyConfKeys : state._dirtyConf, state.reviewTracker, remoteTracker || {}, state._dirtyTrackerDrawingIds, state._dirtyTracker, state._dirtyDrawingFields);
       changed = merged.changedDrawings;
       return {
         data: { ...state.data, projects: state.data.projects.map(p => p.id === projectId ? merged.project : p) },
@@ -223,7 +226,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
       }
     };
   }),
-  deleteRemark: (drawingId, content) => set((state) => {
+  deleteRemark: (drawingId, remarkId) => set((state) => {
     const { activeProjectId } = state;
     if (!activeProjectId)
       return state;
@@ -241,7 +244,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
             drawings: p.drawings.map(d => {
               if (d.id !== drawingId)
                 return d;
-              return { ...d, remarks: (d.remarks || []).filter(r => r.content !== content) };
+              return { ...d, remarks: (d.remarks || []).filter(r => r.id !== remarkId) };
             })
           };
         })
@@ -302,7 +305,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     return get().saveProject(activeProjectId);
   },
   saveProject: async (projectId: string) => {
-    const { data, reviewTracker, _dirtyDrawingIds, _dirtyDrawingFields, _dirtyDrawingBase, _deletedDrawingIds, _dirtyConf, _dirtyTracker, _dirtyTrackerDrawingIds } = get();
+    const { data, reviewTracker, _dirtyDrawingIds, _dirtyDrawingFields, _dirtyDrawingBase, _deletedDrawingIds, _dirtyConf, _dirtyConfKeys, _dirtyConfBase, _dirtyTracker, _dirtyTrackerDrawingIds } = get();
     const project = data.projects.find(p => p.id === projectId);
     if (!project)
       return false;
@@ -311,6 +314,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     const deletedDrawingSnapshot = new Set(_deletedDrawingIds);
     const dirtyTrackerSnapshot = new Set(_dirtyTrackerDrawingIds);
     const dirtyConfSnapshot = _dirtyConf;
+    const confKeySnapshot = new Set(_dirtyConfKeys);
     const dirtyTrackerSnapshotFlag = _dirtyTracker;
     const dirtyCount = dirtyDrawingSnapshot.size + deletedDrawingSnapshot.size;
     const hasDirty = dirtyCount > 0 || dirtyConfSnapshot || dirtyTrackerSnapshotFlag;
@@ -330,8 +334,15 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
         payload.deletedDrawingIds = [...deletedDrawingSnapshot];
       if (updatedDrawings.length > 0)
         payload.updatedDrawings = updatedDrawings;
-      if (dirtyConfSnapshot)
-        payload.conf = project.conf;
+      if (dirtyConfSnapshot) {
+        if (confKeySnapshot.size) {
+          // 只发改过的设置项，并带上开始修改时的值
+          const { conf, confBase } = buildConfigPatch(project.conf, confKeySnapshot, _dirtyConfBase);
+          payload.conf = conf;
+          if (confBase) payload.confBase = confBase;
+        }
+        else payload.conf = project.conf; // 旧版本地缓存里只有 _dirtyConf 标记：按原样整份发送
+      }
       if (dirtyTrackerSnapshotFlag) {
         const trackerSlice: ReviewTrackerData = {};
         for (const id of dirtyTrackerSnapshot)
@@ -409,16 +420,36 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
           if (state.reviewTracker[id] === reviewTracker[id])
             nextDirtyTrackerDrawingIds.delete(id);
         });
-        const nextDirtyConf = dirtyConfSnapshot && currentProject?.conf === project.conf ? false : state._dirtyConf;
+        // 设置项：发出后没再改的项清掉；服务端回传合并后的设置（按专业合并的 map 以服务端为准）
+        const nextConfKeys = new Set(state._dirtyConfKeys);
+        const nextConfBase: DirtyConfBase = { ...state._dirtyConfBase };
+        let nextConf = currentProject?.conf;
+        const serverConf = saveResult?.conf;
+        if (dirtyConfSnapshot && currentProject) {
+          const sentKeys = confKeySnapshot.size ? [...confKeySnapshot] : [];
+          for (const key of sentKeys) {
+            const unchanged = sameValue(currentProject.conf?.[key], project.conf?.[key]);
+            if (unchanged) {
+              nextConfKeys.delete(key); delete nextConfBase[key];
+              if (serverConf && key in serverConf && key !== 'reviewers') nextConf = { ...nextConf!, [key]: serverConf[key] };
+            }
+            else if (serverConf && key in serverConf) nextConfBase[key] = JSON.parse(JSON.stringify(serverConf[key] ?? null));
+          }
+        }
+        const nextDirtyConf = nextConfKeys.size > 0 || (dirtyConfSnapshot
+          ? !confKeySnapshot.size && currentProject?.conf !== project.conf && state._dirtyConf
+          : state._dirtyConf);
         return {
           isLoading: false,
           error: verificationMessage ?? state.error,
           _dirtyDrawingIds: nextDirtyDrawingIds,
           _dirtyDrawingFields: nextFields,
           _dirtyDrawingBase: nextBase,
-          data: mergedDrawings ? { ...state.data, projects: state.data.projects.map(p => p.id === projectId ? { ...p, drawings: mergedDrawings } : p) } : state.data,
+          data: mergedDrawings || nextConf !== currentProject?.conf ? { ...state.data, projects: state.data.projects.map(p => p.id === projectId ? { ...p, drawings: mergedDrawings || p.drawings, conf: nextConf || p.conf } : p) } : state.data,
           _deletedDrawingIds: nextDeletedDrawingIds,
           _dirtyConf: nextDirtyConf,
+          _dirtyConfKeys: nextConfKeys,
+          _dirtyConfBase: nextConfBase,
           _dirtyTracker: nextDirtyTrackerDrawingIds.size > 0,
           _dirtyTrackerDrawingIds: nextDirtyTrackerDrawingIds,
         };
@@ -426,10 +457,14 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
       return unverifiedIds.size === 0;
     }
     catch (err: any) {
-      if (err instanceof ApiError && err.status === 409 && err.data?.code === 'DRAWING_CONFLICT' && Array.isArray(err.data.conflicts)) {
+      if (err instanceof ApiError && err.status === 409 && (err.data?.code === 'DRAWING_CONFLICT' || err.data?.code === 'CONFIG_CONFLICT') && Array.isArray(err.data.conflicts)) {
         // 整批没有写入。冲突字段换成服务端最新值并放弃本地修改，其余未冲突的修改保留，下次自动保存再发
         const conflicts = err.data.conflicts as DrawingConflict[];
-        const message = describeDrawingConflicts(conflicts);
+        const confConflicts = (Array.isArray(err.data.confConflicts) ? err.data.confConflicts : []) as ConfigConflict[];
+        const message = conflicts.length && confConflicts.length
+          ? describeDrawingConflicts(conflicts) + ' 另外' + describeConfigConflicts(confConflicts) + '也已被其他人先修改，已换成最新值。'
+          : conflicts.length ? describeDrawingConflicts(conflicts)
+          : '保存冲突：' + describeConfigConflicts(confConflicts) + '已被其他人先修改，已换成最新值，你的其他修改会在下次自动保存时发送。';
         console.warn(`[Save] ${message}`);
         set(state => {
           const byId = new Map(conflicts.map(c => [c.id, c]));
@@ -456,6 +491,8 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
             else { nextDirtyDrawingIds.delete(d.id); delete nextFields[d.id]; delete nextBase[d.id]; Object.assign(merged, conflict.current); }
             drawings.push(merged);
           }
+          const currentConf = state.data.projects.find(p => p.id === projectId)?.conf;
+          const conf = confConflicts.length && currentConf ? applyConfigConflicts(currentConf, confConflicts, state._dirtyConfKeys, state._dirtyConfBase) : null;
           return {
             isLoading: false,
             error: message,
@@ -463,7 +500,8 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
             _dirtyDrawingIds: nextDirtyDrawingIds,
             _dirtyDrawingFields: nextFields,
             _dirtyDrawingBase: nextBase,
-            data: { ...state.data, projects: state.data.projects.map(p => p.id === projectId ? { ...p, drawings } : p) },
+            ...(conf ? { _dirtyConfKeys: conf.keys, _dirtyConfBase: conf.base, _dirtyConf: conf.keys.size > 0 } : {}),
+            data: { ...state.data, projects: state.data.projects.map(p => p.id === projectId ? { ...p, drawings, ...(conf ? { conf: conf.conf } : {}) } : p) },
           };
         });
         // 载入别人的其他改动（不覆盖仍在编辑的字段）
@@ -568,6 +606,8 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
         _dirtyDrawingBase: {},
         _deletedDrawingIds: new Set<string>(),
         _dirtyConf: false,
+        _dirtyConfKeys: new Set<keyof ProjectConfig>(),
+        _dirtyConfBase: {},
         _dirtyTracker: false,
         _dirtyTrackerDrawingIds: new Set<string>(),
       }));
@@ -585,8 +625,13 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
       updates.roundACycle !== undefined ||
       updates.otherRoundsCycle !== undefined;
     const newDirty = new Set(state._dirtyDrawingIds);
+    // 记下真正改动的设置项和它们开始修改时的值，保存时只发这些项
+    const currentConf = state.data.projects.find(p => p.id === projectId)?.conf || state.data.settings;
+    const edit = recordConfigEdit(currentConf, updates, state._dirtyConfKeys, state._dirtyConfBase);
     return {
-      _dirtyConf: true,
+      _dirtyConf: state._dirtyConf || edit.keys.size > 0,
+      _dirtyConfKeys: edit.keys,
+      _dirtyConfBase: edit.base,
       _dirtyDrawingIds: shouldRecalculateDeadlines ? newDirty : state._dirtyDrawingIds,
       data: {
         ...state.data,
@@ -625,6 +670,9 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     return {
       _dirtyDrawingIds: newDirty,
       _dirtyConf: true,
+      // 从备份恢复：所有设置项都发，不带旧值，按备份内容直接写入
+      _dirtyConfKeys: new Set(Object.keys(restoredProject.conf || {}).filter(k => k !== 'lastUpdated') as (keyof ProjectConfig)[]),
+      _dirtyConfBase: {},
       _dirtyTracker: true,
       _dirtyTrackerDrawingIds: newDirtyTrackerIds,
       data: {

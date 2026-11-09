@@ -1,6 +1,7 @@
 import type { StateCreator } from 'zustand';
 import type { AppData, Project, Drawing, AppSettings, ProjectConfig, ReviewTrackerData, AuditEntry } from '../types';
 import type { DirtyDrawingBase, DirtyDrawingFields } from '../lib/drawing-fields';
+import type { DirtyConfBase } from '../lib/project-config';
 import type { SentDrawingExpectation, SendVerification } from '../lib/review-tracker';
 export interface AuditLogResult {
   entries: AuditEntry[];
@@ -22,7 +23,7 @@ export interface ProjectSlice {
   updateDrawing: (id: string, updates: Partial<Drawing>) => void;
   deleteDrawing: (id: string) => void;
   addRemark: (drawingId: string, content: string) => void;
-  deleteRemark: (drawingId: string, content: string) => void;
+  deleteRemark: (drawingId: string, remarkId: string) => void;
   batchUpdateDrawings: (updates: {
     id: string;
     changes: Partial<Drawing>;
@@ -50,6 +51,8 @@ export interface ProjectSlice {
   clearSaveConflict: () => void;
   _deletedDrawingIds: Set<string>;
   _dirtyConf: boolean;
+  _dirtyConfKeys: Set<keyof ProjectConfig>;
+  _dirtyConfBase: DirtyConfBase;
 }
 export interface ReviewTrackerSlice {
   reviewTracker: ReviewTrackerData;

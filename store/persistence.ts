@@ -18,6 +18,8 @@ export const persistenceOptions: PersistOptions<AppState, any> = {
     _dirtyDrawingFields: Object.fromEntries(Object.entries(state._dirtyDrawingFields).map(([id, fields]) => [id, [...fields]])),
     _dirtyDrawingBase: state._dirtyDrawingBase,
     _dirtyConf: state._dirtyConf,
+    _dirtyConfKeys: [...state._dirtyConfKeys],
+    _dirtyConfBase: state._dirtyConfBase,
     _dirtyTracker: state._dirtyTracker,
     _dirtyTrackerDrawingIds: Array.from(state._dirtyTrackerDrawingIds),
   }),
@@ -53,6 +55,8 @@ export const persistenceOptions: PersistOptions<AppState, any> = {
     _dirtyDrawingIds: new Set(persistedState?._dirtyDrawingIds || []),
     _deletedDrawingIds: new Set(persistedState?._deletedDrawingIds || []),
     _dirtyDrawingFields: Object.fromEntries(Object.entries(persistedState?._dirtyDrawingFields || {}).map(([id, fields]) => [id, new Set(fields as (keyof Drawing)[])])),
+    _dirtyConfKeys: new Set(Array.isArray(persistedState?._dirtyConfKeys) ? persistedState._dirtyConfKeys : []),
+    _dirtyConfBase: persistedState?._dirtyConfBase && typeof persistedState._dirtyConfBase === 'object' ? persistedState._dirtyConfBase : {},
     _dirtyDrawingBase: persistedState?._dirtyDrawingBase && typeof persistedState._dirtyDrawingBase === 'object' ? persistedState._dirtyDrawingBase : {},
     _dirtyTrackerDrawingIds: persistedState?._dirtyTrackerDrawingIds instanceof Set
       ? persistedState._dirtyTrackerDrawingIds

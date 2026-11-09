@@ -21,12 +21,18 @@ export async function copySchema() {
   }
 }
 
-export async function typecheck() {
-  await new Promise((resolve, reject) => {
-    const child = spawn(process.execPath, ['node_modules/typescript/bin/tsc', '-p', 'hub-server/tsconfig.json'], { cwd: root, stdio: 'inherit' });
+function tsc(project, label) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, ['node_modules/typescript/bin/tsc', '--noEmit', '-p', project], { cwd: root, stdio: 'inherit' });
     child.on('error', reject);
-    child.on('exit', code => code === 0 ? resolve() : reject(new Error('Hub TypeScript check failed')));
+    child.on('exit', code => code === 0 ? resolve() : reject(new Error(label + ' TypeScript check failed')));
   });
+}
+
+// Hub server and frontend are both type-checked: vite build itself does not check types.
+export async function typecheck() {
+  await tsc('hub-server/tsconfig.json', 'Hub');
+  await tsc('tsconfig.json', 'Frontend');
 }
 
 export async function buildServer() {
