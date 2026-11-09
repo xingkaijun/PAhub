@@ -7,7 +7,18 @@
 - 模板：`pcf/template/PG-PCF-hub.html`，仍是可离线使用的独立 HTML。生产启动读入内存；`hub:dev` 检查文件变更后重新加载。
 - 页面：模板 + JSON + 在线 `pahub-context`；磁盘不存每份文档的模板副本。
 - `exports/*.html` 发出基线、收到的原始船厂回复 HTML、导入回执、`.pcf-export-key` 不被转换或删除。
-- SQLite 仍只存指针和摘要，不存正文/图片。编号 SQL：001 当前完整结构；002 更新 PCF JSON 指针并将 `PRAGMA user_version` 设为 2。启动自动应用 001，**不自动运行 002 或转换文件**。
+- SQLite 仍只存指针和摘要，不存正文/图片。编号 SQL：001 当前完整结构；002 更新 PCF JSON 指针并将 `PRAGMA user_version` 设为 2。结构初始化只应用 001；Hub 启动在监听前自动检测旧 HTML/混合存储，通过下述有备份的转换流程应用 002。
+
+## 启动自动迁移（生产修复）
+
+- 部署新构建并正常重启 Hub 即可；不需要手动运行 `hub:migrate-pcf-json`。同一数据目录仍要求只运行一个 Hub，不能滚动启动两个写进程共享该目录。
+- 打开数据库和监听端口之前，检测权威 PCF/历史 HTML（不转换 exports HTML）；先备份 PCF 和 SQLite/存在的 WAL、SHM 到数据目录下 `backups/before-pcf-json-<时间>-<uuid>/`。数据库即使通过 `PAPC_DB_PATH` 外置，也以 `papc.db` 名称存入该备份。
+- 复用离线迁移的解析、深度校验、staging、目录安装及数据库事务。兼容 HTML/JSON 混合目录和版本 2 的残留 HTML；重复目标内容一致可安全保留 JSON，不一致则停止迁移，不覆盖任一原件。
+- 成功日志含备份路径、文档/快照数；再次启动没有旧文件时不重复迁移/备份。中断 journal 会在备份后恢复并重试。
+- 失败日志含 `[PCF migration] Automatic migration failed`、具体原因和 HTML fallback。原 PCF 目录恢复、事务回滚；能解析的旧 PCF 仍提供当前模板页面，按原 rev/协同时钟编辑并原子保存到旧 HTML。旧历史仍可读取/恢复，后续保存的快照使用 JSON。修正原因并重启会自动重试。损坏且不含有效 `pcf-data` 的文档本身无法恢复内容，不会伪造空文档覆盖它。
+- 运行期间遇到尚未转换的旧文件时，读取/保存同样回退到 HTML（选择回退而不是在请求中全局改目录，避免影响并发请求）。若同图纸同时有 JSON/HTML，以 JSON 为权威，冲突原 HTML 保留供人工核对。
+- 需要数据目录/数据库可写及足够磁盘空间容纳迁移前备份、旧目录保留件和 staging。首启转换会延后监听，请等待完成日志；备份不自动删除。
+- 如果部署系统只 `git pull + 重启` 而不重新构建，仍会运行旧 `hub-server/dist/server.mjs`。必须让现有部署流程执行 `npm run hub:build`（依赖安装按现有流程），再重启。
 
 ## 停服迁移
 

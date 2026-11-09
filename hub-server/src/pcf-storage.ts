@@ -3,7 +3,7 @@ import { randomUUID, createHash } from 'node:crypto';
 import path from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { currentTemplate } from './pcf-template.ts';
-import { parseHTML } from './pcf-html.ts';
+import { parseHTML, replaceData } from './pcf-html.ts';
 import { atomicWrite } from './atomic-write.ts';
 export { parseHTML, replaceData, scriptJSON } from './pcf-html.ts';
 export { atomicWrite } from './atomic-write.ts';
@@ -18,6 +18,11 @@ export class PcfStorage {
   readonly images: PcfImageStore;
   constructor(readonly db: DatabaseSync, readonly dataDir: string, private readonly now: () => number = Date.now) { this.images = new PcfImageStore(dataDir); }
   file(p: string, d: string) { return path.join(this.dataDir, 'pcf', p, d + '.json'); }
+  private storedFile(p: string, d: string) {
+    const json = this.file(p, d), html = json.replace(/\.json$/, '.html');
+    return !existsSync(json) && existsSync(html) ? html : json;
+  }
+  private storedData(file: string, text: string): PcfData { return file.endsWith('.html') ? parseHTML(text) : JSON.parse(text); }
   historyDir(p: string, d: string) { return path.join(this.dataDir, 'pcf', p, '.history', d); }
   async serial<T>(p: string, d: string, task: () => T | Promise<T>): Promise<T> {
     const key = p + '/' + d, previous = this.queues.get(key) || Promise.resolve();
@@ -38,20 +43,21 @@ export class PcfStorage {
   index(p: string) {
     // Also repair a crash between file rename and SQLite commit on project listing.
     const dir = path.join(this.dataDir, 'pcf', p);
-    if (existsSync(dir)) for (const name of readdirSync(dir)) if (/^[A-Za-z0-9_-]+\.json$/.test(name)) {
+    if (existsSync(dir)) for (const name of readdirSync(dir)) if (/^[A-Za-z0-9_-]+\.(json|html)$/.test(name)) {
       const id = name.slice(0, -5); if (this.db.prepare('SELECT 1 FROM drawings WHERE project_id=? AND id=? AND COALESCE(_deleted,0)=0').get(p, id)) this.load(p, id);
     }
     return this.db.prepare("SELECT * FROM pcf_index WHERE project_id=? ORDER BY drawing_id").all(p);
   }
   load(p: string, d: string) {
-    this.drawing(p, d); const file = this.file(p, d);
+    this.drawing(p, d); const file = this.storedFile(p, d);
     if (!existsSync(file)) fail('PCF not found', 404);
-    const text = readFileSync(file, 'utf8'), data: PcfData = JSON.parse(text), rev = Number(data.hub?.rev);
+    const text = readFileSync(file, 'utf8'), data = this.storedData(file, text), rev = Number(data.hub?.rev);
     if (!Number.isSafeInteger(rev) || rev < 1) fail('Invalid stored PCF revision', 500);
     // Legacy inline images (before hub:migrate-pcf-images) are served as references; the next save persists them.
     if (mayHaveInlineImages(text)) this.images.externalize(p, data);
-    const meta = this.db.prepare('SELECT rev FROM pcf_index WHERE project_id=? AND drawing_id=?').get(p, d);
-    if (meta?.rev !== rev) {
+    const meta = this.db.prepare('SELECT rev,file_path FROM pcf_index WHERE project_id=? AND drawing_id=?').get(p, d);
+    const relative = path.relative(this.dataDir, file).split(path.sep).join('/');
+    if (meta?.rev !== rev || meta?.file_path !== relative) {
       if (meta && Number(meta.rev) > rev) fail('PCF file/index revision mismatch; restore backup', 500);
       this.transaction(() => this.indexWrite(p, d, data));
     }
@@ -60,8 +66,7 @@ export class PcfStorage {
   /** load() with every image reference re-inlined as a data URL, for self-contained offline copies. */
   loadHydrated(p: string, d: string) { const { data, rev } = this.load(p, d); return { data: this.images.hydrate(p, data), rev }; }
   create(p: string, d: string, actor: Actor) {
-    if (existsSync(this.file(p, d))) return this.meta(p, d);
-    if (existsSync(path.join(this.dataDir, 'pcf', p, d + '.html'))) fail('Legacy HTML storage: stop Hub and run hub:migrate-pcf-json', 503);
+    if (existsSync(this.storedFile(p, d))) return this.meta(p, d);
     const drawing = this.drawing(p, d), html = currentTemplate();
     const data = parseHTML(html), n = roundNumber(drawing.current_round);
     Object.assign(data, { documentId: randomUUID(), comments: [], deleted: [], circulation: [], approvalHistory: [], roundRegister: [], hub: { rev: 0, entities: {} } });
@@ -78,22 +83,24 @@ export class PcfStorage {
     const n = data.project.currentRound, row = data.roundRegister.find((r: any) => r.round === n), change = data.hub.lastChange;
     const rounds = data.roundRegister.map((r: any) => Object.fromEntries(['id', 'round', ...registerFields].map(k => [k, r[k] ?? ''])));
     this.db.prepare('INSERT INTO pcf_index (project_id,drawing_id,document_id,rev,file_path,total_comments,open_comments,current_round,approval,rounds_json,updated_at,updated_by_client,updated_by_name) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(project_id,drawing_id) DO UPDATE SET document_id=excluded.document_id,rev=excluded.rev,file_path=excluded.file_path,total_comments=excluded.total_comments,open_comments=excluded.open_comments,current_round=excluded.current_round,approval=excluded.approval,rounds_json=excluded.rounds_json,updated_at=excluded.updated_at,updated_by_client=excluded.updated_by_client,updated_by_name=excluded.updated_by_name')
-      .run(p, d, data.documentId, data.hub.rev, path.relative(this.dataDir, this.file(p, d)).split(path.sep).join('/'), total, open, n, String(data.project.approval), JSON.stringify(rounds), data.updatedAt, change.clientId, change.clientName);
+      .run(p, d, data.documentId, data.hub.rev, path.relative(this.dataDir, this.storedFile(p, d)).split(path.sep).join('/'), total, open, n, String(data.project.approval), JSON.stringify(rounds), data.updatedAt, change.clientId, change.clientName);
     this.db.prepare('UPDATE drawings SET manual_comments_count=?,manual_open_comments_count=?,current_round=?,version=? WHERE project_id=? AND id=?').run(total, open, roundLabel(n), row?.revision || before.version || '', p, d);
     this.db.prepare('UPDATE projects SET last_updated=? WHERE id=?').run(data.updatedAt, p);
     const inserted = this.db.prepare('INSERT OR IGNORE INTO pcf_changes(project_id,drawing_id,rev,client_id,client_name,ip,ops_json,created_at) VALUES(?,?,?,?,?,?,?,?)').run(p, d, data.hub.rev, change.clientId, change.clientName, change.ip, JSON.stringify(change.ops), data.updatedAt);
     if (inserted.changes) this.db.prepare("INSERT INTO audit_log(table_name,row_id,project_id,action,detail,created_at) VALUES('drawings',?,?,'COMMENTS',?,?)").run(d, p, JSON.stringify({ customId: before.custom_id, drawingNo: before.drawing_no, from: { total: before.manual_comments_count, open: before.manual_open_comments_count }, to: { total, open }, source: 'PCF', rev: data.hub.rev, round: { from: before.current_round, to: roundLabel(n) }, version: row?.revision || before.version }), data.updatedAt);
   }
   private save(p: string, d: string, data: PcfData, actor: Actor, ops: unknown[], commit?: () => void) {
-    const file = this.file(p, d), old = existsSync(file) ? readFileSync(file, 'utf8') : null;
-    const oldRev = old ? JSON.parse(old).hub.rev : 0;
+    // During migration fallback preserve the authoritative HTML, including its
+    // template. Use the same revisions/transaction/history as normal JSON saves.
+    const file = this.storedFile(p, d), old = existsSync(file) ? readFileSync(file, 'utf8') : null;
+    const oldData = old ? this.storedData(file, old) : null, oldRev = oldData?.hub.rev || 0;
     // Images are stored once by content hash; the PCF JSON and its history keep references only.
     this.images.externalize(p, data, { verify: true }); this.images.externalize(p, ops);
-    let snapshot = old;
-    if (old && mayHaveInlineImages(old)) { const legacy = JSON.parse(old); this.images.externalize(p, legacy); snapshot = JSON.stringify(legacy); }
+    if (oldData && old && mayHaveInlineImages(old)) this.images.externalize(p, oldData);
+    const snapshot = oldData ? JSON.stringify(oldData) : null;
     const at = this.now();
     reconcile(data); data.hub.rev = oldRev + 1; data.updatedAt = new Date(at).toISOString();
-    data.hub.lastChange = { ...actor, ops }; const next = JSON.stringify(data);
+    data.hub.lastChange = { ...actor, ops }; const next = file.endsWith('.html') ? replaceData(old!, data) : JSON.stringify(data);
     const history = old ? prepareHistory(this.historyDir(p, d), oldRev, snapshot!, actor.clientId, at, atomicWrite) : undefined;
     // Synchronous section: Worker cannot interleave in an open SQLite transaction.
     let renamed = false;
@@ -131,7 +138,10 @@ export class PcfStorage {
     if (body.batchId) data.hub.receipts = [...receipts, { id: body.batchId, hash, at: Date.now(), result: { rev: result.applied.length ? rev + 1 : rev, ...result } }].slice(-1000);
     const nextRev = result.applied.length ? this.save(p, d, data, actor, result.applied.map(({ entity: _e, entityRev: _r, ...summary }: any) => summary)) : rev;
     // Receipt-only acknowledgement stays in the authoritative JSON, never in SQLite body columns.
-    if (!result.applied.length && body.batchId) atomicWrite(this.file(p, d), JSON.stringify(data));
+    if (!result.applied.length && body.batchId) {
+      const file = this.storedFile(p, d);
+      atomicWrite(file, file.endsWith('.html') ? replaceData(readFileSync(file, 'utf8'), data) : JSON.stringify(data));
+    }
     return { replayed: false, result: { rev: nextRev, ...result, data: this.publicData(data) } };
   }
   replacementReplay(p: string, d: string, id: string, hash: string) {
@@ -180,7 +190,7 @@ export class PcfStorage {
     const entry = historyEntries(this.historyDir(p, d)).find(item => item.rev === rev);
     if (!entry) return undefined;
     try {
-      const text = readFileSync(path.join(this.historyDir(p, d), entry.filename), 'utf8'), data = JSON.parse(text);
+      const text = readFileSync(path.join(this.historyDir(p, d), entry.filename), 'utf8'), data = this.storedData(entry.filename, text);
       if (mayHaveInlineImages(text)) this.images.externalize(p, data);
       return { data };
     }

@@ -30,7 +30,10 @@ function scan(base: string) {
       const json = JSON.stringify(data);
       if (!isDeepStrictEqual(JSON.parse(json), data)) throw Error('JSON conversion changed data: ' + rel);
       if (!isDeepStrictEqual(parseHTML(renderTemplate(data)), data)) throw Error('Template round-trip changed data: ' + rel);
-      if (existsSync(path.join(base, rel.replace(/\.html$/, '.json')))) throw Error('JSON destination already exists: ' + rel);
+      const destination = path.join(base, rel.replace(/\.html$/, '.json'));
+      // A mixed directory may contain an already-converted copy. Never overwrite
+      // a conflicting JSON document: keep both originals and use runtime fallback.
+      if (existsSync(destination) && !isDeepStrictEqual(JSON.parse(readFileSync(destination, 'utf8')), data)) throw Error('JSON destination conflicts with HTML: ' + rel);
       conversions.push({ relative: rel, json, kind: document ? 'document' : 'snapshot', rev, bytes: bytes.length });
     }
   }
@@ -49,12 +52,54 @@ function inspectDatabase(dbFile: string, task: (db: DatabaseSync) => void) {
   } finally { rmSync(temp, { recursive: true, force: true }); }
 }
 
-export function migratePcfJson(options: { dataDir: string; dbPath?: string; dryRun?: boolean; hubStopped?: boolean }) {
+// Called before Hub opens SQLite or accepts requests. A private backup contains
+// PCF plus SQLite/WAL/SHM, including databases configured outside dataDir.
+function startupBackup(dataDir: string, dbPath: string) {
+  const backup = path.join(dataDir, 'backups', 'before-pcf-json-' + new Date().toISOString().replace(/[:.]/g, '-') + '-' + randomUUID());
+  mkdirSync(backup, { recursive: true });
+  if (existsSync(path.join(dataDir, 'pcf'))) cpSync(path.join(dataDir, 'pcf'), path.join(backup, 'pcf'), { recursive: true });
+  for (const suffix of ['', '-wal', '-shm']) if (existsSync(dbPath + suffix)) cpSync(dbPath + suffix, path.join(backup, 'papc.db' + suffix));
+  console.log('[PCF migration] Backup ready: ' + backup);
+  return backup;
+}
+
+function pendingMigration(dataDir: string) {
+  if (existsSync(path.join(dataDir, '.pcf-json-migration.json'))) return true;
+  const base = path.join(dataDir, 'pcf');
+  function walk(relative = ''): boolean {
+    if (!existsSync(path.join(base, relative))) return false;
+    for (const entry of readdirSync(path.join(base, relative), { withFileTypes: true })) {
+      const rel = relative ? relative + '/' + entry.name : entry.name;
+      if (entry.isSymbolicLink()) throw Error('Symlinks are not supported in PCF storage: ' + rel);
+      if (entry.isDirectory()) { if (walk(rel)) return true; }
+      else if (/^[A-Za-z0-9_-]{1,128}\/([A-Za-z0-9_-]{1,128}\.html|\.history\/[A-Za-z0-9_-]{1,128}\/\d+-\d+-[a-f0-9-]+\.html)$/i.test(rel)) return true;
+    }
+    return false;
+  }
+  return walk();
+}
+
+export function migratePcfJsonAtStartup(dataDir: string, dbPath: string) {
+  if (!existsSync(dbPath)) return;
+  try {
+    if (!pendingMigration(dataDir)) return;
+    console.log('[PCF migration] Legacy/mixed storage detected; migrating before listening');
+    const report = migratePcfJson({ dataDir, dbPath, hubStopped: true, backupInsideDataDir: true });
+    console.log('[PCF migration] Completed: ' + JSON.stringify(report));
+  } catch (error) {
+    console.error('[PCF migration] Automatic migration failed; original PCF files retained. Serving legacy HTML fallback; fix the cause and restart to retry.', error);
+  }
+}
+
+export function migratePcfJson(options: { dataDir: string; dbPath?: string; dryRun?: boolean; hubStopped?: boolean; backupInsideDataDir?: boolean }) {
   const dataDir = path.resolve(options.dataDir), dbPath = path.resolve(options.dbPath || path.join(dataDir, 'papc.db'));
-  if (path.dirname(dbPath) !== dataDir) throw Error('Migration requires the database directly inside dataDir so the complete backup contains DB and WAL');
+  if (!options.backupInsideDataDir && path.dirname(dbPath) !== dataDir) throw Error('Migration requires the database directly inside dataDir so the complete backup contains DB and WAL');
   if (!existsSync(dbPath)) throw Error('Database not found');
   if (!options.dryRun && !options.hubStopped) throw Error('Stop Hub first and pass --hub-stopped');
   const base = path.join(dataDir, 'pcf'), intentFile = path.join(dataDir, '.pcf-json-migration.json');
+  // Back up before validation/recovery can touch anything. A failed validation
+  // also leaves operators a timestamped copy of the exact input.
+  const startupFullBackup = !options.dryRun && options.backupInsideDataDir ? startupBackup(dataDir, dbPath) : '';
   let recovered = false;
   if (existsSync(intentFile)) {
     if (options.dryRun) throw Error('An interrupted migration exists; rerun without --dry-run to recover it first');
@@ -64,7 +109,10 @@ export function migratePcfJson(options: { dataDir: string; dbPath?: string; dryR
     let version = 0; inspectDatabase(dbPath, db => { version = Number(db.prepare('PRAGMA user_version').get()!.user_version); });
     if (version > 2) throw Error('Database is newer than this migration tool; interrupted migration left untouched');
     const backup = path.join(dataDir, intent.htmlBackup), stage = path.join(dataDir, intent.stage);
-    if (version < 2 && existsSync(backup)) {
+    // For a version-2 mixed migration the version cannot identify the commit.
+    // Restore the old directory and retry; no requests ran since the journal
+    // was written, and the scan accepts either HTML or JSON index pointers.
+    if ((version < 2 || intent.fromVersion === 2) && existsSync(backup)) {
       if (existsSync(base)) rmSync(base, { recursive: true });
       renameSync(backup, base);
     }
@@ -84,22 +132,22 @@ export function migratePcfJson(options: { dataDir: string; dbPath?: string; dryR
       const converted = conversions.find(c => c.kind === 'document' && c.relative === rel);
       if (converted) {
         if (Number(row.rev) > converted.rev) throw Error('Index ahead of PCF file; restore backup: ' + rel);
-        if (String(row.file_path) !== 'pcf/' + rel) throw Error('Unexpected indexed path: ' + rel);
+        if (!['pcf/' + rel, 'pcf/' + rel.replace(/\.html$/, '.json')].includes(String(row.file_path))) throw Error('Unexpected indexed path: ' + rel);
       } else if (!existsSync(path.join(base, rel.replace(/\.html$/, '.json')))) throw Error('Indexed PCF file missing: ' + rel);
     }
   });
-  if (version === 2 && conversions.length) throw Error('Database says JSON conversion is complete but legacy documents remain');
+  const alreadyMigrated = version === 2 && conversions.length === 0;
   const report = {
-    dryRun: !!options.dryRun, dataDir, recovered, status: version === 2 ? 'already-migrated' : options.dryRun ? 'would-migrate' : 'migrated',
+    dryRun: !!options.dryRun, dataDir, recovered, status: alreadyMigrated ? 'already-migrated' : options.dryRun ? 'would-migrate' : 'migrated',
     documents: conversions.filter(c => c.kind === 'document').length, snapshots: conversions.filter(c => c.kind === 'snapshot').length,
     indexedDocuments: indexed, retainedFiles: retained.length,
     htmlBytes: conversions.reduce((n, c) => n + c.bytes, 0), jsonBytes: conversions.reduce((n, c) => n + Buffer.byteLength(c.json), 0),
     fromVersion: version, toVersion: 2, fullBackup: '', htmlBackup: '',
   };
-  if (options.dryRun || version === 2) return report;
+  if (options.dryRun || alreadyMigrated) return report;
   const stamp = new Date().toISOString().replace(/[:.]/g, '-') + '-' + randomUUID();
-  const fullBackup = dataDir + '-backup-before-pcf-json-' + stamp;
-  cpSync(dataDir, fullBackup, { recursive: true, errorOnExist: true, force: false });
+  const fullBackup = startupFullBackup || dataDir + '-backup-before-pcf-json-' + stamp;
+  if (!startupFullBackup) cpSync(dataDir, fullBackup, { recursive: true, errorOnExist: true, force: false });
   const stageName = '.pcf-json-stage-' + randomUUID(), backupName = 'pcf-html-backup-' + stamp;
   const stage = path.join(dataDir, stageName), htmlBackup = path.join(dataDir, backupName);
   let movedOld = false, installed = false, committed = false;
@@ -118,7 +166,7 @@ export function migratePcfJson(options: { dataDir: string; dbPath?: string; dryR
       if (typeof value.filename === 'string') value.filename = value.filename.replace(/\.html$/, '.json');
       atomicWrite(file, JSON.stringify(value));
     }
-    atomicWrite(intentFile, JSON.stringify({ stage: stageName, htmlBackup: backupName, fullBackup }));
+    atomicWrite(intentFile, JSON.stringify({ stage: stageName, htmlBackup: backupName, fullBackup, fromVersion: version }));
     db.exec('BEGIN EXCLUSIVE');
     try {
       if (existsSync(base)) { renameSync(base, htmlBackup); movedOld = true; }

@@ -50,7 +50,7 @@ npm run hub:dev 启动同源开发模式；npm run hub:build 构建前端与服�
 ## PCF JSON 存储、迁移与备份
 
 - 权威文件：`data/pcf/<项目ID>/<图纸ID>.json`，历史：`.history/<图纸ID>/*.json`。SQLite 只存指针和摘要。
-- 旧 HTML 数据必须停服迁移：`npm run hub:migrate-pcf-json -- --data-dir <副本目录> --dry-run` 先校验；确认副本无服务使用后以 `--hub-stopped` 实跑。脚本自动完整备份并保留 `pcf-html-backup-*` 目录，原始往来 HTML 不转换。详见 [迁移与回滚](docs/PCF_JSON_MIGRATION.md)。
+- Hub 启动在监听前检测旧 HTML/混合存储，先备份 PCF 和 DB/WAL/SHM 到数据目录下 `backups/before-pcf-json-<时间>-<uuid>/`，再自动转换并保留 `pcf-html-backup-*`；失败记录原因并回退旧 HTML 读写，修正原因后重启重试。部署需重新 `npm run hub:build` 再重启，无需手动停服跑迁移。也可用 `npm run hub:migrate-pcf-json -- --data-dir <副本目录> --dry-run` 校验；确认副本无服务使用后以 `--hub-stopped` 离线实跑。原始往来 HTML 不转换。详见 [迁移与回滚](docs/PCF_JSON_MIGRATION.md)。
 - PCF 图片改为按内容哈希单独存储（JSON 和历史只存引用）。上线时停服、备份 data 后执行 `npm run hub:migrate-pcf-images -- --data-dir <数据目录> --dry-run`，再加 `--hub-stopped` 实跑；可重跑。详见 [PCF 图片存储与历史保留](docs/PCF_IMAGE_STORAGE.md)。
 - 完整副本保留业务历史，外发版继续按白名单裁剪；Send All 仍是船厂版 ZIP。完整副本导回使用导出基线三方合并。
 - `npm run hub:export-pcf -- --project <项目ID> --data-dir <数据目录> --output <新ZIP路径> --hub-stopped` 导出项目完整 HTML 副本（记录基线）。ZIP 不包含数据库、全部审计或密钥，不能替代停服后备份整个 `data/`。

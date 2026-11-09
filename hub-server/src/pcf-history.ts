@@ -7,7 +7,7 @@ import { projectDateKey } from '../../lib/deadline.ts';
 export function historyEntries(directory: string) {
   if (!existsSync(directory)) return [];
   return readdirSync(directory).flatMap(filename => {
-    const match = filename.match(/^(\d+)-(\d+)-[a-f0-9-]+\.json$/);
+    const match = filename.match(/^(\d+)-(\d+)-[a-f0-9-]+\.(json|html)$/);
     return match ? [{ rev: Number(match[1]), savedAt: new Date(Number(match[2])).toISOString(), filename }] : [];
   }).sort((a, b) => b.rev - a.rev);
 }

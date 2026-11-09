@@ -14,7 +14,9 @@ npm run hub:test 保留所有原有测试并增加 Send All 覆盖。旧数据�
 
 ## JSON 存储维护
 
-PCF 文档与历史直接读写 JSON；模板启动时缓存，`hub:dev` 下按文件变更重新加载。数据库启动只运行 001 结构迁移，002 PCF 文件迁移由 `hub:migrate-pcf-json` 显式执行并用 `PRAGMA user_version=2` 记录完成；不会启动时悄悄转换 HTML。
+PCF 文档与历史直接读写 JSON；模板启动时缓存，`hub:dev` 下按文件变更重新加载。Hub 在打开数据库和监听端口前检测旧 HTML/混合存储，自动复用 `hub:migrate-pcf-json` 迁移，成功后用 `PRAGMA user_version=2` 记录完成。已转换且没有残留 HTML 的目录再次启动不重复迁移或备份。
+
+自动迁移前备份 PCF 目录及数据库（含存在的 WAL/SHM）到 `data/backups/before-pcf-json-<时间>-<uuid>/`；自定义数据目录和外置 `PAPC_DB_PATH` 同样适用。私有 staging 校验完成后才安装目录并提交索引；失败保留原文件，日志明确显示原因和 HTML fallback。有效旧 PCF 仍能打开、编辑、保存，历史 HTML 仍可读取/恢复；运行期间出现的旧文件也可按需回退读取。失败后修正原因并重启会重试；不执行收到的 HTML 脚本。
 
 `npm run hub:migrate-pcf-json -- --data-dir <副本> --dry-run` 校验；`--hub-stopped` 实跑并自动备份。数据库必须直接位于数据根目录以保证整体备份包含 DB/WAL。
 
@@ -22,6 +24,6 @@ PCF 文档与历史直接读写 JSON；模板启动时缓存，`hub:dev` 下按�
 
 ## 阶段 3 兼容性
 
-- 启动时对结构版本 1/2 幂等删除旧 api_* 兼容视图；不推进 user_version，不触发 PCF HTML 转换。001 历史迁移保持原文，仅测试用 legacy-views.sql 验证旧读模型。
+- 启动时对结构版本 1/2 幂等删除旧 api_* 兼容视图；结构初始化本身不推进 user_version，PCF 自动迁移由前述启动转换流程负责。001 历史迁移保持原文，仅测试用 legacy-views.sql 验证旧读模型。
 - 新旧实现对比可复跑 `node hub-server/scripts/test-parity.mjs`，从 git 的 c39a8f5 提取旧 Worker 到临时目录，6 项对比均执行，不依赖现存 worker/。
 - 项目密码错误改为 JSON 后，HubApiRepository 仍提取 PASSWORD_REQUIRED / INVALID_PASSWORD 保持提示。PCF 的 API_TOKEN 输入页面仍保留为 HTML 认证挑战，不是 API 错误。

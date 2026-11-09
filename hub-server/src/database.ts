@@ -20,9 +20,9 @@ export function migrationSql(name: string): string {
 
 // Version 1 is the baseline schema, applied automatically to every database.
 export const BASELINE_SCHEMA_VERSION = 1;
-// Version 2 is reserved for the offline PCF HTML -> JSON conversion. It is
-// never applied at startup: the explicit migration script verifies the JSON
-// files and rewrites the index first, then calls applyPcfJsonMigration().
+// Version 2 records PCF HTML -> JSON conversion. The startup/offline converter
+// verifies the files and backs them up before applying this step; schema
+// initialization alone must never mark legacy files as converted.
 export const PCF_JSON_STORAGE_VERSION = 2;
 export const KNOWN_SCHEMA_VERSION = PCF_JSON_STORAGE_VERSION;
 
@@ -108,7 +108,7 @@ export function applyPcfJsonMigration(db: DatabaseSync): void {
   if (current < BASELINE_SCHEMA_VERSION) {
     throw new Error('PCF JSON migration requires schema version ' + BASELINE_SCHEMA_VERSION + '; open the database once first.');
   }
-  if (current >= PCF_JSON_STORAGE_VERSION) return;
+  if (current > PCF_JSON_STORAGE_VERSION) throw new Error('Database is newer than this migration tool');
   db.exec('SAVEPOINT pahub_pcf_json_migration');
   try {
     db.exec(migrationSql('002_pcf_json_storage.sql'));
@@ -140,7 +140,7 @@ export function initializeSchema(db: DatabaseSync): void {
   migrateLegacyProjectPath(db);
   migrate(db);
   // Retire legacy read views for either storage version (1=HTML, 2=JSON).
-  // Do not advance user_version: version 2 remains an explicit offline conversion.
+  // Do not advance user_version here; the PCF converter owns version 2.
   for (const view of ['api_settings', 'api_projects', 'api_project_details', 'api_review_trackers']) db.exec('DROP VIEW IF EXISTS ' + view);
   const violations = db.prepare('PRAGMA foreign_key_check').all();
   if (violations.length) throw new Error('Foreign-key violations: ' + JSON.stringify(violations.slice(0, 5)));
