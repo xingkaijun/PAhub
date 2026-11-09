@@ -2,6 +2,45 @@
 
 本文件记录 2026 年 11 月 9 日（北京时间）对 PAhub 做的一次代码审查和随后的 5 轮修改：每轮的目的、具体改动、接口和命令的变化、对使用者的影响、迁移步骤、测试结果和提交号。时间均为北京时间（UTC+8）。以后的更新请按同样的格式续写在最上面。
 
+## 修复操作说明里的 7 个已知问题（2026-11-10）
+
+### 目的
+
+按 main 62ca2a5 写中文操作说明时，在“已知问题”一节记下了 7 处和现状不符或容易出事的地方。这一轮全部修掉。
+
+### 具体修改
+
+1. **测试数据脚本 `scripts/seed-test-project.mjs` 能用了：** 原来调用已删除的整项目 PUT，返回 405。现在：
+   - 项目、设置、图纸和 Review Tracker 走 `PATCH /api/projects/:id`（主表保存用的同一个按字段写入接口，不带版本号即直接写入）；PCF 照旧走 `create` + `PUT document`（importJSON）。
+   - 服务器设了 `ADMIN_PASSWORD` 时，先 `POST /api/session` 登录取管理员 cookie；用法 `ADMIN_PASSWORD=<管理员密码> node scripts/seed-test-project.mjs [baseUrl]`。没给密码会直接提示怎么运行。没设 `ADMIN_PASSWORD` 的 Hub 不用登录。
+   - 图纸 id 改成 `demo2684-dwg-001` 这样带项目前缀，避免和库里别的项目的 `dwg-001` 撞 id。
+   - 可以重复运行：同 id 覆盖写入，项目里不属于脚本的图纸会被删掉，第二次运行结果和第一次一样。
+2. **Guide 页（`components/Manual.tsx`）按现在的代码改正：** 中英文第 1 节重写为“服务器数据、保存与登录”：访客 / 管理员两种身份、哪些操作要管理员、`ADMIN_PASSWORD` 登录 12 小时有效、没设时人人是管理员；停 3 秒自动保存（只发改过的字段）、定时同步（Config 的 Auto-Sync Interval，默认 3 分钟）、Unsaved Changes 卡片上的 Save Now；实时推送；同一字段冲突时的黄色提示条。另外改了：指令栏需要管理员、`c:` 和 `v:` 对有 PCF 的图纸不适用；状态流转的说明（Waiting Reply → Reviewing 进下一轮）；Tracker 的 APR 和 Send All；意见数来自 PCF 自动统计；去掉 “Version 4.0-Cloud” “Secure Cloud” 等旧说法。
+3. **Bulk Load 标题含逗号不再被截断：** 解析抽到 `lib/bulk-load.ts`。格式仍是“ID, 图号, 专业, 标题”，第三个分隔符之后的内容全部归标题；支持英文逗号和中文逗号；兼容 CSV 引号写法（`"Hatch cover, ""No. 1"""`）；从 Excel 复制来的制表符分隔行只按制表符分。不满 4 列的行跳过，并弹提示列出被跳过的行（原来是悄悄跳过）。
+4. **主表删图纸先确认：** 垃圾桶按钮点了先弹确认框，写明图号、标题和 ID；点取消什么都不删（`lib/drawing-delete.ts`）。主表没有批量删除入口，指令栏也没有删除指令，所以只有这一处。
+5. **Log 页 Export PDF 不再依赖外网 CDN：** 原来运行时从 cdnjs 加载 html2canvas 和 jsPDF。现在改成 npm 依赖 `html2canvas-pro` + `jspdf`，点导出时按需动态 import，构建成单独的本地 chunk，不进主包。用 `html2canvas-pro` 而不是 `html2canvas`，是因为后者不认 Tailwind v4 的 oklch 颜色，生成 PDF 会直接报错。报表和页头用的 PG 标志原来是外链 `i.postimg.cc`，也改成本地的 `/pg-logo.jpg`（放在 `public/`），纯内网下页头和 PDF 里也有标志。
+6. **Tracker 的 Export CSV：** Drawing No 列现在是真正的图号（原来放的是 ID），另加 ID 列放自定义编号。列为 `No, ID, Drawing No, Title, Discipline, Status, Overdue, Deadline, 各负责人`。生成逻辑抽到 `lib/tracker-csv.ts`。
+7. **作废导出（Void）和历史快照恢复要管理员：** 服务器上 `POST /api/pcf/:p/:d/exports/:id/void` 和 `POST /api/pcf/:p/:d/history/:rev/restore` 未登录返回 403 `Administrator permission required`，和其他项目级写入一致；没设 `ADMIN_PASSWORD` 时照旧人人可用。在线 PCF 的 Shipyard correspondence 面板里，访客看到的 Void 按钮是灰的，悬停提示“需要管理员权限”，面板说明里也加了一句。历史快照恢复目前前端没有按钮，只改了接口。
+
+### 接口与命令变化
+
+- Void、历史快照恢复两个接口现在要管理员会话（或 `API_TOKEN`）。
+- `scripts/seed-test-project.mjs` 支持 `ADMIN_PASSWORD` 环境变量（也认 `PAHUB_ADMIN_PASSWORD`），演示项目的图纸 id 改成 `demo2684-dwg-NNN`。
+- 新增依赖 `html2canvas-pro`、`jspdf`；新增静态文件 `public/pg-logo.jpg`。
+
+### 对使用者的影响
+
+- 访客不能再作废船厂导出，要先登录管理员。
+- 删图纸会多一步确认。
+- 以前用旧脚本灌过演示项目的库，再跑新脚本时，旧的 `dwg-NNN` 图纸会被当成多余的删掉，换成新 id 的同一批图纸（旧 id 上的 PCF 文件不会自动删）。
+
+### 测试
+
+- 新增 `hub-server/test/known-issues.test.ts`（4 条）：Bulk Load 标题逗号、引号 / 制表符 / 短行；Tracker CSV 的 Drawing No 和 ID 列；删除确认（取消不删、确认才删、提示里有图号和标题）。
+- `permissions.test.ts` 新增 2 条：访客调 Void 和历史恢复都返回 403 且数据不变、管理员可以；没设 `ADMIN_PASSWORD` 时两者都开放。
+- 新增浏览器测试 `known-issues-browser-smoke.mjs`（已加进 `hub:e2e`），在设了 `ADMIN_PASSWORD` 的真服务器上：跑种子脚本两次（100 张图纸、300 条意见、0 条警告，两次结果一致），没密码时退出码 1 并提示；Guide 中英文内容；Bulk Load 含逗号的标题完整存进服务器；删除确认框取消后图纸还在、确认后服务器上已删；Tracker CSV 的图号列；屏蔽所有外网请求后 Log 的 Export PDF 仍能生成 PDF；访客 Void 按钮为灰、接口 403，管理员在页面上作废成功。控制台错误 0 个，意外的 4xx/5xx 0 个。
+- 结果：前端 tsc EXIT=0；hub:build EXIT=0；hub:test EXIT=0，tests 258，pass 258，fail 0，cancelled 0，skipped 0；hub:e2e EXIT=0，e2e 10，pass 10，fail 0。
+
 ## 权限重整：管理员密码 + 审图人员只能处理 PCF（2026-11-09）
 
 ### 目的

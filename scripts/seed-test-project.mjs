@@ -1,6 +1,11 @@
 // 生成一个测试项目：100 张图纸 + 300 条意见（多轮次、多专业、多开关状态）
 // 用法：node scripts/seed-test-project.mjs [baseUrl]
-// 前提：npm run hub:dev 已在运行（本脚本走 HTTP API，不直接改 SQLite / PCF HTML）
+//       设了 ADMIN_PASSWORD 的 Hub：ADMIN_PASSWORD=<管理员密码> node scripts/seed-test-project.mjs [baseUrl]
+// 前提：Hub 已在运行（npm run hub:dev 或 hub:start）。本脚本走 HTTP API，不直接改 SQLite / PCF HTML：
+//   - 项目、设置、图纸、Review Tracker：PATCH /api/projects/:id（和主表保存同一个接口，按字段写入）
+//   - PCF：POST /api/pcf/.../create，再 PUT .../document（importJSON，等同 PCF 页面的 Import JSON）
+//   这些都是项目级写入，要管理员；没设 ADMIN_PASSWORD 的 Hub 人人都是管理员，不用登录。
+// 可重复运行：同 id 的图纸覆盖写入，项目里多出来的（不属于本脚本的）图纸会被删掉。
 import { randomUUID } from 'node:crypto';
 
 const BASE = (process.argv[2] || 'http://localhost:8080').replace(/\/$/, '');
@@ -160,15 +165,34 @@ const isoDate = (offset) => day(offset).toISOString().slice(0, 10);
 const isoStamp = (offset, hour = 9) => { const d = day(offset); d.setHours(hour, 0, 0, 0); return d.toISOString(); };
 const roundLetter = (n) => { let s = '', v = n; while (v > 0) { v -= 1; s = String.fromCharCode(65 + (v % 26)) + s; v = Math.floor(v / 26); } return s; };
 
+let adminCookie = '';
+
 async function api(path, options = {}) {
   const res = await fetch(BASE + path, {
     method: options.method || 'GET',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...(adminCookie ? { Cookie: adminCookie } : {}) },
     body: options.body === undefined ? undefined : JSON.stringify(options.body),
   });
   const text = await res.text();
-  if (!res.ok) throw new Error(`${options.method || 'GET'} ${path} -> ${res.status} ${text.slice(0, 400)}`);
+  if (res.status === 403 && /Administrator permission required/.test(text)) {
+    throw new Error(`${options.method || 'GET'} ${path} -> 403：这个 Hub 设了 ADMIN_PASSWORD，请用 ADMIN_PASSWORD=<管理员密码> 运行本脚本`);
+  }
+  if (!res.ok && !(options.allow || []).includes(res.status)) throw new Error(`${options.method || 'GET'} ${path} -> ${res.status} ${text.slice(0, 400)}`);
   return text ? JSON.parse(text) : null;
+}
+
+// 设了 ADMIN_PASSWORD 的 Hub：先登录拿管理员会话（和页面上的管理员登录同一个接口）
+async function loginAdmin() {
+  const session = await api('/api/session');
+  if (!session?.requiresPassword) return; // 没设 ADMIN_PASSWORD：人人都是管理员
+  const password = process.env.ADMIN_PASSWORD || process.env.PAHUB_ADMIN_PASSWORD || '';
+  if (!password) throw new Error('这个 Hub 设了 ADMIN_PASSWORD，请用 ADMIN_PASSWORD=<管理员密码> node scripts/seed-test-project.mjs 运行');
+  const res = await fetch(BASE + '/api/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password }) });
+  if (!res.ok) throw new Error(`管理员登录失败：${res.status} ${(await res.text()).slice(0, 200)}`);
+  const cookies = typeof res.headers.getSetCookie === 'function' ? res.headers.getSetCookie() : [res.headers.get('set-cookie') || ''];
+  adminCookie = cookies.map((c) => c.split(';')[0]).filter(Boolean).join('; ');
+  if (!adminCookie) throw new Error('管理员登录没有返回会话 Cookie');
+  console.log('已登录管理员');
 }
 
 // ---------- 1. 构建图纸 ----------
@@ -209,7 +233,7 @@ for (let i = 0; i < DRAWING_COUNT; i++) {
 
   const receivedOffset = -intBetween(20, 120);
   drawings.push({
-    id: `dwg-${seq}`,
+    id: `demo2684-dwg-${seq}`, // 图纸 id 全库唯一：加项目前缀，避免和别的项目里的 dwg-001 冲突
     customId: `H2684-${disc.code}-${seq}`,
     drawingNo: `PG-H2684-${disc.code}-${seq}`,
     discipline: disc.name,
@@ -315,11 +339,21 @@ for (const d of drawings) {
 }
 
 const payloadDrawings = drawings.map(({ _roundNum, _receivedOffset, _commentCount, ...rest }) => rest);
+await loginAdmin();
 console.log('写入项目与图纸…');
-await api(`/api/projects/${encodeURIComponent(PROJECT_ID)}`, {
-  method: 'PUT',
-  body: { project: { id: PROJECT_ID, name: PROJECT_NAME, drawings: payloadDrawings, conf }, reviewTracker },
+// 再次运行时：项目里不属于本脚本的图纸删掉，保证结果和第一次一样
+const found = await api(`/api/projects/${encodeURIComponent(PROJECT_ID)}`, { method: 'POST', body: {}, allow: [404] });
+const existing = Array.isArray(found?.drawings) ? found : null;
+const seededIds = new Set(payloadDrawings.map((d) => d.id));
+const staleIds = (existing?.drawings || []).map((d) => d.id).filter((id) => !seededIds.has(id));
+// 按字段保存的接口（PATCH）：不带版本号和 base 值时直接写入，适合灌数据
+const patched = await api(`/api/projects/${encodeURIComponent(PROJECT_ID)}`, {
+  method: 'PATCH',
+  body: { projectName: PROJECT_NAME, conf, updatedDrawings: payloadDrawings, deletedDrawingIds: staleIds, reviewTracker },
 });
+if (!patched?.success) throw new Error('写入项目失败：' + JSON.stringify(patched).slice(0, 400));
+if (existing && existing.name !== PROJECT_NAME) console.warn(`注意：项目已存在，名称仍是“${existing.name}”（PATCH 不改已有项目的名称）`);
+console.log(`  图纸：写入 ${patched.drawings.length} 张${staleIds.length ? `，删除旧图纸 ${staleIds.length} 张` : ''}`);
 
 // ---------- 4. 为每张图纸生成 PCF 文档与意见 ----------
 let written = 0;

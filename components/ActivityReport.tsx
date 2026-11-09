@@ -328,7 +328,7 @@ const ProjectActivityReport: React.FC<{ activeProject: Project }> = ({ activePro
             {/* 左：标题 + Logo */}
             <div className="flex items-center gap-4">
               <div className="bg-white p-1 rounded-lg shadow-sm border border-slate-100 overflow-hidden">
-                <img src="https://i.postimg.cc/7LVr6n5m/PG-Logo.jpg" alt="Logo" className="h-8 w-auto object-contain" />
+                <img src="/pg-logo.jpg" alt="Logo" className="h-8 w-auto object-contain" />
               </div>
               <div>
                 <h2 className="text-lg font-[1000] text-slate-800 uppercase tracking-tight flex items-center gap-2">

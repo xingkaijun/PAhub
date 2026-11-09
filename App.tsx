@@ -428,7 +428,7 @@ const App: React.FC = () => {
             <div className="relative flex items-center gap-4">
               <div className="bg-white/95 p-1.5 rounded-2xl shadow-lg border border-white/40">
                 <img
-                  src="https://i.postimg.cc/7LVr6n5m/PG-Logo.jpg"
+                  src="/pg-logo.jpg"
                   alt="PG SHIPMANAGEMENT PTE. LTD. Logo"
                   className="h-10 w-auto object-contain"
                 />
@@ -464,7 +464,7 @@ const App: React.FC = () => {
               <div className="group relative flex flex-col items-center justify-center rounded-3xl border border-slate-100 bg-white shadow-lg shadow-slate-200/40 h-[260px] overflow-hidden">
                 <div className="w-full h-full flex flex-col items-center justify-center p-4 bg-gradient-to-br from-white to-slate-50/50">
                   <img
-                    src="https://i.postimg.cc/7LVr6n5m/PG-Logo.jpg"
+                    src="/pg-logo.jpg"
                     alt="PG SHIPMANAGEMENT PTE. LTD. Logo"
                     className="w-[95%] sm:w-[85%] md:w-full max-w-xs h-auto object-contain drop-shadow-md opacity-95 transition-transform duration-700 hover:scale-[1.05]"
                   />
@@ -602,7 +602,7 @@ const App: React.FC = () => {
             <div className="relative">
               <div className="bg-white/95 p-1.5 rounded-2xl shadow-lg border border-white/40 transition-transform group-hover:scale-105 active:scale-95 overflow-hidden">
                 <img
-                  src="https://i.postimg.cc/7LVr6n5m/PG-Logo.jpg"
+                  src="/pg-logo.jpg"
                   alt="PG SHIPMANAGEMENT PTE. LTD. Logo"
                   className="h-8 w-auto object-contain"
                 />

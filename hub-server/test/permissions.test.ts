@@ -161,6 +161,60 @@ test('PCF document edits are open to reviewers; JSON replacement and reply/impor
   } finally { await f.cleanup(); }
 });
 
+test('voiding a shipyard export and restoring a history snapshot need an administrator', async () => {
+  const f = await fixture({ password: PASSWORD });
+  try {
+    const base = '/api/pcf/proj-test-001/dwg-005';
+    assert.equal((await f.request(base + '/create', jsonPost({}))).status, 200);
+    let live = await (await f.request(base + '/data')).json() as any;
+    // Reviewers may still save the document (this creates a history snapshot) and export to the shipyard.
+    const saved = await f.request(base + '/ops', jsonPost({ clientId: 'reviewer', baseRev: live.rev, batchId: '44444444-4444-4444-8444-444444444444', ops: [{ type: 'project.set', field: 'approval', baseRev: 0, value: 'Under review' }] }));
+    assert.equal(saved.status, 200);
+    const exported = await f.request(base + '/exports', jsonPost({ clientId: 'reviewer', mode: 'builder' }));
+    assert.equal(exported.status, 200, 'export to the shipyard stays open to reviewers');
+    const exportId = ((await exported.json()) as any).exportId;
+    assert.ok(exportId);
+    const history = await (await f.request(base + '/history')).json() as any[];
+    assert.ok(history.length >= 1);
+    const snapshot = history.at(-1).rev;
+    live = await (await f.request(base + '/data')).json() as any;
+
+    const voidDenied = await f.request(base + '/exports/' + exportId + '/void', jsonPost({}));
+    assert.equal(voidDenied.status, 403);
+    assert.match(((await voidDenied.json()) as any).error, /Administrator permission required/);
+    const restoreDenied = await f.request(base + '/history/' + snapshot + '/restore', jsonPost({ clientId: 'reviewer', baseRev: live.rev }));
+    assert.equal(restoreDenied.status, 403);
+    assert.match(((await restoreDenied.json()) as any).error, /Administrator permission required/);
+    const records = await (await f.request(base + '/exports')).json() as any[];
+    assert.equal(records.find(x => x.export_id === exportId).status, 'exported', 'a denied void changes nothing');
+    assert.equal(((await (await f.request(base + '/data')).json()) as any).rev, live.rev, 'a denied restore changes nothing');
+
+    const { header } = await f.login();
+    const admin = (value: unknown): RequestInit => ({ ...jsonPost(value), headers: { 'Content-Type': 'application/json', Cookie: header } });
+    const voided = await f.request(base + '/exports/' + exportId + '/void', admin({}));
+    assert.equal(voided.status, 200);
+    assert.equal(((await (await f.request(base + '/exports')).json()) as any[]).find(x => x.export_id === exportId).status, 'void');
+    const restored = await f.request(base + '/history/' + snapshot + '/restore', admin({ clientId: 'admin', baseRev: live.rev }));
+    assert.equal(restored.status, 200);
+    assert.ok(((await restored.json()) as any).rev > live.rev);
+  } finally { await f.cleanup(); }
+});
+
+test('without ADMIN_PASSWORD void and history restore stay open to everyone', async () => {
+  const f = await fixture();
+  try {
+    const base = '/api/pcf/proj-test-001/dwg-005';
+    assert.equal((await f.request(base + '/create', jsonPost({}))).status, 200);
+    let live = await (await f.request(base + '/data')).json() as any;
+    assert.equal((await f.request(base + '/ops', jsonPost({ clientId: 'dev', baseRev: live.rev, batchId: '55555555-5555-4555-8555-555555555555', ops: [{ type: 'project.set', field: 'approval', baseRev: 0, value: 'Under review' }] }))).status, 200);
+    const exportId = ((await (await f.request(base + '/exports', jsonPost({ clientId: 'dev', mode: 'builder' }))).json()) as any).exportId;
+    assert.equal((await f.request(base + '/exports/' + exportId + '/void', jsonPost({}))).status, 200);
+    const snapshot = ((await (await f.request(base + '/history')).json()) as any[]).at(-1).rev;
+    live = await (await f.request(base + '/data')).json() as any;
+    assert.equal((await f.request(base + '/history/' + snapshot + '/restore', jsonPost({ clientId: 'dev', baseRev: live.rev }))).status, 200);
+  } finally { await f.cleanup(); }
+});
+
 test('the session cookie is Secure only when the request is HTTPS, regardless of NODE_ENV', async () => {
   const previousNodeEnv = process.env.NODE_ENV;
   try {

@@ -319,48 +319,14 @@ export const DailyLogReport: React.FC = () => {
         });
     }, [activeProject, startDate, endDate]);
 
-    // 动态从 CDN 加载脚本（绕过 Vite import 分析）
-    const loadScript = (src: string): Promise<void> => {
-        return new Promise((resolve, reject) => {
-            if (document.querySelector(`script[src="${src}"]`)) { resolve(); return; }
-            const s = document.createElement('script');
-            s.src = src;
-            s.onload = () => resolve();
-            s.onerror = () => reject(new Error(`Failed to load ${src}`));
-            document.head.appendChild(s);
-        });
-    };
-
-    // 导出为 PDF
+    // 导出为 PDF：html2canvas-pro（支持 Tailwind v4 的 oklch 颜色）和 jsPDF 已打包进本地构建，按需动态加载（单独的 chunk），不依赖外网 CDN，纯内网也能用
     const handleDownloadPDF = async () => {
         setIsGeneratingPDF(true);
         try {
-            // 尝试多个 CDN 源
-            const cdnSources = [
-                {
-                    html2canvas: 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js',
-                    jspdf: 'https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js'
-                },
-                {
-                    html2canvas: 'https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js',
-                    jspdf: 'https://unpkg.com/jspdf@2.5.2/dist/jspdf.umd.min.js'
-                }
-            ];
-
-            let loaded = false;
-            for (const cdn of cdnSources) {
-                try {
-                    await Promise.all([loadScript(cdn.html2canvas), loadScript(cdn.jspdf)]);
-                    loaded = true;
-                    break;
-                } catch { /* try next CDN */ }
-            }
-
-            if (!loaded) throw new Error('CDN unavailable');
-
-            const html2canvas = (window as any).html2canvas;
-            const jsPDF = (window as any).jspdf?.jsPDF;
-            if (!html2canvas || !jsPDF) throw new Error('Libraries not loaded');
+            const [{ default: html2canvas }, { jsPDF }] = await Promise.all([
+                import('html2canvas-pro'),
+                import('jspdf')
+            ]);
 
             const printElement = document.getElementById('print-transmittal-area');
             if (!printElement) return;
@@ -830,7 +796,7 @@ export const DailyLogReport: React.FC = () => {
                 <div className="flex justify-between items-end border-b-2 border-slate-900 pb-4 mb-6">
                     <div className="flex items-center">
                         <img
-                            src="https://i.postimg.cc/7LVr6n5m/PG-Logo.jpg"
+                            src="/pg-logo.jpg"
                             alt="PG SHIPMANAGEMENT PTE. LTD. Logo"
                             className="h-16 w-auto object-contain"
                         />

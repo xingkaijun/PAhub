@@ -115,6 +115,9 @@ export class PcfApi {
       if (replacing) return json({ error: 'Administrator permission required' }, 403);
     }
     if (request.method === 'POST' && tail === 'imports' && this.requiresAdmin(request)) return json({ error: 'Administrator permission required' }, 403);
+    // Voiding a shipyard export and restoring a history snapshot change the project's correspondence record
+    // or replace the whole document: administrator-only, like the other project-level writes.
+    if (request.method === 'POST' && (/^exports\/[a-f0-9-]+\/void$/i.test(tail) || /^history\/\d+\/restore$/.test(tail)) && this.requiresAdmin(request)) return json({ error: 'Administrator permission required' }, 403);
     if (tail === 'events' && request.method === 'GET') {
       return this.storage.serial(p, d, () => {
         const { rev } = this.storage.load(p, d);

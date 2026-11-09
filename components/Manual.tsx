@@ -44,7 +44,7 @@ export const Manual: React.FC = () => {
             <p className="text-slate-400 text-[10px] font-black uppercase tracking-[0.3em]">Plan Approval Intelligence Platform User Guide</p>
           </div>
           <div className="text-right hidden md:block">
-            <div className="text-[10px] font-black text-teal-600 bg-teal-50 px-3 py-1 rounded-full uppercase tracking-widest inline-block">Version 4.0-Cloud</div>
+            <div className="text-[10px] font-black text-teal-600 bg-teal-50 px-3 py-1 rounded-full uppercase tracking-widest inline-block">PAhub · Self-hosted Server</div>
           </div>
         </div>
 
@@ -57,19 +57,22 @@ export const Manual: React.FC = () => {
               <span className="text-lg font-black text-slate-900 uppercase tracking-tight">English Manual</span>
             </header>
 
-            <Section icon={<Cloud size={18} />} title="1. Server-First Sync & Auto-Save">
+            <Section icon={<Cloud size={18} />} title="1. Server Data, Saving & Sign-in">
               <ul className="space-y-3 text-[11px] font-medium text-slate-600 leading-relaxed">
-                <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-500" /> <strong>Pure Real-time Cloud:</strong> Our system is entirely cloud-based. Every action is saved instantly to the database. There is no manual "save" button.</li>
-                <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-500" /> <strong>Collaboration Protection:</strong> Multiple users can access the system simultaneously. Use Edit Mode lock to prevent conflicts when making changes.</li>
+                <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-500" /> <strong>Server is the source of truth:</strong> All project data lives in the PAhub server database on your own network. Opening a project always loads it from the server.</li>
+                <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-500" /> <strong>Two roles:</strong> Everyone can view every page, export reports and edit PCFs online as a <strong>Reviewer</strong>. Project-wide changes (editing the drawing list, status changes, command bar, Config, Bulk Load, Team Setup, importing builder replies or JSON, Send All, voiding a shipyard export, restoring a PCF history snapshot) need an <strong>Administrator</strong>: click <strong>Reviewer</strong> in the toolbar and sign in with the server&apos;s <code>ADMIN_PASSWORD</code>. The sign-in lasts 12 hours. If the server has no <code>ADMIN_PASSWORD</code>, everyone is an administrator.</li>
+                <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-500" /> <strong>Auto-save + Save Now:</strong> As an administrator, your edits are saved automatically 3 seconds after the last change; only the fields you changed are sent. A scheduled sync also runs every few minutes (Config → Auto-Sync Interval, default 3 min; 0 turns it off). While changes are pending, an <strong>Unsaved Changes</strong> card shows the count and a <strong>Save Now</strong> button; <strong>Sync to Cloud</strong> also saves immediately.</li>
+                <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-500" /> <strong>Live updates:</strong> Changes saved by others arrive in real time; only the changed drawings are re-read and a teal &quot;Updated by others&quot; note appears. Your unsaved edits are kept.</li>
+                <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-500" /> <strong>Conflict protection:</strong> If someone else saved the same field first, your save is refused for that batch, the field shows the server value and a yellow <strong>save conflict</strong> banner names it. Edits to different fields of the same drawing are both kept. Reload old browser tabs after an update so they get this protection.</li>
               </ul>
             </Section>
 
             <Section icon={<Terminal size={18} />} title="2. Intelligence Command Bar">
               <div className="bg-slate-50 p-4 rounded-2xl space-y-3">
-                <p className="text-[10px] font-bold text-slate-500 uppercase mb-2 italic tracking-tight">Powerful shortcuts for fast logging:</p>
+                <p className="text-[10px] font-bold text-slate-500 uppercase mb-2 italic tracking-tight">Shortcuts for fast logging (administrator only):</p>
                 <div className="space-y-2">
                   <CommandItem code="@001 Content" desc="Add an internal note to drawing with ID 001." />
-                  <CommandItem code="@001 c:12/3" desc="Set comments to 12 total, 3 open." />
+                  <CommandItem code="@001 c:12/3" desc="Set comments to 12 total, 3 open (not for drawings with a PCF)." />
                   <CommandItem code="@R 001, 002" desc="Batch update status to 'Reviewing'." />
                 </div>
               </div>
@@ -77,14 +80,14 @@ export const Manual: React.FC = () => {
 
             <Section icon={<MousePointer2 size={18} />} title="3. Workflow & Tracker">
               <ul className="space-y-3 text-[11px] font-medium text-slate-600 leading-relaxed">
-                <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-500" /> <strong>Status Logic:</strong> Toggle statuses (Pending → Reviewing → Approved) by clicking the badge. Overdue items are flagged automatically.</li>
-                <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-500" /> <strong>Review Tracker:</strong> Cross-check assignee completion status. Use the APR (Approve) button to quickly finalize fully reviewed items. All tracker states are persistent.</li>
+                <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-500" /> <strong>Status Logic:</strong> Pick the status (Pending / Reviewing / Waiting Reply / Approved) from the Status column (administrator). Moving from Waiting Reply back to Reviewing starts the next round (A → B …) and sets a new deadline in working days (Config: round A cycle / other rounds cycle). Overdue items are flagged automatically.</li>
+                <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-500" /> <strong>Review Tracker:</strong> Shows drawings in Reviewing. Tick each assignee when done; when all are done the drawing is Ready. Mark Ready drawings with APR to send them as Approved, then <strong>Send All</strong> updates the statuses (Approved or Waiting Reply) and downloads the shipyard PCF package. Tracker states are saved on the server.</li>
               </ul>
             </Section>
 
             <Section icon={<FileText size={18} />} title="4. Daily Log & Activity Reports">
               <ul className="space-y-3 text-[11px] font-medium text-slate-600 leading-relaxed">
-                <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-500" /> <strong>Data Strictness:</strong> Chart calculations explicitly depend solely on the manual Total/Open comments values you log, guaranteeing accurate, transparent trend visualizations.</li>
+                <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-500" /> <strong>Data Strictness:</strong> Comment totals come from each drawing&apos;s PCF (counted automatically on every PCF save); drawings without a PCF use the Total/Open values entered by hand or with <code>c:12/3</code>. Internal notes are never counted.</li>
               </ul>
             </Section>
           </div>
@@ -95,16 +98,19 @@ export const Manual: React.FC = () => {
               <span className="text-lg font-black text-slate-900 uppercase tracking-tight">中文操作规范</span>
             </header>
 
-            <Section icon={<Cloud size={18} />} title="1. 完全云端与防冲突机制">
+            <Section icon={<Cloud size={18} />} title="1. 服务器数据、保存与登录">
               <ul className="space-y-3 text-[11px] font-medium text-slate-600 leading-relaxed">
-                <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-600" /> <strong>实时存档：</strong> 系统基于云原生数据库驱动，我们在客户端所做的任何变更，都会被实时保存到云端服务器中。无需寻找或点击“保存”按钮。</li>
-                <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-600" /> <strong>协作保护：</strong> 多用户可同时访问系统。使用编辑模式锁定功能，避免在修改数据时产生冲突。</li>
+                <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-600" /> <strong>以服务器为准：</strong> 所有项目数据都存在部署在内网的 PAhub 服务器数据库里，打开项目时总是从服务器读取。</li>
+                <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-600" /> <strong>两种身份：</strong> 不登录就是<strong>访客（Reviewer）</strong>，可以查看所有页面、导出报表、在线编辑 PCF。项目级的修改要<strong>管理员（Administrator）</strong>：主表编辑、状态流转、指令栏、Config、Bulk Load、Team Setup、导入船厂回复和 JSON、Send All、作废船厂导出（Void）、恢复 PCF 历史快照。点工具栏上的 <strong>Reviewer</strong>，输入服务器设置的 <code>ADMIN_PASSWORD</code> 登录，12 小时有效。服务器没设 <code>ADMIN_PASSWORD</code> 时，所有人都是管理员。</li>
+                <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-600" /> <strong>自动保存 + Save Now：</strong> 管理员修改后停 3 秒自动保存，只发改过的字段；另外每隔几分钟还会定时同步一次（Config 里的 Auto-Sync Interval，默认 3 分钟，设成 0 关闭）。有没保存的改动时，右下角会出现 <strong>Unsaved Changes</strong> 卡片，显示条数，点 <strong>Save Now</strong> 立即保存；<strong>Sync to Cloud</strong> 按钮也能立即保存。</li>
+                <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-600" /> <strong>实时推送：</strong> 别人保存的改动会实时推送过来，只重读变化的那几张图纸，并显示青色的 “Updated by others” 提示；你还没保存的修改会保留。</li>
+                <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-600" /> <strong>冲突保护：</strong> 如果别人先改了同一个字段，你这一批保存不会写入，这个字段换成服务器上的值，页面顶部黄色的<strong>保存冲突</strong>提示条会写明是哪一项。两个人改同一张图纸的不同字段，两边都保留。系统更新后请刷新还开着的旧页面，旧页面没有这层保护。</li>
               </ul>
             </Section>
 
             <Section icon={<Terminal size={18} />} title="2. 智能指令栏 (Command Bar)">
               <div className="bg-slate-50 p-4 rounded-2xl space-y-6">
-                <p className="text-[10px] font-bold text-slate-500 uppercase mb-2 italic tracking-tight">所有指令均以 <strong>@</strong> 开头（全局搜索除外），支持空格或逗号分隔多个图纸ID执行批量操作：</p>
+                <p className="text-[10px] font-bold text-slate-500 uppercase mb-2 italic tracking-tight">指令栏需要管理员登录。所有指令均以 <strong>@</strong> 开头（全局搜索除外），支持空格或逗号分隔多个图纸ID执行批量操作：</p>
 
                 <div className="space-y-4">
                   <div>
@@ -129,14 +135,14 @@ export const Manual: React.FC = () => {
                     <h4 className="text-[10px] font-black text-slate-700 uppercase mb-2 border-b border-slate-200 pb-1">3. 内部备忘与意见总数</h4>
                     <div className="space-y-1">
                       <CommandItem code="@001 修改坐标" desc="添加纯内部备注 '修改坐标'" />
-                      <CommandItem code="@001 c:10/2" desc="设置对外意见数: 总意见10条 / 未结2条" />
+                      <CommandItem code="@001 c:10/2" desc="设置意见数: 总10条 / 未结2条（有 PCF 的图纸由 PCF 自动统计，不能手改）" />
                     </div>
                   </div>
 
                   <div>
                     <h4 className="text-[10px] font-black text-slate-700 uppercase mb-2 border-b border-slate-200 pb-1">4. 版本与分配人员</h4>
                     <div className="space-y-1">
-                      <CommandItem code="@001 v:C" desc="更新版本为 C" />
+                      <CommandItem code="@001 v:C" desc="更新版本为 C（有 PCF 的图纸由 PCF 管理）" />
                       <CommandItem code="@001 to:Kevin" desc="指派给 Kevin (覆盖)" />
                     </div>
                   </div>
@@ -146,7 +152,7 @@ export const Manual: React.FC = () => {
 
             <Section icon={<MousePointer2 size={18} />} title="3. 流程跟踪与审核">
               <ul className="space-y-3 text-[11px] font-medium text-slate-600 leading-relaxed">
-                <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-600" /> <strong>矩阵化 Tracker：</strong> Tracker 视图帮助统筹全员审图进度。使用底部的 APR (Approve) 按钮可以直接确认该份图纸的整体发行状态。</li>
+                <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-600" /> <strong>矩阵化 Tracker：</strong> 只显示 Reviewing 状态的图纸。每个负责人审完就点亮自己，全部点亮后图纸变成 Ready。Ready 的图纸点 APR 表示这次按 Approved 发出，再点 <strong>Send All</strong>：状态改成 Approved 或 Waiting Reply，并下载船厂版 PCF 压缩包。Tracker 状态保存在服务器上。</li>
                 <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-600" /> <strong>审计日志：</strong> 展开列表行可查看每个文件的详细流转操作记录。</li>
               </ul>
             </Section>
@@ -172,7 +178,7 @@ export const Manual: React.FC = () => {
 
             <Section icon={<FileText size={18} />} title={"4. \u65e5\u5fd7\u4e0e\u6d3b\u52a8\u62a5\u8868"}>
               <ul className="space-y-3 text-[11px] font-medium text-slate-600 leading-relaxed">
-                <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-600" /> <strong>报表严谨性：</strong> Reports 中的总意见生成，严格基于你在表单或命令行（c:5/1）中填写的具体计数执行，不计入日常打卡记录的内部备注文本，保证数据一致。</li>
+                <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-600" /> <strong>报表严谨性：</strong> 意见数来自每张图纸的 PCF，每次保存 PCF 时自动统计；没有 PCF 的图纸才用手工填写或指令栏（c:5/1）录入的总数/未结数。内部备注不计入意见数。</li>
               </ul>
             </Section>
           </div>
@@ -190,13 +196,13 @@ export const Manual: React.FC = () => {
             <div className="flex-1 space-y-4 text-center md:text-left">
               <h3 className="text-xl font-black uppercase tracking-widest">Platform Safety & Best Practices</h3>
               <p className="text-slate-400 text-[11px] font-bold leading-relaxed uppercase tracking-widest">
-                Configure your <strong>Project Settings</strong> to customize auto-sync intervals. Ideally, one team member should act as the <strong>Administrator</strong> to manage bulk imports to avoid conflicts.
+                Set the auto-sync interval in <strong>Config</strong>. Project-wide changes and bulk imports need the <strong>Administrator</strong> sign-in (server <code>ADMIN_PASSWORD</code>); keep a <strong>Local Backup</strong> before large imports.
               </p>
               <div className="pt-4 flex flex-wrap gap-4 justify-center md:justify-start">
                 <TipBadge label="Auto-Sync Enabled" />
                 <TipBadge label="Review Logs Weekly" />
                 <TipBadge label="Project Specific Config" />
-                <TipBadge label="Secure Cloud" />
+                <TipBadge label="Self-hosted Server" />
               </div>
             </div>
           </div>

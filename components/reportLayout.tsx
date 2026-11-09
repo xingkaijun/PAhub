@@ -9,7 +9,7 @@ export const PageHeader: React.FC<{ projectName: string; reportTitle?: string }>
     <div className="flex items-center gap-5">
       <div className="bg-white p-1 rounded-lg shadow-sm border border-slate-100 overflow-hidden shrink-0">
         <img
-          src="https://i.postimg.cc/7LVr6n5m/PG-Logo.jpg"
+          src="/pg-logo.jpg"
           alt="PG SHIPMANAGEMENT PTE. LTD. Logo"
           className="h-10 w-auto object-contain"
         />

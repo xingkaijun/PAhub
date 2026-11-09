@@ -8,6 +8,7 @@ import { RefreshCw, CheckCircle2, Circle, ClipboardCheck, Search, ChevronDown, C
 import { differenceInCalendarDays, format, isAfter } from 'date-fns';
 import type { Drawing } from '../types';
 import { AdminLoginDialog } from './AdminLoginDialog';
+import { buildReviewTrackerCsv } from '../lib/tracker-csv';
 
 const ADMIN_REQUIRED = '需要管理员权限 (Administrator permission required)';
 
@@ -188,47 +189,8 @@ export const ReviewTracker: React.FC = () => {
             return;
         }
 
-        // CSV 字段转义：含逗号/引号/换行时用双引号包裹，内部引号翻倍
-        const csvCell = (value: string | number): string => {
-            const s = String(value ?? '');
-            return /[",\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
-        };
-
-        // 收集导出范围内出现过的所有负责人，每人固定一列（列头=人名），方便按人筛选
-        const assigneeNames = Array.from(
-            new Set(rows.flatMap(d => d.assignees || []))
-        ).sort((a, b) => a.localeCompare(b, 'zh-Hans-CN'));
-        const headers = ['No', 'Drawing No', 'Title', 'Discipline', 'Status', 'Overdue', 'Deadline', ...assigneeNames];
-
-        const dataRows = rows.map((d, i) => {
-            const trackerEntry = reviewTracker[d.id] || {};
-            const assignees = d.assignees || [];
-            const doneCount = assignees.filter(a => trackerEntry[a]?.done).length;
-            const allDone = assignees.length > 0 && doneCount === assignees.length;
-            const days = getDeadlineDays(d.reviewDeadline);
-
-            const statusText = allDone ? 'Ready' : `Reviewing ${doneCount}/${assignees.length}`;
-            const overdueText = days === null ? '-' : (days < 0 ? `Overdue ${-days}d` : `${days}d left`);
-            const deadline = d.reviewDeadline ? format(new Date(d.reviewDeadline), 'yyyy-MM-dd') : '-';
-
-            // 每个负责人固定一列：归他负责则填状态(Done/Pending)，否则留空
-            const assigneeCells = assigneeNames.map(name =>
-                assignees.includes(name) ? (trackerEntry[name]?.done ? 'Done' : 'Pending') : ''
-            );
-
-            return [
-                i + 1,
-                d.customId,
-                d.title || '',
-                d.discipline || '-',
-                statusText,
-                overdueText,
-                deadline,
-                ...assigneeCells,
-            ].map(csvCell).join(',');
-        });
-
-        const csv = [headers.map(csvCell).join(','), ...dataRows].join('\r\n');
+        // ID 列是自定义编号，Drawing No 列是真正的图号（lib/tracker-csv.ts）
+        const csv = buildReviewTrackerCsv(rows, reviewTracker);
 
         // UTF-8 BOM 确保 Excel 正确识别编码（含中文负责人姓名）
         const blob = new Blob(['﻿', csv], { type: 'text/csv;charset=utf-8;' });

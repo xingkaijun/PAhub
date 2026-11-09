@@ -11,6 +11,7 @@ import { inventoryStyles } from './inventoryStyles';
 import { BuilderRepliesImport, type BuilderRepliesImportHandle } from './BuilderRepliesImport';
 import { AdminLoginDialog } from './AdminLoginDialog';
 import { ModalOverlay } from './ModalOverlay';
+import { parseBulkLoadText } from '../lib/bulk-load';
 
 const ADMIN_REQUIRED = '需要管理员权限 (Administrator permission required)';
 
@@ -369,22 +370,17 @@ export const DrawingList: React.FC = () => {
   );
 
   const handleBulkImport = () => {
-    const lines = importText.trim().split('\n');
-    const newDrawings: any[] = [];
-    lines.forEach(line => {
-      const parts = line.split(/[,，\t]/);
-      if (parts.length >= 4) {
-        newDrawings.push({
-          customId: parts[0].trim(),
-          drawingNo: parts[1].trim(),
-          discipline: parts[2].trim(),
-          title: parts[3].trim(),
-          assignees: [],
-          status: 'Pending',
-          version: '0'
-        });
-      }
-    });
+    // 标题是最后一列：第三个分隔符之后的内容全部保留（含逗号），也兼容带引号的 CSV 写法（lib/bulk-load.ts）
+    const { rows, skipped } = parseBulkLoadText(importText);
+    const newDrawings: any[] = rows.map(row => ({
+      ...row,
+      assignees: [],
+      status: 'Pending',
+      version: '0'
+    }));
+    if (skipped.length > 0) {
+      alert(`${skipped.length} line(s) skipped: need 4 columns (ID, Drawing No., Discipline, Title).\n\n${skipped.slice(0, 5).join('\n')}${skipped.length > 5 ? '\n…' : ''}`);
+    }
     if (newDrawings.length > 0) {
       bulkImportDrawings(newDrawings);
       setImportText('');
@@ -718,7 +714,7 @@ export const DrawingList: React.FC = () => {
         <div className="flex justify-between items-end border-b-2 border-black pb-4 mb-4">
           <div className="flex items-center gap-4">
             <img
-              src="https://i.postimg.cc/7LVr6n5m/PG-Logo.jpg"
+              src="/pg-logo.jpg"
               alt="Logo"
               className="h-12 object-contain grayscale"
             />

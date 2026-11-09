@@ -1,6 +1,7 @@
 import { apiClient } from '../services/api/apiClient';
 import { pcfApi } from '../services/api/pcfApi';
 import { inventoryStyles } from './inventoryStyles';
+import { confirmAndDeleteDrawing } from '../lib/drawing-delete';
 import React, { memo } from 'react';
 import { Drawing, DrawingStatus } from '../types';
 import {
@@ -336,7 +337,7 @@ export const DrawingRow = memo(({
                     </button>
                 </td>
                 <td className="px-3 py-2 text-right">
-                    <button disabled={!isEditMode} onClick={() => deleteDrawing(drawing.id)} className={`p-1.5 transition-colors ${!isEditMode ? 'text-slate-100 cursor-not-allowed' : 'text-slate-200 hover:text-red-500'}`}>
+                    <button disabled={!isEditMode} onClick={() => confirmAndDeleteDrawing(drawing, deleteDrawing)} title={isEditMode ? `Delete ${drawing.drawingNo || drawing.customId}` : undefined} aria-label="Delete drawing" className={`p-1.5 transition-colors ${!isEditMode ? 'text-slate-100 cursor-not-allowed' : 'text-slate-200 hover:text-red-500'}`}>
                         <Trash2 size={12} />
                     </button>
                 </td>
