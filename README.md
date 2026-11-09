@@ -45,7 +45,7 @@ npm run hub:dev 启动同源开发模式；npm run hub:build 构建前端与服�
 
 全部业务 API 已按模块并入 hub-server；读接口直接查询规范化表，不再依赖 Worker、D1Adapter 或 SQL 兼容视图。生产数据与日志不应提交。完整备份应含数据目录及 PCF 导出签名密钥。
 
-使用手册：[MANUAL.md](MANUAL.md)。更新记录：[CHANGELOG.md](CHANGELOG.md)。运行配置：[hub-server/README.md](hub-server/README.md)。旧数据一次性迁移：[docs/d1-migration.md](docs/d1-migration.md)。
+中文操作手册：平台顶栏 Guide 或 `/manual/`（源文件 [public/manual/index.html](public/manual/index.html)）；简要说明：[MANUAL.md](MANUAL.md)。更新记录：[CHANGELOG.md](CHANGELOG.md)。运行配置：[hub-server/README.md](hub-server/README.md)。旧数据一次性迁移：[docs/d1-migration.md](docs/d1-migration.md)。
 
 ## PCF JSON 存储、迁移与备份
 

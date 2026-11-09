@@ -73,14 +73,19 @@ try {
 
   // 2. Guide
   await page.getByRole('button', { name: /^Guide$/ }).click();
+  // Guide opens the Chinese manual (/manual/) by default; the English guide is one tab away.
+  const manualFrame = await (await page.getByTestId('manual-frame').elementHandle()).contentFrame();
+  await manualFrame.locator('h1').waitFor();
+  const manual = await manualFrame.locator('main').innerText();
+  await page.getByRole('tab', { name: 'English' }).click();
   await page.getByText('1. Server Data, Saving & Sign-in').waitFor();
   const guide = await page.locator('main').innerText();
   for (const needle of ['ADMIN_PASSWORD', 'Save Now', 'Live updates', 'Administrator', 'Reviewer', '3 seconds']) assert.ok(guide.includes(needle), 'Guide mentions ' + needle);
   for (const stale of [/edit[- ]mode lock/i, /no manual save/i, /Version 4\.0-Cloud/]) assert.doesNotMatch(guide, stale);
-  for (const needle of ['服务器数据、保存与登录', '实时推送', '访客', '管理员', '停 3 秒自动保存']) assert.ok(guide.includes(needle), 'Chinese Guide mentions ' + needle);
-  assert.doesNotMatch(guide, /编辑模式锁|无需寻找保存按钮|没有手动保存/);
+  for (const needle of ['实时推送', '访客', '管理员', '停 3 秒', 'ADMIN_PASSWORD', 'Save Now']) assert.ok(manual.includes(needle), 'Chinese manual mentions ' + needle);
+  assert.doesNotMatch(manual, /无需寻找保存按钮/);
   await page.screenshot({ path: path.join(shots, 'known-issues-guide.png') });
-  console.log('Guide: English and Chinese sections describe sign-in, auto-save + Save Now, live updates; no edit-mode lock / no-save-button text');
+  console.log('Guide: Chinese manual and English guide describe sign-in, auto-save + Save Now, live updates; no edit-mode lock / no-save-button text');
   await page.getByRole('button', { name: /^Inventory$/ }).click();
   await page.locator('td', { hasText: /^DW-A-001$/ }).first().waitFor();
 

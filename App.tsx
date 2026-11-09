@@ -445,6 +445,16 @@ const App: React.FC = () => {
 
             {/* Storage Controls */}
             <div className="relative flex items-center gap-3">
+              <a
+                href="/manual/"
+                target="_blank"
+                rel="noopener"
+                title="操作手册 / Guide"
+                aria-label="操作手册 / Guide"
+                className="inline-flex items-center justify-center p-2.5 rounded-full border border-white/15 bg-white/10 text-white/80 hover:bg-white hover:text-teal-700 transition-all active:scale-95 shadow-lg shadow-teal-950/10"
+              >
+                <BookOpen size={16} />
+              </a>
               <button
                 onClick={handleGlobalRefresh}
                 className="inline-flex items-center justify-center p-2.5 rounded-full border border-white/15 bg-white/10 text-white/80 hover:bg-white hover:text-teal-700 transition-all active:scale-95 shadow-lg shadow-teal-950/10"
@@ -690,6 +700,18 @@ const App: React.FC = () => {
             {isEditMode ? <Unlock size={14} strokeWidth={2.5} className="shrink-0" /> : <Lock size={14} strokeWidth={2.5} className="shrink-0" />}
             <span className="hidden xl:inline">{isEditMode ? 'Administrator' : 'Reviewer'}</span>
           </button>
+          {/* Phones have no tab bar: the manual opens as its own page */}
+          <a
+            href="/manual/"
+            target="_blank"
+            rel="noopener"
+            title="操作手册 / Guide"
+            aria-label="操作手册 / Guide"
+            data-testid="mobile-manual-link"
+            className="md:hidden inline-flex items-center justify-center p-2 rounded-full border border-white/15 bg-white/10 text-white/85 hover:bg-white hover:text-teal-700 transition-all shrink-0"
+          >
+            <BookOpen size={14} strokeWidth={2.5} />
+          </a>
           <div className="relative">
             <button
               onClick={() => setShowProjectSelector(true)}
@@ -717,7 +739,7 @@ const App: React.FC = () => {
 
       {/* Main Container */}
       <main className="flex-1 flex flex-col overflow-auto px-6 py-4">
-        <div className={'max-w-[1800px] mx-auto w-full flex-1 flex flex-col gap-4' + (activeTab === 'comments' ? ' min-h-0' : '')}>
+        <div className={'max-w-[1800px] mx-auto w-full flex-1 flex flex-col gap-4' + (activeTab === 'comments' || activeTab === 'manual' ? ' min-h-0' : '')}>
           {remoteUpdateCount > 0 && ['drawings', 'tracker'].includes(activeTab) && (
             <div className="flex items-center justify-between rounded-xl border border-teal-100 bg-teal-50/80 px-4 py-2 text-xs font-semibold text-teal-800">
               <span>Updated by others · {remoteUpdateCount} drawings</span>

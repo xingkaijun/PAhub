@@ -2,6 +2,31 @@
 
 本文件记录 2026 年 11 月 9 日（北京时间）对 PAhub 做的一次代码审查和随后的 5 轮修改：每轮的目的、具体改动、接口和命令的变化、对使用者的影响、迁移步骤、测试结果和提交号。时间均为北京时间（UTC+8）。以后的更新请按同样的格式续写在最上面。
 
+## 中文操作手册做成平台页面（2026-11-10）
+
+### 目的
+
+把按 62ca2a5 / 66ebd15 写好的中文操作说明（19 节、22 张截图）放进平台，替换 Guide 页原来的中文部分，从界面上直接能打开。
+
+### 具体修改
+
+- **手册页 `/manual/`：** 新增 `public/manual/index.html`，构建时原样进 `dist/manual/`。原来以 base64 内嵌的 22 张截图拆成 `public/manual/img/*.jpg`（按所在章节命名，如 `pcf-1.jpg`），页面从约 1.1MB 降到约 70KB，图片懒加载。样式用平台的青绿色和字体；表格包在可横向滚动的容器里，`ol.steps` 用普通的编号列表，不再出现把文字挤成一窄列的问题；打印时隐藏顶栏和目录。“Guide”一节改成介绍这个手册页本身，其余内容不变。
+- **Guide 页（`components/Manual.tsx`）：** 默认显示“中文手册”，用 iframe 嵌入 `/manual/`（嵌入时手册自己的顶栏会隐藏）；上方可切到 **English**，显示原 Guide 页的英文部分，内容没删；“新标签页打开”单独打开 `/manual/`。原 Guide 页的中文栏删除，由新手册代替。
+- **其他入口：** 项目选择页的顶栏右侧加了书本图标；手机上没有标签栏，主表顶栏加了一个书本图标，都在新标签页打开 `/manual/`。手册页顶栏的“返回平台”回到 `/`。
+- **服务器静态文件（`hub-server/src/http.ts`）：** 目录下有 `index.html` 时（如 `/manual/`、`/manual`）返回那个页面，不再落到平台首页。`index.html` 照旧 `no-cache`，手册图片 `max-age=3600`。
+- **文档：** README 和 MANUAL.md 开头加了指向 `/manual/` 的说明，MANUAL.md 内容保留。
+
+### 对使用者的影响
+
+- 点顶栏 Guide 看到的是新的中文手册；要英文点 English。
+- 手册可以直接把 `https://<平台地址>/manual/` 发给同事，不用登录。
+
+### 测试结果
+
+- 前端 tsc：EXIT=0；hub:build：EXIT=0；hub:test：EXIT=0，tests 258，pass 258，fail 0，skipped 0；hub:e2e：EXIT=0，e2e 11，pass 11，fail 0。
+- 新增浏览器测试 `manual-browser-smoke.mjs`（已加进 hub:e2e）：`/manual/` 和 `/manual` 返回手册，23 张图（22 张截图加标志）全部 200 且是图片，页面里没有 base64；390px 单独打开时所有图片加载成功、没有横向溢出、编号步骤最窄 337px；在平台里 Guide 显示手册 iframe、图片加载成功，390px 时页面和 iframe 都没有横向溢出；English 切换正常；控制台 0 错误、0 个 4xx/5xx。
+- `known-issues-browser-smoke.mjs` 里检查 Guide 中文内容的部分改成检查新手册。
+
 ## 修复操作说明里的 7 个已知问题（2026-11-10）
 
 ### 目的

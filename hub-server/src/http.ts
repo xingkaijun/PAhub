@@ -103,6 +103,11 @@ export async function serveStatic(req: IncomingMessage, res: ServerResponse, roo
   const within = (file: string) => file === rootReal || file.startsWith(rootReal + path.sep);
   if (!within(target)) throw Object.assign(new Error('Forbidden'), { status: 403 });
   let info = await stat(target).catch(() => null);
+  // A folder with its own index.html (for example /manual/) is served as that page, not the app shell.
+  if (info?.isDirectory() && target !== rootReal) {
+    const index = path.join(target, 'index.html'), indexInfo = await stat(index).catch(() => null);
+    if (indexInfo?.isFile()) { target = index; info = indexInfo; }
+  }
   if (!info?.isFile()) {
     if (path.extname(decoded)) throw Object.assign(new Error('Not found'), { status: 404 });
     target = path.join(rootReal, 'index.html'); info = await stat(target);

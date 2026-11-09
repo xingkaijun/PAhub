@@ -1,5 +1,7 @@
 # PAhub 使用手册
 
+> 完整的中文操作手册（19 节，带截图）已经放进平台：顶栏 Guide 默认显示，也可以直接打开 `/manual/`（源文件 `public/manual/index.html`，截图在 `public/manual/img/`）。本文件保留为部署和功能要点的简要说明。
+
 ## 启动
 
 需要 Node.js 24。首次运行 npm ci，然后 npm run hub:build；设置服务端环境变量后运行 npm run hub:start。默认地址 http://localhost:8080，局域网用户使用主机 IP。服务器不会自动读取 .env；Vite 的 VITE_ 值在构建时读取。
