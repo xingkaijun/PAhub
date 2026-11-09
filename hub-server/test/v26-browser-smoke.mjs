@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { chromium } from '@playwright/test';
 import { createHub } from '../dist/app.mjs';
 const root=fileURLToPath(new URL('../..',import.meta.url)),temp=await mkdtemp(path.join(tmpdir(),'pahub-v26-chrome-'));
-Object.assign(process.env,{PORT:'0',PAHUB_DATA_DIR:temp,PAPC_DB_PATH:path.join(temp,'papc.db'),API_TOKEN:''});
+Object.assign(process.env,{PORT:'0',PAHUB_DATA_DIR:temp,PAPC_DB_PATH:path.join(temp,'papc.db'),API_TOKEN:'',ADMIN_PASSWORD:''});
 const hub=await createHub(),artifacts=path.join(root,'hub-server/test/artifacts');await mkdir(artifacts,{recursive:true});let browser;
 const dataOf=html=>JSON.parse(html.match(/<script id="pcf-data"[^>]*>([\s\S]*?)<\/script>/)[1]);
 const unzip=bytes=>{const files=new Map();let at=0;while(bytes.readUInt32LE(at)===0x04034b50){const method=bytes.readUInt16LE(at+8),size=bytes.readUInt32LE(at+18),n=bytes.readUInt16LE(at+26),x=bytes.readUInt16LE(at+28),name=bytes.subarray(at+30,at+30+n).toString('utf8'),start=at+30+n+x,payload=bytes.subarray(start,start+size);files.set(name,method===8?inflateRawSync(payload):payload);at=start+size;}return files;};

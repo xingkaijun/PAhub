@@ -13,14 +13,17 @@ import {registerSystemRoutes} from './system-routes.ts';
 import {listenHub} from './listener.ts';
 import type {Middleware} from './http.ts';
 import {migratePcfJsonAtStartup} from './pcf-json-migration.ts';
+import {createAdminSession,registerAdminSessionRoutes} from './admin-session.ts';
 
 export async function createHub(options: {middleware?: Middleware;host?: '127.0.0.1'} = {}) {
  const config=readConfig();
  // No listener or live SQLite connection exists while migration/backup runs.
  migratePcfJsonAtStartup(config.dataDir,config.dbPath);
  const db=openDatabase(config.dbPath);
- const pcf=new PcfApi(new PcfStorage(db,config.dataDir),config.env.API_TOKEN);
- const router=new Router(config.env),writer=new ProjectWriter(pcf.storage,pcf.realtime);
+ const adminSession=createAdminSession({password:config.env.ADMIN_PASSWORD,apiToken:config.env.API_TOKEN});
+ const pcf=new PcfApi(new PcfStorage(db,config.dataDir),config.env.API_TOKEN,adminSession);
+ const router=new Router({...config.env,adminSession}),writer=new ProjectWriter(pcf.storage,pcf.realtime);
+ registerAdminSessionRoutes(router,adminSession);
  registerPcfRoutes(router,pcf,config.env.ADMIN_PASSWORD);
  registerProjectRoutes(router,writer);
  registerTrackerRoutes(router,writer);

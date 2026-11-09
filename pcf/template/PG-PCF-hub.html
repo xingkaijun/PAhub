@@ -1119,6 +1119,10 @@ function hubInit(){
   updateSaveStatus();hubCollaborationInit();hubExchangeInit();
 }
 function hubHeaders(){return {'Content-Type':'application/json',...(window.PAHUB.credential?{'X-PCF-Token':window.PAHUB.credential}:{})};}
+// Reviewers may edit the document itself; importing (JSON replacement, shipyard replies) and Send All
+// batch exports are administrative. The server enforces this too; the page only mirrors it.
+function hubIsAdmin(){return !window.PAHUB||window.PAHUB.admin!==false;}
+function hubRequireAdmin(){if(hubIsAdmin())return true;toast('需要管理员权限 (Administrator permission required). Sign in from the PAhub app.');return false;}
 function hubURL(tail){return window.PAHUB.apiBase+'/pcf/'+encodeURIComponent(window.PAHUB.projectId)+'/'+encodeURIComponent(window.PAHUB.drawingId)+'/'+tail;}
 function hubOps(base,local){
   const ops=[];const add=(op,key)=>ops.push({...op,...(key?{baseRev:hubClock(base,key)}:{})});
@@ -1219,7 +1223,7 @@ async function hubImportApply(){
 function hubExchangeInit(){
   const actions=$('.banner-actions'),hosted=document.createElement('div');hosted.id='pahub-hosted-actions';hosted.className='pahub-hosted-actions';hosted.setAttribute('aria-label','Hosted PCF actions');
   const icons={export:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 15V3m-4 4 4-4 4 4"/><path d="M5 12v8h14v-8"/></svg>',import:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4"/><path d="M5 15v5h14v-5"/></svg>',exchange:'<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h15l-3-3m4 13H5l3 3"/></svg>'};
-  for(const [id,label,action,icon]of [['pahub-export','Export to Builder',hubExport,icons.export],['pahub-import','Import Builder Reply',()=>$('#pahub-import-file').click(),icons.import],['pahub-exchange','Shipyard correspondence',hubExchangePanel,icons.exchange]]){const b=document.createElement('button');b.id=id;b.className='hosted-action';b.type='button';b.innerHTML=icon+'<span>'+label+'</span>';b.onclick=action;hosted.append(b);}
+  for(const [id,label,action,icon]of [['pahub-export','Export to Builder',hubExport,icons.export],['pahub-import','Import Builder Reply',()=>{if(hubRequireAdmin())$('#pahub-import-file').click();},icons.import],['pahub-exchange','Shipyard correspondence',hubExchangePanel,icons.exchange]]){const b=document.createElement('button');b.id=id;b.className='hosted-action';b.type='button';b.innerHTML=icon+'<span>'+label+'</span>';if(id==='pahub-import'&&!hubIsAdmin()){b.disabled=true;b.title='需要管理员权限 (Administrator permission required)';}b.onclick=action;hosted.append(b);}
   actions.before(hosted);
   const input=document.createElement('input');input.id='pahub-import-file';input.type='file';input.accept='.html,.htm,.json,text/html,application/json';input.hidden=true;input.onchange=async()=>{const file=input.files[0];input.value='';if(!file)return;try{
     const text=await file.text();
@@ -1227,6 +1231,7 @@ function hubExchangeInit(){
     // Builder replies keep their existing flow; complete HTML copies merge.
     if(!(await hubImportCompleteHTML(text)))await hubImportPreview(text);
   }catch(e){toast(e.message);}};document.body.appendChild(input);
+  if(!hubIsAdmin()){const importJSON=$('#import-json-btn');if(importJSON){importJSON.disabled=true;importJSON.title='需要管理员权限 (Administrator permission required)';}}
   if((window.PAHUB.templateVersion||0)<window.PAHUB.currentTemplateVersion){const note=document.createElement('small');note.id='pahub-template-note';note.textContent='Template upgrade available';$('#save-state').after(note);}
 }
 function hubConflicts(conflicts,ops=[]){
@@ -1797,7 +1802,7 @@ function validateJSON(data){
   if(data.approvalControl!=null){obj(data.approvalControl,'approvalControl');integer(data.approvalControl.lastOpen,'approvalControl.lastOpen',0);if(!['auto','manual'].includes(data.approvalControl.source))fail('approvalControl.source','unknown approval source');optionalText(data.approvalControl,['reason'],'approvalControl');if(data.approvalControl.lastOpen!==data.comments.filter(c=>c.status==='open').length)fail('approvalControl.lastOpen','does not match the open comment count');}
   return {data,stats};
 }
-function chooseJSON(){if(builderMode)return;if(!jsonReady()||jsonReadBusy)return;$('#json-input').value='';$('#json-input').click();}
+function chooseJSON(){if(builderMode)return;if(!jsonReady()||jsonReadBusy)return;if(hubMode&&!hubRequireAdmin())return;$('#json-input').value='';$('#json-input').click();}
 async function readJSON(file){if(builderMode)return;
   if(!file||!jsonReady()||jsonReadBusy)return;
   jsonReadBusy=true;$('#import-json-btn').disabled=true;

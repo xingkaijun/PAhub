@@ -9,7 +9,8 @@ export function registerProjectRoutes(router: Router, writer: ProjectWriter) {
   router.add({pattern:/^\/api\/projects$/,methods:['GET'],handle:() => Response.json(getProjectList(writer.storage.db))});
   // POST reads the project; PATCH saves field deltas with revision checks. The old whole-project PUT had no
   // caller left in the app and could overwrite concurrent edits; whole-project replacement is import-only
-  // (importer.ts and the admin JSON import call ProjectWriter.save directly).
+  // (importer.ts and the admin JSON import call ProjectWriter.save directly). Project-level writes require
+  // an administrator; reviewers only read.
   router.add({pattern:/^\/api\/projects\/([^/]+)$/,methods:['POST','PATCH'],handle:async ctx => {
     const p = safeId(ctx.params[0]), body = await ctx.json();
     if (ctx.request.method === 'POST') {
@@ -23,6 +24,7 @@ export function registerProjectRoutes(router: Router, writer: ProjectWriter) {
       // ETag + 304: a refresh that finds nothing new costs a header instead of the whole project.
       return conditionalJson(ctx.request,project);
     }
+    if (router.options.adminSession && !router.options.adminSession.isAdmin(ctx.request)) return errorResponse('Administrator permission required',403);
     return Response.json(await writer.patch(p,body));
   }});
   // Only the named drawings (ids=a,b or repeated ids=), with their review-tracker rows, for drawing-changed events.

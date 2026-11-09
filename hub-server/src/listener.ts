@@ -38,5 +38,7 @@ export async function listenHub(router: Router, config: ReturnType<typeof readCo
  const address=server.address() as import('node:net').AddressInfo;
  console.log('PAhub listening on http://'+address.address+':'+address.port+' (pid '+process.pid+')');
  console.log('PAhub database: '+config.dbPath);
+ // Make the development convenience visible so an exposed deployment cannot miss it.
+ if(!config.env.ADMIN_PASSWORD?.trim())console.warn('WARNING: ADMIN_PASSWORD is not set. Every visitor is treated as an administrator; set ADMIN_PASSWORD before exposing PAhub.');
  return {server,port:address.port,close:async()=>{realtime.close();await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));}};
 }

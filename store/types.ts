@@ -75,7 +75,14 @@ export interface UiSlice {
   filterQuery: string;
   setFilterQuery: (query: string) => void;
   isEditMode: boolean;
-  toggleEditMode: (password?: string) => boolean;
+  /** Ask the server whether this browser holds an administrator session; mirrors it into isEditMode. */
+  refreshSession: () => Promise<void>;
+  /** Exchange the administrator password for a server session. */
+  loginAdmin: (password: string) => Promise<boolean>;
+  /** Clear the server session, then the local mirror. */
+  logoutAdmin: () => Promise<void>;
+  /** Mirror a server session answer without changing the server. */
+  applySession: (admin: boolean) => void;
   clearError: () => void;
 }
 export interface PresenceSlice {

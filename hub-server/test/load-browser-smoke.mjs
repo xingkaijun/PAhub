@@ -16,7 +16,8 @@ import { createHub } from '../dist/app.mjs';
 
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const temp = await mkdtemp(path.join(tmpdir(), 'pahub-load-e2e-'));
-Object.assign(process.env, { PORT: '0', PAHUB_DATA_DIR: temp, PAPC_DB_PATH: path.join(temp, 'papc.db'), API_TOKEN: '' });
+// Explicitly unset: this check counts reads, not permissions, and ADMIN_PASSWORD may be set in the shell.
+Object.assign(process.env, { PORT: '0', PAHUB_DATA_DIR: temp, PAPC_DB_PATH: path.join(temp, 'papc.db'), API_TOKEN: '', ADMIN_PASSWORD: '' });
 const hub = await createHub({ host: '127.0.0.1' }); let browser;
 const origin = 'http://127.0.0.1:' + hub.port, P = 'proj-test-001', NAME = 'PG-VLEC-H2684';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));

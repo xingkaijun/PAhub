@@ -26,7 +26,13 @@ test('hub end-to-end: real frontend repository, persisted PATCH, retired whole-p
     hub = await createHub();
     let base = 'http://127.0.0.1:' + hub.port;
     Object.defineProperty(globalThis, 'location', { configurable: true, value: { origin: base } });
-    let api = createProjectsApi(createApiClient({ baseUrl: '/api' }));
+    // Project writes require an administrator session; sign in the same way the browser does.
+    const session = await fetch(base + '/api/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'integration-password' }) });
+    assert.equal(session.status, 200);
+    const adminCookie = (session.headers.get('set-cookie') || '').split(';')[0];
+    assert.ok(adminCookie);
+    const withSession = (options: RequestInit = {}): RequestInit => ({ ...options, headers: { ...(options.headers as Record<string, string>), Cookie: adminCookie } });
+    let api = createProjectsApi(createApiClient({ baseUrl: '/api', fetch: (input, init) => fetch(input, withSession(init)) }));
     const health = await fetch(base + '/api/health').then(r => r.json()) as { ok: boolean };
     assert.equal(health.ok, true);
     console.log('GET /api/health -> 200 ' + JSON.stringify(health));

@@ -10,7 +10,7 @@ import { exportCommentsExcel } from './comments-excel.ts';
 export function registerPcfRoutes(router: Router, pcf: PcfApi, adminPassword?: string) {
   const replies = new PcfBuilderReplies(pcf.storage, pcf.exchange, pcf.realtime, adminPassword);
   const comments = new ProjectComments(pcf.storage);
-  router.add({ pattern: /^\/api\/projects\/([^/]+)\/drawings\/([^/]+)\/status$/, methods: ['POST'], handle: async ctx => {
+  router.add({ pattern: /^\/api\/projects\/([^/]+)\/drawings\/([^/]+)\/status$/, methods: ['POST'], admin: true, handle: async ctx => {
     const [p,d] = ctx.params.map(safeId), input = await ctx.json();
     const result = await pcf.storage.serial(p,d,() => transitionDrawingStatus(pcf.storage,pcf.realtime,p,d,input.status));
     return Response.json(result, { headers: { 'Cache-Control': 'no-store' } });
@@ -27,6 +27,9 @@ export function registerPcfRoutes(router: Router, pcf: PcfApi, adminPassword?: s
   router.add({ pattern: /^\/api\/projects\/([^/]+)\/events$/, methods: ['GET'], handle: ctx => pcf.realtime.projectStream(safeId(ctx.params[0]),ctx.request.signal) });
   router.add({ pattern: /^\/api\/projects\/([^/]+)\/builder-replies(?:\/([^/]+))?(?:\/([^/]+))?(?:\/([^/]+))?$/, auth: 'none', handle: async ctx => {
     const [rawP,action,setId,fileId] = ctx.params, p = safeId(rawP), request = ctx.request;
+    // The API token remains the machine credential; every builder-reply operation is administrative
+    // (upload, preview, apply, skip) and requires the administrator session as well.
+    if (router.options.adminSession && !router.options.adminSession.isAdmin(request)) return errorResponse('Administrator permission required', 403);
     const authorized = !router.options.API_TOKEN || request.headers.get('Authorization') === 'Bearer ' + router.options.API_TOKEN;
     if (request.method === 'GET' && setId === 'file' && action && fileId) {
       const reply = replies.getFile(p,action,fileId);

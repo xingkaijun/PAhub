@@ -8,6 +8,7 @@ import { createPresenceSlice } from '../../store/presenceSlice';
 import { persistenceOptions } from '../../store/persistence';
 import { projectsApi } from '../../services/api/projectsApi';
 import { pcfApi } from '../../services/api/pcfApi';
+import { sessionApi } from '../../services/api/sessionApi';
 import type { AppState } from '../../store/types';
 import type { Drawing, Project } from '../../types';
 
@@ -65,13 +66,15 @@ test('persistence migration and empty storage preserve defaults and legacy dirty
   assert.ok(persistenceOptions.merge!(migrated, store.getState())._dirtyTrackerDrawingIds.has('d'));
 });
 
-test('presence slice owns one heartbeat timer and edit exit stops it', async () => {
+test('presence slice owns one heartbeat timer and leaving the administrator session stops it', async () => {
   const store = fixture();
-  const original = projectsApi.sendHeartbeat;
+  const originalHeartbeat = projectsApi.sendHeartbeat, originalLogin = sessionApi.login, originalLogout = sessionApi.logout;
   const ids: string[] = [];
   projectsApi.sendHeartbeat = async id => { ids.push(id); };
+  sessionApi.login = async () => ({ admin: true, requiresPassword: true });
+  sessionApi.logout = async () => ({ admin: false, requiresPassword: true });
   try {
-    assert.equal(store.getState().toggleEditMode(), true);
+    assert.equal(await store.getState().loginAdmin('password'), true);
     assert.equal(store.getState().isEditMode, true);
     assert.equal(store.getState().adminPresence.isOnline, true);
     const first = store.getState()._heartbeatTimer!;
@@ -79,11 +82,27 @@ test('presence slice owns one heartbeat timer and edit exit stops it', async () 
     store.getState().startEditingPresence();
     assert.notStrictEqual(store.getState()._heartbeatTimer, first);
     assert.deepEqual(ids, ['p', 'p']);
-    store.getState().toggleEditMode();
+    await store.getState().logoutAdmin();
     assert.equal(store.getState().isEditMode, false);
     assert.equal(store.getState()._heartbeatTimer, null);
     assert.equal(store.getState().adminPresence.isOnline, false);
-  } finally { store.getState().stopEditingPresence(); projectsApi.sendHeartbeat = original; }
+  } finally { store.getState().stopEditingPresence(); projectsApi.sendHeartbeat = originalHeartbeat; sessionApi.login = originalLogin; sessionApi.logout = originalLogout; }
+});
+
+test('session mirror follows the server: failed sign-in stays reviewer, offline refresh is reviewer', async () => {
+  const store = fixture();
+  const originalStatus = sessionApi.status, originalLogin = sessionApi.login;
+  try {
+    sessionApi.login = async () => { throw new Error('401'); };
+    assert.equal(await store.getState().loginAdmin('wrong'), false);
+    assert.equal(store.getState().isEditMode, false);
+    sessionApi.login = async () => ({ admin: true, requiresPassword: false });
+    assert.equal(await store.getState().loginAdmin('anything'), true);
+    assert.equal(store.getState().isEditMode, true);
+    sessionApi.status = async () => { throw new Error('offline'); };
+    await store.getState().refreshSession();
+    assert.equal(store.getState().isEditMode, false);
+  } finally { sessionApi.status = originalStatus; sessionApi.login = originalLogin; store.getState().stopEditingPresence(); }
 });
 
 test('a delayed heartbeat lookup cannot overwrite another project or active edit presence', async () => {

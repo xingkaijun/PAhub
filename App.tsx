@@ -34,6 +34,7 @@ const getProjectTheme = (id: string, name: string) => {
 };
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { UnsavedChangesIndicator } from './components/UnsavedChangesIndicator';
+import { AdminLoginDialog } from './components/AdminLoginDialog';
 import {
   FileStack,
   Settings as SettingsIcon,
@@ -48,6 +49,7 @@ import {
   TrendingUp,
   BookOpen,
   Lock,
+  Unlock,
   ChevronLeft,
   ChevronRight,
   Calendar,
@@ -83,6 +85,8 @@ const App: React.FC = () => {
   const saveProject = useStore(state => state.saveProject);
   const fetchGlobalSettings = useStore(state => state.fetchGlobalSettings);
   const isEditMode = useStore(state => state.isEditMode);
+  const refreshSession = useStore(state => state.refreshSession);
+  const logoutAdmin = useStore(state => state.logoutAdmin);
   const hasUnsavedChanges = useStore(state => state.hasUnsavedChanges());
   const getUnsavedChangesCount = useStore(state => state.getUnsavedChangesCount());
   const saveConflict = useStore(state => state.saveConflict);
@@ -107,6 +111,10 @@ const App: React.FC = () => {
 
   const [showProjectSelector, setShowProjectSelector] = useState(true);
   const [remoteUpdateCount, setRemoteUpdateCount] = useState(0);
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
+  useEffect(() => {
+    if (!isEditMode && activeTab === 'settings') setActiveTab('drawings');
+  }, [isEditMode, activeTab]);
 
   // 1. Startup Logic: Server First - FETCH LIST ONLY
   useEffect(() => {
@@ -117,6 +125,8 @@ const App: React.FC = () => {
 
       useStore.setState({ isLoading: true });
       try {
+        // The server, not a build-time password, decides who is an administrator.
+        await refreshSession();
         // Try to fetch Server List
         await fetchGlobalSettings();
         await fetchProjectList();
@@ -618,21 +628,19 @@ const App: React.FC = () => {
               <span className="hidden xl:inline">Inventory</span>
             </button>
             <button
-              onClick={() => isEditMode && setActiveTab('activity')}
-              disabled={!isEditMode}
-              className={`flex items-center gap-1.5 px-3 xl:px-5 py-2 rounded-full text-[10px] font-[1000] uppercase tracking-[0.15em] transition-all duration-300 shrink-0 ${activeTab === 'activity' ? 'bg-white text-teal-700 shadow-lg shadow-black/10' : !isEditMode ? 'text-white/35 cursor-not-allowed opacity-70' : 'text-teal-50/75 hover:text-white hover:bg-white/10'}`}
-              title={!isEditMode ? "Unlock Edit Mode to Access" : "Activity Report"}
+              onClick={() => setActiveTab('activity')}
+              className={`flex items-center gap-1.5 px-3 xl:px-5 py-2 rounded-full text-[10px] font-[1000] uppercase tracking-[0.15em] transition-all duration-300 shrink-0 ${activeTab === 'activity' ? 'bg-white text-teal-700 shadow-lg shadow-black/10' : 'text-teal-50/75 hover:text-white hover:bg-white/10'}`}
+              title="Activity Report"
             >
-              {!isEditMode ? <Lock size={14} className="text-white/40 shrink-0" /> : <TrendingUp size={14} strokeWidth={2.5} className={`shrink-0 ${activeTab === 'activity' ? 'text-teal-600' : 'text-teal-50/75'}`} />}
+              <TrendingUp size={14} strokeWidth={2.5} className={`shrink-0 ${activeTab === 'activity' ? 'text-teal-600' : 'text-teal-50/75'}`} />
               <span className="hidden xl:inline">Activity</span>
             </button>
             <button
-              onClick={() => isEditMode && setActiveTab('dailylog')}
-              disabled={!isEditMode}
-              className={`flex items-center gap-1.5 px-3 xl:px-5 py-2 rounded-full text-[10px] font-[1000] uppercase tracking-[0.15em] transition-all duration-300 shrink-0 ${activeTab === 'dailylog' ? 'bg-white text-teal-700 shadow-lg shadow-black/10' : !isEditMode ? 'text-white/35 cursor-not-allowed opacity-70' : 'text-teal-50/75 hover:text-white hover:bg-white/10'}`}
-              title={!isEditMode ? "Unlock Edit Mode to Access" : "Daily Change Log"}
+              onClick={() => setActiveTab('dailylog')}
+              className={`flex items-center gap-1.5 px-3 xl:px-5 py-2 rounded-full text-[10px] font-[1000] uppercase tracking-[0.15em] transition-all duration-300 shrink-0 ${activeTab === 'dailylog' ? 'bg-white text-teal-700 shadow-lg shadow-black/10' : 'text-teal-50/75 hover:text-white hover:bg-white/10'}`}
+              title="Daily Change Log"
             >
-              {!isEditMode ? <Lock size={14} className="text-white/40 shrink-0" /> : <Calendar size={14} strokeWidth={2.5} className={`shrink-0 ${activeTab === 'dailylog' ? 'text-teal-600' : 'text-teal-50/75'}`} />}
+              <Calendar size={14} strokeWidth={2.5} className={`shrink-0 ${activeTab === 'dailylog' ? 'text-teal-600' : 'text-teal-50/75'}`} />
               <span className="hidden xl:inline">Log</span>
             </button>
             <button
@@ -656,7 +664,7 @@ const App: React.FC = () => {
               onClick={() => isEditMode && setActiveTab('settings')}
               disabled={!isEditMode}
               className={`flex items-center gap-1.5 px-3 xl:px-5 py-2 rounded-full text-[10px] font-[1000] uppercase tracking-[0.15em] transition-all duration-300 shrink-0 ${activeTab === 'settings' ? 'bg-white text-teal-700 shadow-lg shadow-black/10' : !isEditMode ? 'text-white/35 cursor-not-allowed opacity-70' : 'text-teal-50/75 hover:text-white hover:bg-white/10'}`}
-              title={!isEditMode ? "Unlock Edit Mode to Access" : "Configuration"}
+              title={!isEditMode ? "需要管理员权限 (Administrator permission required)" : "Configuration"}
             >
               {!isEditMode ? <Lock size={14} className="text-white/40 shrink-0" /> : <SettingsIcon size={14} strokeWidth={2.5} className={`shrink-0 ${activeTab === 'settings' ? 'text-teal-600' : 'text-teal-50/75'}`} />}
               <span className="hidden xl:inline">Config</span>
@@ -672,6 +680,16 @@ const App: React.FC = () => {
         </div>
 
         <div className="relative flex items-center gap-3 shrink-0 z-[1]">
+          <button
+            onClick={() => isEditMode ? void logoutAdmin() : setShowAdminLogin(true)}
+            title={isEditMode ? 'Sign out of the administrator session' : '需要管理员权限 (Administrator permission required)'}
+            aria-pressed={isEditMode}
+            data-admin-session={isEditMode ? 'admin' : 'reviewer'}
+            className={`flex items-center gap-2 px-3 xl:px-4 py-2 rounded-full border text-[10px] font-[1000] uppercase tracking-[0.15em] shadow-lg transition-all active:scale-[0.98] ${isEditMode ? 'bg-amber-100/95 text-amber-800 border-amber-200 hover:bg-amber-200' : 'bg-white/10 text-teal-50/85 border-white/15 hover:bg-white/15'}`}
+          >
+            {isEditMode ? <Unlock size={14} strokeWidth={2.5} className="shrink-0" /> : <Lock size={14} strokeWidth={2.5} className="shrink-0" />}
+            <span className="hidden xl:inline">{isEditMode ? 'Administrator' : 'Reviewer'}</span>
+          </button>
           <div className="relative">
             <button
               onClick={() => setShowProjectSelector(true)}
@@ -779,6 +797,8 @@ const App: React.FC = () => {
           </div>
         </div>
       </footer >
+
+      <AdminLoginDialog open={showAdminLogin} onClose={() => setShowAdminLogin(false)} />
 
       {/* Unsaved Changes Indicator */}
       <UnsavedChangesIndicator />

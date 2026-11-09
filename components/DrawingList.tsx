@@ -9,6 +9,9 @@ import { isAfter, differenceInCalendarDays, differenceInDays } from 'date-fns';
 import { DrawingRow } from './DrawingRow';
 import { inventoryStyles } from './inventoryStyles';
 import { BuilderRepliesImport, type BuilderRepliesImportHandle } from './BuilderRepliesImport';
+import { AdminLoginDialog } from './AdminLoginDialog';
+
+const ADMIN_REQUIRED = '需要管理员权限 (Administrator permission required)';
 
 const getReviewDeadlineDays = (drawing: Drawing) => {
   if (!drawing.reviewDeadline) return Number.POSITIVE_INFINITY;
@@ -156,7 +159,7 @@ const PaginationControls = ({
 
 
 export const DrawingList: React.FC = () => {
-  const { activeProjectId, data, updateDrawing, bulkImportDrawings, deleteDrawing, toggleRemarkStatus, resetAllAssignees, filterQuery, setFilterQuery, isEditMode, toggleEditMode, saveProject, reviewTracker, batchUpdateDrawings, loadReviewTracker } = useStore();
+  const { activeProjectId, data, updateDrawing, bulkImportDrawings, deleteDrawing, toggleRemarkStatus, resetAllAssignees, filterQuery, setFilterQuery, isEditMode, logoutAdmin, saveProject, reviewTracker, batchUpdateDrawings, loadReviewTracker } = useStore();
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   const [isSyncing, setIsSyncing] = useState(false);
   // Search state moved to store: filterQuery
@@ -178,6 +181,7 @@ export const DrawingList: React.FC = () => {
   const [daysSortDirection, setDaysSortDirection] = useState<'none' | 'asc' | 'desc'>('none');
   const [lastChangeSortDirection, setLastChangeSortDirection] = useState<'none' | 'asc' | 'desc'>('none');
   const builderRepliesImport = useRef<BuilderRepliesImportHandle>(null);
+  const [showAdminLogin, setShowAdminLogin] = useState(false);
 
   // Pagination State
   const [currentPage, setCurrentPage] = useState(1);
@@ -394,7 +398,9 @@ export const DrawingList: React.FC = () => {
     }} onDrop={e => {
       const files = Array.from<File>(e.dataTransfer.files || []).filter(file => /\.(zip|html?)$/i.test(file.name));
       if (!files.length) return;
-      e.preventDefault(); builderRepliesImport.current?.openWithFiles(files);
+      e.preventDefault();
+      if (!isEditMode) { alert(ADMIN_REQUIRED); return; }
+      builderRepliesImport.current?.openWithFiles(files);
     }}>
       {/* Main scrollable area - everything scrolls together */}
       <div className="overflow-auto flex-1 no-print" style={{ position: 'relative', containerType: 'inline-size' }}>
@@ -417,7 +423,7 @@ export const DrawingList: React.FC = () => {
                       if (match) {
                         e.preventDefault();
                         if (!isEditMode) {
-                          alert("Permission Denied: Edit Mode is required to run batch commands.");
+                          alert(ADMIN_REQUIRED);
                           return;
                         }
                         const assignee = match[1];
@@ -465,7 +471,7 @@ export const DrawingList: React.FC = () => {
                 <button
                   onClick={async () => {
                     if (!isEditMode) {
-                      alert("Permission Denied: Edit Mode is required to sync to cloud.");
+                      alert(ADMIN_REQUIRED);
                       return;
                     }
                     if (!activeProjectId || isSyncing) return;
@@ -485,7 +491,7 @@ export const DrawingList: React.FC = () => {
                       ? 'bg-white text-teal-400 border border-teal-200 cursor-wait'
                       : 'bg-[linear-gradient(135deg,#005c55_0%,#0f766e_100%)] text-white border border-transparent shadow-[0_12px_24px_-16px_rgba(13,148,136,0.45)] hover:brightness-105'}
                     `}
-                  title={!isEditMode ? "Unlock Edit Mode to Sync" : "同步项目数据到服务器"}
+                  title={!isEditMode ? ADMIN_REQUIRED : "同步项目数据到服务器"}
                 >
                   <Cloud size={14} className={isSyncing ? 'animate-pulse' : ''} />
                   {isSyncing ? 'Syncing...' : 'Sync to Cloud'}
@@ -498,6 +504,7 @@ export const DrawingList: React.FC = () => {
                 </button>
                 <button
                   onClick={() => isEditMode && setShowTeamSetupModal(true)}
+                  title={!isEditMode ? ADMIN_REQUIRED : undefined}
                   disabled={!isEditMode}
                   className={`hidden md:flex px-4 py-2.5 bg-white/85 border border-slate-200 rounded-full text-[9px] font-black uppercase tracking-[0.18em] items-center gap-2 transition-all shadow-sm ${!isEditMode ? 'opacity-50 cursor-not-allowed text-slate-400' : 'text-slate-500 hover:bg-white hover:border-teal-200 hover:text-teal-700 active:scale-95'}`}
                 >
@@ -505,6 +512,7 @@ export const DrawingList: React.FC = () => {
                 </button>
                 <button
                   onClick={() => isEditMode && setShowImportModal(true)}
+                  title={!isEditMode ? ADMIN_REQUIRED : undefined}
                   disabled={!isEditMode}
                   className={`hidden md:flex px-4 py-2.5 rounded-full text-[9px] font-black uppercase tracking-[0.18em] items-center gap-2 transition-all ${!isEditMode ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-[linear-gradient(135deg,#005c55_0%,#0f766e_100%)] text-white border border-transparent shadow-[0_12px_24px_-16px_rgba(13,148,136,0.45)] hover:brightness-105 active:scale-95'}`}
                 >
@@ -525,7 +533,7 @@ export const DrawingList: React.FC = () => {
                   {showMoreMenu && (
                     <div role="menu" className="absolute right-0 top-full mt-2 z-[60] w-56 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-xl">
                       {[
-                        { key: 'replies', label: 'Import Builder Replies', icon: <DownloadCloud size={14} />, disabled: !activeProjectId, run: () => builderRepliesImport.current?.open() },
+                        { key: 'replies', label: 'Import Builder Replies', icon: <DownloadCloud size={14} />, disabled: !activeProjectId || !isEditMode, run: () => builderRepliesImport.current?.open() },
                         { key: 'print', label: 'Print List', icon: <Printer size={14} />, disabled: false, run: () => window.print() },
                         { key: 'team', label: 'Team Setup', icon: <Layers size={14} />, disabled: !isEditMode, run: () => setShowTeamSetupModal(true) },
                         { key: 'bulk', label: 'Bulk Load', icon: <FileUp size={14} />, disabled: !isEditMode, run: () => setShowImportModal(true) },
@@ -535,7 +543,7 @@ export const DrawingList: React.FC = () => {
                           type="button"
                           role="menuitem"
                           disabled={item.disabled}
-                          title={item.disabled && item.key !== 'replies' ? 'Unlock Edit Mode first' : undefined}
+                          title={item.disabled ? ADMIN_REQUIRED : undefined}
                           onClick={() => { setShowMoreMenu(false); item.run(); }}
                           className="flex w-full items-center gap-2 rounded-xl px-3 py-2.5 text-left text-[11px] font-bold uppercase tracking-wider text-slate-600 hover:bg-teal-50 hover:text-teal-700 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
                         >
@@ -546,21 +554,14 @@ export const DrawingList: React.FC = () => {
                   )}
                 </div>
                 <button
-                  onClick={() => {
-                    if (isEditMode) {
-                      toggleEditMode();
-                    } else {
-                      const pwd = prompt("Enter Administrator Password to Edit:");
-                      if (pwd !== null) {
-                        const success = toggleEditMode(pwd);
-                        if (!success) alert("Incorrect Password");
-                      }
-                    }
-                  }}
+                  onClick={() => isEditMode ? void logoutAdmin() : setShowAdminLogin(true)}
+                  title={isEditMode ? 'Sign out of the administrator session' : ADMIN_REQUIRED}
+                  aria-pressed={isEditMode}
+                  data-admin-session={isEditMode ? 'admin' : 'reviewer'}
                   className={`px-4 py-2.5 rounded-full text-[9px] font-black uppercase tracking-[0.18em] flex items-center gap-2 transition-all border shadow-sm ${isEditMode ? 'bg-amber-100 text-amber-700 border-amber-200 hover:bg-amber-200' : 'bg-white text-[#006A63] border-teal-200 hover:bg-teal-50 hover:text-teal-700 shadow-[0_10px_24px_-16px_rgba(15,118,110,0.35)]'}`}
                 >
                   {isEditMode ? <Unlock size={14} /> : <Lock size={14} />}
-                  {isEditMode ? 'Unlocked' : 'Edit'}
+                  {isEditMode ? 'Administrator' : 'Admin Sign-in'}
                 </button>
               </div>
             </div>
@@ -643,7 +644,7 @@ export const DrawingList: React.FC = () => {
                     <button
                       onClick={async () => {
                         if (!isEditMode) {
-                          alert("Permission Denied: Edit Mode is required to sync check statuses.");
+                          alert(ADMIN_REQUIRED);
                           return;
                         }
                         const store = useStore.getState();
@@ -665,7 +666,7 @@ export const DrawingList: React.FC = () => {
                       }}
                       disabled={!isEditMode}
                       className={`px-2 py-0.5 text-[7px] font-black uppercase rounded-md transition-all shadow-sm ${isEditMode ? 'bg-teal-500 text-white hover:bg-teal-600' : 'bg-slate-200 text-slate-400 cursor-not-allowed opacity-60'}`}
-                      title={isEditMode ? "Sync all check statuses" : "Unlock Edit Mode to Sync"}
+                      title={isEditMode ? "Sync all check statuses" : ADMIN_REQUIRED}
                     >
                       Sync
                     </button>
@@ -791,6 +792,8 @@ export const DrawingList: React.FC = () => {
           <div>Page <span className="page-number"></span></div>
         </div>
       </div>
+
+      <AdminLoginDialog open={showAdminLogin} onClose={() => setShowAdminLogin(false)} />
 
       {showImportModal && (
         // ... (Modal Content kept same)

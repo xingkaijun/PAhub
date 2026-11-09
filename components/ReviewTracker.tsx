@@ -7,6 +7,9 @@ import type { SentDrawingExpectation } from '../store';
 import { RefreshCw, CheckCircle2, Circle, ClipboardCheck, Search, ChevronDown, ChevronRight, Cloud, Lock, Unlock, Send, Award, Flame, FileSpreadsheet, Download } from 'lucide-react';
 import { differenceInCalendarDays, format, isAfter } from 'date-fns';
 import type { Drawing } from '../types';
+import { AdminLoginDialog } from './AdminLoginDialog';
+
+const ADMIN_REQUIRED = '需要管理员权限 (Administrator permission required)';
 
 const REVIEW_TRACKER_LAYOUT_STORAGE_KEY = 'review-tracker-layout-single-column';
 
@@ -48,8 +51,9 @@ export const ReviewTracker: React.FC = () => {
         saveProject,
         updateDrawing,
         isEditMode,
-        toggleEditMode
+        logoutAdmin
     } = useStore();
+    const [showAdminLogin, setShowAdminLogin] = useState(false);
 
     const currentProject = data.projects.find(p => p.id === activeProjectId);
     const primaryActionClass = 'flex items-center gap-2 px-5 py-2.5 rounded-full text-[10px] font-[1000] uppercase tracking-[0.18em] border shadow-sm transition-all active:scale-95';
@@ -544,7 +548,7 @@ export const ReviewTracker: React.FC = () => {
                     <button
                         onClick={async () => {
                             if (!isEditMode) {
-                                alert("Permission Denied: Edit Mode is required to sync to cloud.");
+                                alert(ADMIN_REQUIRED);
                                 return;
                             }
                             await handleSync();
@@ -556,7 +560,7 @@ export const ReviewTracker: React.FC = () => {
                                 ? 'bg-white text-teal-400 border-teal-200 cursor-wait'
                                 : 'bg-[linear-gradient(135deg,#005c55_0%,#0f766e_100%)] text-white border-transparent shadow-[0_12px_24px_-16px_rgba(13,148,136,0.45)] hover:brightness-105'
                             }`}
-                        title={!isEditMode ? "Unlock Edit Mode to Sync" : "同步项目数据到服务器"}
+                        title={!isEditMode ? ADMIN_REQUIRED : "同步项目数据到服务器"}
                     >
                         <Cloud size={14} className={isSyncing ? 'animate-pulse' : ''} />
                         {isSyncing ? 'Syncing...' : 'Sync to Cloud'}
@@ -572,24 +576,17 @@ export const ReviewTracker: React.FC = () => {
                     </button>
                     {/* 编辑锁定按钮 */}
                     <button
-                        onClick={() => {
-                            if (isEditMode) {
-                                toggleEditMode();
-                            } else {
-                                const pwd = prompt("Enter Administrator Password to Edit:");
-                                if (pwd !== null) {
-                                    const success = toggleEditMode(pwd);
-                                    if (!success) alert("Incorrect Password");
-                                }
-                            }
-                        }}
+                        onClick={() => isEditMode ? void logoutAdmin() : setShowAdminLogin(true)}
+                        title={isEditMode ? 'Sign out of the administrator session' : ADMIN_REQUIRED}
+                        aria-pressed={isEditMode}
+                        data-admin-session={isEditMode ? 'admin' : 'reviewer'}
                         className={`${softActionClass} ${isEditMode
                             ? 'bg-white text-amber-700 border-amber-200 hover:bg-amber-50 shadow-[0_10px_24px_-18px_rgba(245,158,11,0.4)]'
                             : 'bg-[linear-gradient(135deg,#0f766e_0%,#115e59_100%)] text-white border-transparent hover:brightness-105 shadow-[0_12px_24px_-18px_rgba(15,118,110,0.45)]'
                             }`}
                     >
                         {isEditMode ? <Unlock size={14} /> : <Lock size={14} />}
-                        {isEditMode ? 'Unlocked' : 'Edit'}
+                        {isEditMode ? 'Administrator' : 'Admin Sign-in'}
                     </button>
                 </div>
             </div>
@@ -718,6 +715,7 @@ export const ReviewTracker: React.FC = () => {
                     </div>
                 )}
             </div>
+            <AdminLoginDialog open={showAdminLogin} onClose={() => setShowAdminLogin(false)} />
         </div>
     );
 };

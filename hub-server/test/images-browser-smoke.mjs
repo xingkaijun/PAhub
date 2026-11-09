@@ -10,7 +10,7 @@ import { chromium } from '@playwright/test';
 import { createHub } from '../dist/app.mjs';
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const temp = await mkdtemp(path.join(tmpdir(), 'pahub-images-browser-'));
-Object.assign(process.env, { PORT: '0', PAHUB_DATA_DIR: temp, PAPC_DB_PATH: path.join(temp, 'papc.db'), API_TOKEN: '' });
+Object.assign(process.env, { PORT: '0', PAHUB_DATA_DIR: temp, PAPC_DB_PATH: path.join(temp, 'papc.db'), API_TOKEN: '', ADMIN_PASSWORD: '' });
 const hub = await createHub(); let browser;
 const artifacts = path.join(root, 'hub-server/test/artifacts'); await mkdir(artifacts, { recursive: true });
 // Paste a generated PNG (drawn on a canvas in the page) into an editor through a real ClipboardEvent.

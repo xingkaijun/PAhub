@@ -4,7 +4,7 @@
 
 需要 Node.js 24。首次运行 npm ci，然后 npm run hub:build；设置服务端环境变量后运行 npm run hub:start。默认地址 http://localhost:8080，局域网用户使用主机 IP。服务器不会自动读取 .env；Vite 的 VITE_ 值在构建时读取。
 
-建议设置 ADMIN_PASSWORD、API_TOKEN；前端 VITE_DATA_API_TOKEN 须与服务器一致后重新构建。三者都不是必需的，未设置时对应功能关闭或不校验：不设置 ADMIN_PASSWORD 时管理后台不可用；不设置 API_TOKEN 时所有接口匿名可用；公网暴露时可用 PAHUB_BASIC_AUTH 开启 Basic Auth（见 README）。共享 API token 不是个人账号，局域网 HTTP 不加密凭据。数据目录由 PAHUB_DATA_DIR 指定，默认 data；数据库默认为该目录的 papc.db。
+建议设置 ADMIN_PASSWORD、API_TOKEN；前端 VITE_DATA_API_TOKEN 须与服务器一致后重新构建。ADMIN_PASSWORD 同时用于管理员登录、管理后台和需要管理员的 PCF 操作；未设置时所有人视为管理员（仅适合本地开发，启动日志会告警）；不设置 API_TOKEN 时所有接口匿名可用；公网暴露时可用 PAHUB_BASIC_AUTH 开启 Basic Auth（见 README）。共享 API token 不是个人账号，局域网 HTTP 不加密凭据。数据目录由 PAHUB_DATA_DIR 指定，默认 data；数据库默认为该目录的 papc.db。
 
 ## Comments：全项目意见汇总
 
@@ -16,9 +16,28 @@
 
 收到项目变更通知只显示 Refresh 提示，不自动重载整张表。先 Refresh 再导出可确保看到最新意见。Comments 跟随操作系统深浅主题。
 
+## 身份与权限
+
+系统只有两种身份，不按人分账号：
+
+- **审图人员**（无密码）：打开站点即为审图人员。可浏览项目、图纸列表、Comments、Activity Report、Daily Log（均只读），可导出报表；在 PCF 页面内可正常审图、写/改/关闭意见并保存。不能做任何批量或项目级写操作。
+- **管理员**（输入管理员密码）：在页面右上角或列表、Tracker 的 Admin Sign-in 输入服务端 `ADMIN_PASSWORD`。登录成功由服务端设置 12 小时会话（httpOnly、SameSite=Strict），页面据此解锁；再次点击可退出登录。会话以服务端为准，刷新页面后仍然有效，服务器重启后失效。
+
+| 操作 | 审图人员 | 管理员 |
+| --- | --- | --- |
+| 浏览项目/图纸/Comments/Activity/Daily Log、导出 | 允许 | 允许 |
+| PCF 内写/改/关闭意见、编辑轮次与认可（保存 PCF 文档） | 允许 | 允许 |
+| 改图纸状态/负责人/期限/版本、CommandBar 批量命令、删除图纸 | 禁止 | 允许 |
+| Review Tracker 修改、Send All、同步/覆盖到服务器 | 禁止 | 允许 |
+| Bulk Load、Team Setup、Import Builder Replies（列表菜单、拖放） | 禁止 | 允许 |
+| PCF 内 JSON 替换导入、应用船厂回复、Send All 打包 | 禁止 | 允许 |
+| Settings、/api/admin 与管理控制台 | 禁止 | 允许 |
+
+未登录时上述管理员按钮置灰并提示“需要管理员权限”。服务端同样强制：需要管理员的写接口在未授权时返回 403，不能靠前端绕过。未设置 `ADMIN_PASSWORD` 时所有人都是管理员（本地开发便利），启动日志会打印警告；对外部署务必设置。`API_TOKEN` 仍用于机器调用，视为管理员；`PAHUB_BASIC_AUTH` 行为不变（管的是能否进站）。
+
 ## 编辑锁与保存
 
-选择项目后，默认只读。点击 Edit 进入编辑模式；若构建时配置了 VITE_EDIT_PASSWORD，则需输入该编辑密码（不是服务端 ADMIN_PASSWORD）；完成后锁定。编辑锁与在线提示用于协作提醒，并不是所有接口的权限边界。列表的修改先进入浏览器脏数据，再由手动同步或自动同步保存；不要将“界面已更新”当作“服务器已保存”。切换项目前处理未保存提示。
+选择项目后默认以审图人员身份只读；点击 Admin Sign-in 登录管理员后解锁上述写操作，退出即恢复只读。列表的修改先进入浏览器脏数据，再由手动同步或自动同步保存；不要将“界面已更新”当作“服务器已保存”。切换项目前处理未保存提示。
 
 ## 图纸列表
 

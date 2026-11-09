@@ -20,7 +20,7 @@ import { createHub } from '../dist/app.mjs';
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const temp = await mkdtemp(path.join(tmpdir(), 'pahub-round5-e2e-'));
 const shots = path.join(root, 'hub-server/test/artifacts'); await mkdir(shots, { recursive: true });
-Object.assign(process.env, { PORT: '0', PAHUB_DATA_DIR: temp, PAPC_DB_PATH: path.join(temp, 'papc.db'), API_TOKEN: '' });
+Object.assign(process.env, { PORT: '0', PAHUB_DATA_DIR: temp, PAPC_DB_PATH: path.join(temp, 'papc.db'), API_TOKEN: '', ADMIN_PASSWORD: '' });
 const hub = await createHub({ host: '127.0.0.1' }); let browser;
 const origin = 'http://127.0.0.1:' + hub.port, P = 'proj-test-001', NAME = 'PG-VLEC-H2684', GONE = 'PG-GONE-H0000';
 const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));

@@ -177,9 +177,9 @@ PAPC 图纸行与托管 PCF 均有 **Export to Builder**。托管 PCF 提供 **I
 
 UI 禁用/contenteditable=false，同时编辑/附件函数校验 scope；内存 state 的所有非可写属性 non-writable/non-configurable，数组索引和 length 锁定、对象禁止扩展，不能用普通控制台赋值/push/splice/defineProperty 绕过。updatedAt 保留为保存流程更新时间，不视为 Owner 改动。v2.6 新入口同样受保护：Import JSON、addRoundToAllOpen、round 登记、删除 Owner 内容禁用；roundRegister/approvalHistory 以及新增设置均受数据层锁定。字体工具栏只允许作用于当前开放 Builder reply；Excel、打印工作簿及 Print/PDF 可用。保存沿用 v2.6 File System Access API 或 Save as 下载副本流程，普通独立文件行为不变。
 
-首次启动生成 data/.pcf-export-key（独立于 API_TOKEN，32 字节随机密钥的 hex）；HMAC-SHA256 签名规范化排序 JSON 的全部只读部分，并绑定导出标记。允许的 reply 与更新时间不计入签名。基线签名失败视为服务器文件损坏并拒绝；返回签名/只读内容变更列入 Integrity warning 与 Ignored changes。**Owner 永不导入**：管理员选 Ignore read-only changes 且以现有 ADMIN_PASSWORD 确认，才允许继续 Builder 合并。API_TOKEN 不等于管理员密码。
+首次启动生成 data/.pcf-export-key（独立于 API_TOKEN，32 字节随机密钥的 hex）；HMAC-SHA256 签名规范化排序 JSON 的全部只读部分，并绑定导出标记。允许的 reply 与更新时间不计入签名。基线签名失败视为服务器文件损坏并拒绝；返回签名/只读内容变更列入 Integrity warning 与 Ignored changes。**Owner 永不导入**：管理员选 Ignore read-only changes 且以现有 ADMIN_PASSWORD 确认，才允许继续 Builder 合并。API_TOKEN 是机器凭据，配合管理员会话使用；仅有 token 而未登录管理员时，上传/预览/应用回复仍会返回 403（见 MANUAL.md 权限表）。
 
-HMAC 是篡改检测，不是加密、船厂身份签名或恶意 HTML 沙箱。直接编辑 HTML/替换脚本仍可能改来信，但不能改变服务器忽略 Owner 的合并规则。勿打开不可信来信运行脚本；直接在 Hub 上传解析。密钥需与 data/ 一起备份，保护操作系统账户/ACL；Windows 的 mode=0600 不能替代 ACL。默认管理员密码沿用旧配置，部署时必须覆盖，HTTP 明文的凭据风险仍存在。
+HMAC 是篡改检测，不是加密、船厂身份签名或恶意 HTML 沙箱。直接编辑 HTML/替换脚本仍可能改来信，但不能改变服务器忽略 Owner 的合并规则。勿打开不可信来信运行脚本；直接在 Hub 上传解析。密钥需与 data/ 一起备份，保护操作系统账户/ACL；Windows 的 mode=0600 不能替代 ACL。ADMIN_PASSWORD 没有内置默认值，部署时必须设置；未设置时所有人视为管理员（仅本地开发）。HTTP 明文的凭据风险仍存在。
 
 ### 三方合并规则
 

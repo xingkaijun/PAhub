@@ -10,11 +10,12 @@ import { parseHTML, replaceData } from '../src/pcf-storage.ts';
 import { blankContent } from '../src/pcf-model.ts';
 import { mergeProjectPreservingDirty } from '../../lib/merge-project';
 
-async function fixture() {
+async function fixture(options: { adminPassword?: string } = {}) {
   const dir = await mkdtemp(path.join(tmpdir(), 'pahub-drawing-state-'));
-  const keys = ['PORT', 'PAHUB_DATA_DIR', 'PAPC_DB_PATH', 'API_TOKEN', 'PAHUB_BASIC_AUTH'];
+  const keys = ['PORT', 'PAHUB_DATA_DIR', 'PAPC_DB_PATH', 'API_TOKEN', 'ADMIN_PASSWORD', 'PAHUB_BASIC_AUTH'];
   const old = Object.fromEntries(keys.map(k => [k, process.env[k]]));
-  Object.assign(process.env, { PORT: '0', PAHUB_DATA_DIR: dir, PAPC_DB_PATH: path.join(dir, 'papc.db'), API_TOKEN: '', PAHUB_BASIC_AUTH: '' });
+  // Unset unless asked: most cases exercise document transitions, where everyone is an administrator.
+  Object.assign(process.env, { PORT: '0', PAHUB_DATA_DIR: dir, PAPC_DB_PATH: path.join(dir, 'papc.db'), API_TOKEN: '', ADMIN_PASSWORD: options.adminPassword || '', PAHUB_BASIC_AUTH: '' });
   const hub = await createHub({ host: '127.0.0.1', middleware: (_req, _res, next) => next() });
   hub.db.exec(await readFile(path.join(ROOT_DIR, 'hub-server/test/fixtures/seed-test-data.sql'), 'utf8'));
   const base = '/api/pcf/proj-test-001/dwg-001/';
@@ -132,15 +133,15 @@ test('failed PCF round write rolls back status, summary, metadata and document',
 });
 
 test('admin table edits cannot override PCF-managed fields', async () => {
-  const previous = process.env.ADMIN_PASSWORD; process.env.ADMIN_PASSWORD = 'ownership-admin';
-  const f = await fixture(); try {
+  process.env.ADMIN_PASSWORD = 'ownership-admin';
+  const f = await fixture({ adminPassword: 'ownership-admin' }); try {
     await f.create();
     const auth = await f.request('/api/admin/auth', 'POST', { password: 'ownership-admin' });
     const response = await fetch('http://127.0.0.1:' + f.hub.port + '/api/admin/api/tables/drawings/dwg-001', { method: 'PUT', headers: { Authorization: 'Bearer ' + auth.token, 'Content-Type': 'application/json' }, body: JSON.stringify({ manual_comments_count: 999, current_round: 'ZZ', version: 'override' }) });
     assert.equal(response.status, 200, await response.text());
     const d = (await f.project()).drawings.find((d: any) => d.id === 'dwg-001');
     assert.equal(d.manualCommentsCount, 1); assert.equal(d.currentRound, 'A'); assert.notEqual(d.version, 'override');
-  } finally { await f.cleanup(); previous === undefined ? delete process.env.ADMIN_PASSWORD : process.env.ADMIN_PASSWORD = previous; }
+  } finally { await f.cleanup(); }
 });
 
 test('whole-project import save cannot replace PCF counts, round or version', async () => {

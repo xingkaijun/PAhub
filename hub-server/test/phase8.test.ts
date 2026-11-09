@@ -108,7 +108,7 @@ test('phase 8: presence timeout is swept and published within the two-second win
 test('phase 8: PAPC single-project save notification reports affected drawings', async () => {
   const temp = await mkdtemp(path.join(tmpdir(), 'pahub-phase8-papc-'));
   const old = Object.fromEntries(['PORT', 'PAHUB_DATA_DIR', 'PAPC_DB_PATH', 'API_TOKEN'].map(k => [k, process.env[k]]));
-  Object.assign(process.env, { PORT: '0', PAHUB_DATA_DIR: temp, PAPC_DB_PATH: path.join(temp, 'papc.db') });
+  Object.assign(process.env, { PORT: '0', PAHUB_DATA_DIR: temp, PAPC_DB_PATH: path.join(temp, 'papc.db'), ADMIN_PASSWORD: '' });
   let hub: Awaited<ReturnType<typeof createHub>> | undefined;
   try {
     hub = await createHub();

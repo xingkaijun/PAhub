@@ -2,9 +2,9 @@
 
 需要 Node.js 24.x。npm ci 后执行 npm run hub:build，npm run hub:start 启动；npm run hub:dev 提供同源开发模式。
 
-服务器只读取进程环境：PORT（默认 8080）、PAHUB_DATA_DIR（默认仓库 data）、PAPC_DB_PATH（默认数据目录/papc.db）、PAPC_DIST_DIR（默认 dist）、MAX_BODY_BYTES（默认 32 MiB）、API_TOKEN、ADMIN_PASSWORD、PAHUB_BASIC_AUTH、ALLOW_CORS_ORIGIN。不自动加载 .env；Vite 在构建时读取 VITE_DATA_API_TOKEN 与 VITE_EDIT_PASSWORD。
+服务器只读取进程环境：PORT（默认 8080）、PAHUB_DATA_DIR（默认仓库 data）、PAPC_DB_PATH（默认数据目录/papc.db）、PAPC_DIST_DIR（默认 dist）、MAX_BODY_BYTES（默认 32 MiB）、API_TOKEN、ADMIN_PASSWORD、PAHUB_BASIC_AUTH、ALLOW_CORS_ORIGIN。不自动加载 .env；Vite 在构建时读取 VITE_DATA_API_TOKEN。管理员身份由服务端 ADMIN_PASSWORD 校验（POST /api/session，12 小时会话 cookie）；未设置时所有人视为管理员。
 
-认证均为可选开关，未设置时不做任何校验：API_TOKEN 为共享 Bearer 凭据；PAHUB_BASIC_AUTH（`<用户名>:<密码>`）开启后所有 HTTP 请求（含静态资源和 SSE）都要先通过 Basic Auth，适合经 frp tcp 暴露公网时使用，详见根目录 README。ADMIN_PASSWORD 没有默认值：未设置时 `/api/admin` 管理后台整体不可用，也无法忽略被修改的 Owner 只读内容；设置后才可登录。管理后台的 SQL 控制台只用于查询，每次执行都使用只读连接，写入、DDL 和 ATTACH 都会被拒绝。
+认证均为可选开关，未设置时不做任何校验：API_TOKEN 为共享 Bearer 凭据；PAHUB_BASIC_AUTH（`<用户名>:<密码>`）开启后所有 HTTP 请求（含静态资源和 SSE）都要先通过 Basic Auth，适合经 frp tcp 暴露公网时使用，详见根目录 README。ADMIN_PASSWORD 没有内置默认值。设置后：`POST /api/session` 用常量时间比较校验密码并发 12 小时 httpOnly/SameSite=Strict 会话 cookie（失败按客户端地址限速），所有管理员写接口（项目 PATCH、Tracker 修改、图纸状态、Bulk、Builder 回复导入、PCF JSON 替换与应用回复、Send All 打包等）要求该会话，未授权返回 403；`/api/admin` 与管理后台也用它登录。未设置 ADMIN_PASSWORD 时所有人视为管理员（本地开发便利，启动日志告警）。API_TOKEN 仍用于机器调用并视为管理员。管理后台的 SQL 控制台只用于查询，每次执行都使用只读连接，写入、DDL 和 ATTACH 都会被拒绝。
 
 前端 /api 使用 HubApiRepository；所有 API 由 hub-server 原生路由表注册，统一 JSON 解析、{error} 错误格式、请求日志和可选鉴权。服务器直接使用内置 SQLite 与规范化表，没有 Worker 或 D1Adapter 运行依赖；全部服务端源码通过 TypeScript strict 检查。同步 SQLite 执行会占用单进程事件循环，不适合高并发大查询；跨进程编辑、任务队列不在当前范围。
 

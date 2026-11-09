@@ -322,14 +322,15 @@ export const DrawingRow = memo(({
                 </td>
                 <td className="px-3 py-2 text-center">
                     <button
-                        onClick={() => updateDrawing(drawing.id, { checked: !drawing.checked, checkedSynced: false })}
-                        className={`w-5 h-5 rounded-lg flex items-center justify-center mx-auto transition-all cursor-pointer hover:scale-110 ${drawing.checked
+                        onClick={() => isEditMode && updateDrawing(drawing.id, { checked: !drawing.checked, checkedSynced: false })}
+                        disabled={!isEditMode}
+                        className={`w-5 h-5 rounded-lg flex items-center justify-center mx-auto transition-all ${isEditMode ? 'cursor-pointer hover:scale-110' : 'cursor-not-allowed opacity-50'} ${drawing.checked
                             ? (drawing.checkedSynced
                                 ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-500/20'
                                 : 'bg-blue-500 text-white shadow-lg shadow-blue-500/20')
                             : 'bg-slate-100 text-slate-300 hover:bg-slate-200'
                             }`}
-                        title={drawing.checked ? (drawing.checkedSynced ? 'Checked (Synced)' : 'Checked (Not Synced)') : 'Not Checked'}
+                        title={!isEditMode ? '需要管理员权限 (Administrator permission required)' : drawing.checked ? (drawing.checkedSynced ? 'Checked (Synced)' : 'Checked (Not Synced)') : 'Not Checked'}
                     >
                         <Check size={12} strokeWidth={4} />
                     </button>

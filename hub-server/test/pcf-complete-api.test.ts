@@ -11,8 +11,9 @@ import { parseHTML, replaceData } from '../src/pcf-html.ts';
 
 test('anonymous complete downloads record baselines; HTML/JSON return merges histories without changing PAPC status', async () => {
   const dir = mkdtempSync(path.join(tmpdir(), 'pahub-complete-api-'));
-  const keys = ['PORT', 'PAHUB_DATA_DIR', 'PAPC_DB_PATH', 'API_TOKEN', 'PAHUB_BASIC_AUTH'], old = Object.fromEntries(keys.map(k => [k, process.env[k]]));
-  Object.assign(process.env, { PORT: '0', PAHUB_DATA_DIR: dir, PAPC_DB_PATH: path.join(dir, 'papc.db'), API_TOKEN: '', PAHUB_BASIC_AUTH: '' });
+  const keys = ['PORT', 'PAHUB_DATA_DIR', 'PAPC_DB_PATH', 'API_TOKEN', 'ADMIN_PASSWORD', 'PAHUB_BASIC_AUTH'], old = Object.fromEntries(keys.map(k => [k, process.env[k]]));
+  // Unset ADMIN_PASSWORD: this suite covers complete-copy merging, not permissions (see permissions.test.ts).
+  Object.assign(process.env, { PORT: '0', PAHUB_DATA_DIR: dir, PAPC_DB_PATH: path.join(dir, 'papc.db'), API_TOKEN: '', ADMIN_PASSWORD: '', PAHUB_BASIC_AUTH: '' });
   let hub: Awaited<ReturnType<typeof createHub>> | undefined;
   try {
     hub = await createHub({ host: '127.0.0.1', middleware: (_req, _res, next) => next() });

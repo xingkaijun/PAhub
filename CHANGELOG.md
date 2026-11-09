@@ -2,6 +2,52 @@
 
 本文件记录 2026 年 11 月 9 日（北京时间）对 PAhub 做的一次代码审查和随后的 5 轮修改：每轮的目的、具体改动、接口和命令的变化、对使用者的影响、迁移步骤、测试结果和提交号。时间均为北京时间（UTC+8）。以后的更新请按同样的格式续写在最上面。
 
+## 权限重整：管理员密码 + 审图人员只能处理 PCF（2026-11-09）
+
+### 目的
+
+编辑模式原来只是前端用构建期 `VITE_EDIT_PASSWORD` 比较（没配则任何人可解锁），服务端几乎不检查写权限；Import Builder Replies 完全没锁，Activity/Daily Log 反而要解锁才能看。现在改为两种身份、服务端强制：审图人员无密码、只能只读浏览并在 PCF 内审图；管理员用服务端 `ADMIN_PASSWORD` 登录后才能做项目级写操作。
+
+### 权限矩阵（最终实现）
+
+| 操作 | 审图人员 | 管理员 |
+| --- | --- | --- |
+| 浏览项目/图纸/Comments/Activity/Daily Log、导出 | 允许 | 允许 |
+| PCF 内写/改/关闭意见、编辑轮次与认可（保存 PCF 文档、ops、上传图片） | 允许 | 允许 |
+| 修改图纸字段（状态/负责人/期限/版本等）、CommandBar 批量命令、删除图纸 | 禁止 | 允许 |
+| Review Tracker 修改、Send All、同步/覆盖到服务器（PATCH 项目、PUT tracker） | 禁止 | 允许 |
+| Bulk Load、Team Setup、Import Builder Replies（列表菜单、拖放） | 禁止 | 允许 |
+| PCF 内 JSON 替换导入、应用船厂回复（imports）、Send All 打包（exports/batch） | 禁止 | 允许 |
+| Settings、`/api/admin` 与管理控制台 | 禁止 | 允许 |
+
+未授权调用以上写接口返回 403 `Administrator permission required`。
+
+### 具体修改
+
+- 新增 `hub-server/src/admin-session.ts`：`POST /api/session` 用常量时间比较校验 `ADMIN_PASSWORD`，失败按客户端地址限速（10 分钟内 5 次后返回 429 与 Retry-After）；成功发 `pahub_admin` httpOnly + SameSite=Strict 会话 cookie（生产/HTTPS 加 Secure），12 小时有效；`GET` 查状态、`DELETE` 登出。会话 HMAC 密钥在内存中，服务器重启即失效。`API_TOKEN` 仍用于机器调用，并视为管理员；`PAHUB_BASIC_AUTH` 行为不变。
+- 服务端强制：项目 PATCH、review-tracker PUT、图纸状态接口、heartbeat PUT、builder-replies 全部操作、PCF `PUT document`（仅 `importJSON:true` 的整份替换）、PCF `POST imports`、PCF `exports/batch` 要求管理员；PCF 的 ops/普通文档保存/导出下载对审图人员开放。PCF 页面注入 `PAHUB.admin`，供页内隐藏导入入口。
+- 未设置 `ADMIN_PASSWORD` 时所有人视为管理员（本地开发便利），启动日志打印 `WARNING`。
+- 前端：删除 `VITE_EDIT_PASSWORD`（`vite-env.d.ts`、`.env.example`、文档）。`isEditMode` 改为服务端会话的镜像：启动时 `GET /api/session`，登录/登出走服务端。Edit 按钮改为 “Admin Sign-in”（列表与 Tracker）及顶栏身份胶囊（Reviewer/Administrator，点击登录或退出），新增 `AdminLoginDialog`；未登录时 Sync、Team Setup、Bulk Load、Import Builder Replies、CommandBar、行内编辑均置灰并提示“需要管理员权限”。Activity Report、Daily Log 对所有人开放只读；Settings 仍需管理员。PCF 页内 Import Builder Reply、Import JSON 对非管理员禁用。
+
+### 接口与命令变化
+
+- 新增 `GET|POST|DELETE /api/session`。
+- 管理员写接口未登录返回 403（此前不校验）。
+- Builder 回复上传现在除 `API_TOKEN` 外还需要管理员会话；仅用 token 的脚本需先 `POST /api/session` 取得 cookie。
+- 不再读取 `VITE_EDIT_PASSWORD`。
+
+### 测试
+
+- 新增 `hub-server/test/permissions.test.ts`（7 条）：未登录写接口 403、登录后 200、错误密码 401 与限速 429、`API_TOKEN` 视为管理员、PCF 文档保存对未登录开放而 JSON 导入/回复 apply/Send All 需管理员、会话过期与重启失效。
+- 更新 store、drawing-state、integration、exchange、pcf-complete-api 及其余测试的环境/登录方式；浏览器 smoke 增加 `ADMIN_PASSWORD: ''` 隔离，save-conflict smoke 改用新按钮。
+- 相关测试逐项通过；`npm run hub:build` 成功（不再有动态+静态导入同一模块的警告），`npm run hub:test` **251/251 通过**，`npm run hub:e2e` **9/9 通过**。
+- 另用生产构建在临时数据/随机端口实测：审图人员页 Sync/Team Setup/Bulk Load/Config 置灰、Activity/Log 可开、行字段只读；错误密码提示；正确密码后解锁并跨刷新保持；登出恢复；PCF 页审图人员可加意见但导入入口禁用，管理员可导入。
+
+### 部署
+
+- 生产必须设置 `ADMIN_PASSWORD`（未设置即所有人都是管理员）；其余环境变量无需新增。`API_TOKEN`/`PAHUB_BASIC_AUTH` 配置不变。
+- 拉取新代码后执行 `npm run hub:build` 再重启；重启会使旧管理员会话失效，需重新登录。
+
 ## 紧急修复：旧 HTML PCF 自动迁移与失败回退（2026-11-09）
 
 ### 根因与改动

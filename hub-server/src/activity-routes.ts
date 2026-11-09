@@ -14,9 +14,11 @@ export function registerActivityRoutes(router: Router, db: DatabaseSync) {
     });
     return Response.json({entries,truncated:rows.length>=2000});
   }});
+  // Last-seen is an administrative presence marker: recording it is reserved for administrators.
   router.add({pattern:/^\/api\/projects\/([^/]+)\/heartbeat$/,methods:['GET','PUT'],handle:ctx => {
     const p=safeId(ctx.params[0]);
     if (ctx.request.method === 'GET') return Response.json({adminLastSeen:db.prepare("SELECT setting_value FROM project_settings WHERE project_id=? AND setting_key='admin_last_seen'").get(p)?.setting_value || null});
+    if (router.options.adminSession && !router.options.adminSession.isAdmin(ctx.request)) return errorResponse('Administrator permission required',403);
     db.prepare("INSERT INTO project_settings(project_id,setting_key,setting_value) VALUES(?,'admin_last_seen',?) ON CONFLICT(project_id,setting_key) DO UPDATE SET setting_value=excluded.setting_value").run(p,new Date().toISOString());
     return Response.json({success:true});
   }});

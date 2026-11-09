@@ -33,8 +33,12 @@ test('Builder export/offline save and authenticated three-way import through ops
   try {
     hub = await createHub();hub.db.exec(await readFile(path.join(ROOT_DIR,'hub-server/test/fixtures/seed-test-data.sql'),'utf8'));
     let origin = 'http://127.0.0.1:' + hub.port; const endpoint = '/api/pcf/proj-test-001/dwg-005/';
+    // Builder import is administrative: the machine API_TOKEN still authenticates the request, and this
+    // session cookie satisfies the administrator check the same way a signed-in browser would.
+    const session = await fetch(origin + '/api/session', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ password: 'phase4-admin' }) });
+    const admin = { Cookie: (session.headers.get('set-cookie') || '').split(';')[0] };
     const api = async (tail: string, body?: any, auth = true) => {
-      const response = await fetch(origin+endpoint+tail,{ method:body?'POST':'GET',headers:{'Content-Type':'application/json',...(auth?{Authorization:'Bearer phase4-secret'}:{})},body:body?JSON.stringify({clientId:'reviewer',clientName:'Owner reviewer',...body}):undefined });
+      const response = await fetch(origin+endpoint+tail,{ method:body?'POST':'GET',headers:{'Content-Type':'application/json',...(auth?{Authorization:'Bearer phase4-secret',...admin}:{})},body:body?JSON.stringify({clientId:'reviewer',clientName:'Owner reviewer',...body}):undefined });
       return { status:response.status,value:await response.json() as any };
     };
     assert.equal((await api('create',{})).status,200);

@@ -12,7 +12,7 @@ $env:PAHUB_DATA_DIR = '<数据目录>'
 npm run hub:start
 ~~~
 
-默认 http://localhost:8080。服务端读取进程环境，不自动加载 .env。若启用 API_TOKEN，在前端 .env.local 配置相同的 VITE_DATA_API_TOKEN，再重新构建。共享 token 的浏览器可见性与局域网 HTTP 风险应按部署环境评估。
+默认 http://localhost:8080。服务端读取进程环境，不自动加载 .env。若启用 API_TOKEN，在前端 .env.local 配置相同的 VITE_DATA_API_TOKEN，再重新构建。共享 token 的浏览器可见性与局域网 HTTP 风险应按部署环境评估。管理员密码只经 `POST /api/session` 校验，页面不保存密码；未设置 ADMIN_PASSWORD 时所有人视为管理员，对外部署必须设置（见 MANUAL.md 权限表）。
 
 ## 经 frp 暴露到公网
 

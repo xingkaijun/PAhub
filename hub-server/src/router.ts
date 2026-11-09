@@ -2,8 +2,11 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 
 export type RouteContext = { request: Request; url: URL; params: string[]; json: () => Promise<Record<string, any>> };
-export type Route = { pattern: RegExp; methods?: string[]; auth?: 'none'; handle: (context: RouteContext) => Response | Promise<Response> };
-export type RouterOptions = { API_TOKEN?: string; ALLOW_CORS_ORIGIN?: string };
+export type Route = {
+  pattern: RegExp; methods?: string[]; auth?: 'none'; admin?: boolean;
+  handle: (context: RouteContext) => Response | Promise<Response>;
+};
+export type RouterOptions = { API_TOKEN?: string; ALLOW_CORS_ORIGIN?: string; adminSession?: { isAdmin: (request: Request) => boolean } };
 
 export function errorResponse(message: string, status = 500, headers?: HeadersInit): Response {
   return Response.json({ error: message }, { status, headers: { 'Cache-Control': 'no-store', ...Object.fromEntries(new Headers(headers)) } });
@@ -48,6 +51,7 @@ export class Router {
         if (!matched) response = errorResponse('Not found', 404);
         else if (matched.auth !== 'none' && this.options.API_TOKEN && request.headers.get('Authorization') !== 'Bearer ' + this.options.API_TOKEN) response = errorResponse('Unauthorized', 401);
         else if (matched.methods && !matched.methods.includes(request.method)) response = errorResponse('Method not allowed', 405, { Allow: matched.methods.join(', ') });
+        else if (matched.admin && this.options.adminSession && !this.options.adminSession.isAdmin(request)) response = errorResponse('Administrator permission required', 403);
         else {
           let body: Promise<Record<string, any>> | undefined;
           response = await matched.handle({ request, url, params, json: () => body ||= request.text().then(text => {

@@ -26,12 +26,12 @@ const errors = [];
 async function openEditor(context) {
   const page = await context.newPage();
   page.on('pageerror', error => errors.push(error.message));
-  page.on('dialog', dialog => dialog.accept(''));  // "Enter Administrator Password": hub build has no VITE_EDIT_PASSWORD
+  page.on('dialog', dialog => dialog.dismiss());
   await page.goto('http://127.0.0.1:' + hub.port + '/');
   await page.getByRole('button', { name: new RegExp(PROJECT_NAME) }).first().click();
   await row(page, 'DW-A-001').waitFor();
-  await page.getByRole('button', { name: /^Edit$/ }).click();
-  await page.getByRole('button', { name: /Unlocked/ }).waitFor();
+  // ADMIN_PASSWORD is unset for this smoke, so the server reports every visitor as an administrator.
+  await page.getByRole('button', { name: 'Administrator' }).first().waitFor();
   return page;
 }
 

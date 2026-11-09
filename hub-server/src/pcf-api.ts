@@ -7,12 +7,14 @@ import { TEMPLATE_VERSION, renderTemplate } from './pcf-template.ts';
 import { updateBuilderReplyPapcStatus } from './pcf-builder-replies.ts';
 import { commentFocusHTML } from './pcf-comment-focus.ts';
 import { bannerToolbarHTML } from './pcf-banner-toolbar.ts';
+import type { AdminSession } from './admin-session.ts';
 
 export class PcfApi {
   readonly realtime = new PcfRealtime();
   private secret: string;
   readonly exchange: PcfExchange;
-  constructor(readonly storage: PcfStorage, private token?: string) { this.secret = token || randomBytes(32).toString('hex'); this.exchange = new PcfExchange(storage); }
+  constructor(readonly storage: PcfStorage, private token?: string, private admin?: AdminSession) { this.secret = token || randomBytes(32).toString('hex'); this.exchange = new PcfExchange(storage); }
+  private requiresAdmin(request: Request) { return Boolean(this.admin && !this.admin.isAdmin(request)); }
   private grant(p: string, d: string) {
     const payload = Buffer.from(JSON.stringify({ p, d, expires: Date.now() + 12 * 3600000 })).toString('base64url');
     return payload + '.' + createHmac('sha256', this.secret).update('pcf:' + payload).digest('base64url');
@@ -51,6 +53,7 @@ export class PcfApi {
     }
     if (!page && d === 'exports' && tail === 'batch' && request.method === 'POST') {
       if (!this.bearer(request)) return json({ error: 'Unauthorized' }, 401);
+      if (this.requiresAdmin(request)) return json({ error: 'Administrator permission required' }, 403);
       const text = await request.text();
       let body: any;
       try { body = text ? JSON.parse(text) : {}; } catch { fail('Invalid JSON body'); }
@@ -91,7 +94,7 @@ export class PcfApi {
         const version = TEMPLATE_VERSION, html = renderTemplate(data);
         const replySet = url.searchParams.get('builderReplySet'), replyFile = url.searchParams.get('builderReplyFile');
         const handoff = replySet && replyFile ? '<script id="pahub-builder-reply-handoff">document.addEventListener("DOMContentLoaded",async()=>{const nativeFetch=window.fetch.bind(window);window.fetch=async(...args)=>{const init=args[1]||{},response=await nativeFetch(...args);try{if(String(args[0]).includes("/imports")&&init.method==="POST"&&JSON.parse(init.body).step==="apply"&&response.ok)window.opener?.postMessage({type:"builder-reply-applied",fileId:' + scriptJSON(replyFile) + '},location.origin);}catch{}return response;};try{const input=document.getElementById("pahub-import-file");if(!input)return;const url="/api/projects/"+' + scriptJSON(encodeURIComponent(p)) + '+"/builder-replies/"+' + scriptJSON(encodeURIComponent(replySet)) + '+"/file/"+' + scriptJSON(encodeURIComponent(replyFile)) + ';const response=await nativeFetch(url,{headers:{"X-PCF-Token":window.PAHUB.credential}});if(!response.ok)throw Error("Unable to load saved Builder reply ("+response.status+")");const blob=await response.blob(),file=new File([blob],"builder-reply.html",{type:"text/html"}),transfer=new DataTransfer();transfer.items.add(file);input.files=transfer.files;input.dispatchEvent(new Event("change",{bubbles:true}));}catch(error){alert(error.message);}});</script>' : '';
-        const injection = '<script id="pahub-context">window.PAHUB=' + scriptJSON({ projectId: p, drawingId: d, rev, apiBase: '/api', credential: grant, templateVersion: version, currentTemplateVersion: TEMPLATE_VERSION }) + '</script>' + handoff;
+        const injection = '<script id="pahub-context">window.PAHUB=' + scriptJSON({ projectId: p, drawingId: d, rev, apiBase: '/api', credential: grant, admin: !this.requiresAdmin(request), templateVersion: version, currentTemplateVersion: TEMPLATE_VERSION }) + '</script>' + handoff;
         if (!/<\/head\s*>/i.test(html)) fail('Template missing head', 500);
         return new Response(bannerToolbarHTML(commentFocusHTML(html.replace(/<\/head\s*>/i, injection + '</head>'))), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' } });
       });
@@ -103,6 +106,15 @@ export class PcfApi {
     }
     const eventGrant = tail === 'events' ? url.searchParams.get('credential') : null;
     if (!this.bearer(request) && !this.validScopedCredential(request.headers.get('X-PCF-Token'), p, d) && !this.validScopedCredential(eventGrant, p, d)) return json({ error: 'Unauthorized' }, 401);
+    // Reviewers may edit the PCF document itself. Replacing it wholesale with imported JSON and
+    // applying shipyard replies are project-level writes reserved for administrators.
+    if (request.method === 'PUT' && tail === 'document' && this.requiresAdmin(request)) {
+      const text = await request.clone().text();
+      let replacing = false;
+      try { replacing = text ? JSON.parse(text)?.importJSON === true : false; } catch { /* invalid JSON fails later with 400 */ }
+      if (replacing) return json({ error: 'Administrator permission required' }, 403);
+    }
+    if (request.method === 'POST' && tail === 'imports' && this.requiresAdmin(request)) return json({ error: 'Administrator permission required' }, 403);
     if (tail === 'events' && request.method === 'GET') {
       return this.storage.serial(p, d, () => {
         const { rev } = this.storage.load(p, d);

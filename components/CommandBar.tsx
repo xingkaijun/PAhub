@@ -5,6 +5,7 @@ import { useStore } from '../store';
 import { DrawingStatus } from '../types';
 
 export type ManualOwnershipField = 'comments' | 'version' | 'round';
+const ADMIN_REQUIRED = '需要管理员权限 (Administrator permission required)';
 
 // UI ownership guard: PCF owns its summary fields, and the server owns round transitions.
 // Returning a message means the whole command must be blocked (including mixed batches).
@@ -52,10 +53,13 @@ export const CommandBar: React.FC = () => {
 
     if (!trimmedInput.startsWith('@')) return;
 
+    // Every terminal command changes the project or its drawings: administrators only.
+    if (!isEditMode) { alert(ADMIN_REQUIRED); return; }
+
     // 1. Batch Status Update Detection (@R, @W, @A)
     const batchMatch = trimmedInput.match(/^@([RWA])\s+(.*)$/i);
     if (batchMatch) {
-      if (!isEditMode) { alert("Edit Mode Required for Status Update"); return; }
+      if (!isEditMode) { alert(ADMIN_REQUIRED); return; }
       const [, cmd, idString] = batchMatch;
       const statusMap: Record<string, DrawingStatus> = {
         'r': 'Reviewing', 'w': 'Waiting Reply', 'a': 'Approved'
@@ -102,7 +106,7 @@ export const CommandBar: React.FC = () => {
         // A. Comment Counts: c:10/2
         const commentMatch = actionPart.match(/^c[:：](\d+)\/(\d+)$/i);
         if (commentMatch) {
-          if (!isEditMode) { alert("Edit Mode Required for Comments Update"); return; }
+          if (!isEditMode) { alert(ADMIN_REQUIRED); return; }
           const blocked = manualFieldBlockMessage(validDrawings, 'comments');
           if (blocked) { alert(blocked); return; }
           const [, total, open] = commentMatch;
@@ -116,7 +120,7 @@ export const CommandBar: React.FC = () => {
         // B. Version/Round: v:3 or rd:A
         const overrideMatch = actionPart.match(/^(v|rd)[:：](.+)$/i);
         if (!actionHandled && overrideMatch) {
-          if (!isEditMode) { alert("Edit Mode Required for Version/Round Update"); return; }
+          if (!isEditMode) { alert(ADMIN_REQUIRED); return; }
           const [, type, value] = overrideMatch;
           if (type.toLowerCase() === 'rd') {
             // Round changes always come from the server transition (or PCF when present).
@@ -132,7 +136,7 @@ export const CommandBar: React.FC = () => {
         // B2. Due Date: due:2026-02-15 OR dl:02-15
         const dueMatch = actionPart.match(/^(due|dl)[:：](.+)$/i);
         if (!actionHandled && dueMatch) {
-          if (!isEditMode) { alert("Edit Mode Required for Due Date Update"); return; }
+          if (!isEditMode) { alert(ADMIN_REQUIRED); return; }
           const [, , val] = dueMatch;
           let dateStr = val.trim();
           // Simple heuristic for MM-DD or MM.DD implying current year
@@ -167,7 +171,7 @@ export const CommandBar: React.FC = () => {
         // E. Assignees: to:Name, add:Name, rm:Name
         const assignMatch = actionPart.match(/^(assign|to|add|plus|rm|drop)[:：]\s*(.+)$/i);
         if (!actionHandled && assignMatch) {
-          if (!isEditMode) { alert("Edit Mode Required for Assignees Update"); return; }
+          if (!isEditMode) { alert(ADMIN_REQUIRED); return; }
           const [, cmd, namesStr] = assignMatch;
           const names = namesStr.split(/[,，\s]+/).map(n => n.trim()).filter(Boolean);
           const command = cmd.toLowerCase();
@@ -211,7 +215,7 @@ export const CommandBar: React.FC = () => {
       if (validDrawings.length === 0) {
         const assigneeBatchMatch = actionPart.match(/^(add|rm)[:：]\s*(.+)$/i);
         if (assigneeBatchMatch) {
-          if (!isEditMode) { alert("Edit Mode Required for Assignees Update"); return; }
+          if (!isEditMode) { alert(ADMIN_REQUIRED); return; }
           const assigneeName = idPart;
           const action = assigneeBatchMatch[1].toLowerCase();
           const batchTargetIds = assigneeBatchMatch[2].split(/[,，\s]+/).map(s => s.trim()).filter(Boolean);
@@ -259,14 +263,15 @@ export const CommandBar: React.FC = () => {
           type="text"
           value={input}
           onChange={(e) => setInput(e.target.value)}
-          placeholder="Terminal: @001 [Remark] OR @001 c:12/3 OR @R 001,002"
-          className="w-full py-3.5 px-4 outline-none text-slate-700 bg-transparent placeholder:text-slate-400 font-bold text-sm"
+          placeholder={isEditMode ? "Terminal: @001 [Remark] OR @001 c:12/3 OR @R 001,002" : "Terminal commands require administrator sign-in"}
+          title={!isEditMode ? ADMIN_REQUIRED : undefined}
+          className={`w-full py-3.5 px-4 outline-none bg-transparent placeholder:text-slate-400 font-bold text-sm ${isEditMode ? 'text-slate-700' : 'text-slate-400 cursor-not-allowed'}`}
         />
         <button
           type="submit"
-          title="Execute Command"
           className="mr-2 p-2 bg-teal-600 text-white rounded-lg hover:bg-teal-700 transition-colors disabled:opacity-50"
-          disabled={!input.trim()}
+          disabled={!input.trim() || !isEditMode}
+          title={!isEditMode ? ADMIN_REQUIRED : 'Execute Command'}
         >
           <Send size={16} />
         </button>

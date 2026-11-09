@@ -29,7 +29,7 @@ const hullId = 'p9-hull-' + suffix, machineId = 'p9-machine-' + suffix, noPcfId 
 const hullNo = 'P9-HULL-' + suffix, machineNo = 'P9-MACH-' + suffix;
 const keys = ['PORT', 'PAHUB_DATA_DIR', 'PAPC_DB_PATH', 'API_TOKEN'];
 const old = Object.fromEntries(keys.map(key => [key, process.env[key]]));
-Object.assign(process.env, { PORT: String(port), PAHUB_DATA_DIR: dataDir, PAPC_DB_PATH: dbPath, API_TOKEN: '' });
+Object.assign(process.env, { PORT: String(port), PAHUB_DATA_DIR: dataDir, PAPC_DB_PATH: dbPath, API_TOKEN: '', ADMIN_PASSWORD: '' });
 let hub, browser, page;
 const errors = [], apiFailures = [], commentRequests = [];
 const screenshots = [];
