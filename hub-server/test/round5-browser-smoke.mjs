@@ -73,7 +73,7 @@ try {
   await notice.waitFor();
   const noticeText = await notice.innerText();
   assert.match(noticeText, new RegExp(`Project "${GONE}" does not exist on the server`));
-  assert.equal(await page.getByText('Project Access Hall').isVisible(), true, 'still on the project selector');
+  assert.equal(await page.getByRole('heading', { name: 'Project Access Hall' }).isVisible(), true, 'still on the project selector');
   assert.equal(await page.locator('td', { hasText: /^DW-A-001$/ }).count(), 0, 'no project table opened');
   console.log('404 notice: "' + noticeText.replace(/\s*×$/, '') + '"');
   await page.screenshot({ path: path.join(shots, 'round5-project-not-found-1440.png') });

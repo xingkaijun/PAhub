@@ -7,44 +7,18 @@ import React, { Suspense, lazy, useMemo, useState, useEffect } from 'react';
 import { useStore } from './store';
 import { DrawingList } from './components/DrawingList';
 import { CommandBar } from './components/CommandBar';
-import { safeFormatDate } from './lib/date';
 
-const PROJECT_THEMES = [
-  { bg: 'bg-white', border: 'border-slate-100', hover: 'hover:border-slate-300', iconBg: 'from-slate-100 to-slate-200', iconText: 'text-slate-500' }, // Classic
-  { bg: 'bg-rose-50/50', border: 'border-rose-100', hover: 'hover:border-rose-400', iconBg: 'from-rose-100 to-rose-200', iconText: 'text-rose-500' },
-  { bg: 'bg-orange-50/50', border: 'border-orange-100', hover: 'hover:border-orange-400', iconBg: 'from-orange-100 to-orange-200', iconText: 'text-orange-500' },
-  { bg: 'bg-amber-50/50', border: 'border-amber-100', hover: 'hover:border-amber-400', iconBg: 'from-amber-100 to-amber-200', iconText: 'text-amber-500' },
-  { bg: 'bg-emerald-50/50', border: 'border-emerald-100', hover: 'hover:border-emerald-400', iconBg: 'from-emerald-100 to-emerald-200', iconText: 'text-emerald-500' },
-  { bg: 'bg-teal-50/50', border: 'border-teal-100', hover: 'hover:border-teal-400', iconBg: 'from-teal-100 to-teal-200', iconText: 'text-teal-500' },
-  { bg: 'bg-cyan-50/50', border: 'border-cyan-100', hover: 'hover:border-cyan-400', iconBg: 'from-cyan-100 to-cyan-200', iconText: 'text-cyan-500' },
-  { bg: 'bg-blue-50/50', border: 'border-blue-100', hover: 'hover:border-blue-400', iconBg: 'from-blue-100 to-blue-200', iconText: 'text-blue-500' },
-  { bg: 'bg-indigo-50/50', border: 'border-indigo-100', hover: 'hover:border-indigo-400', iconBg: 'from-indigo-100 to-indigo-200', iconText: 'text-indigo-500' },
-  { bg: 'bg-violet-50/50', border: 'border-violet-100', hover: 'hover:border-violet-400', iconBg: 'from-violet-100 to-violet-200', iconText: 'text-violet-500' },
-  { bg: 'bg-fuchsia-50/50', border: 'border-fuchsia-100', hover: 'hover:border-fuchsia-400', iconBg: 'from-fuchsia-100 to-fuchsia-200', iconText: 'text-fuchsia-500' },
-];
-
-const getProjectTheme = (id: string, name: string) => {
-  // Combine ID and Name for hash to handle cases where ID might be sequential or weird
-  const seed = id + name;
-  let hash = 0;
-  for (let i = 0; i < seed.length; i++) {
-    hash = seed.charCodeAt(i) + ((hash << 5) - hash);
-  }
-  return PROJECT_THEMES[Math.abs(hash) % PROJECT_THEMES.length];
-};
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { UnsavedChangesIndicator } from './components/UnsavedChangesIndicator';
 import { AdminLoginDialog } from './components/AdminLoginDialog';
 import {
   FileStack,
   Settings as SettingsIcon,
-  PlusCircle,
   ChevronDown,
   Layers,
   Code,
   Cloud,
   CloudOff,
-  RefreshCw,
   LayoutDashboard,
   TrendingUp,
   BookOpen,
@@ -56,6 +30,8 @@ import {
   ClipboardCheck,
   MessageSquare
 } from 'lucide-react';
+import { ProjectLobby } from './components/lobby/ProjectLobby';
+import { toLobbyCards } from './components/lobby/lobbyModel';
 
 const Settings = lazy(() => import('./components/Settings').then(module => ({ default: module.Settings })));
 const DailyLogReport = lazy(() => import('./components/DailyLogReport').then(module => ({ default: module.DailyLogReport })));
@@ -97,19 +73,22 @@ const App: React.FC = () => {
     () => data.projects.find(p => p.id === activeProjectId),
     [data.projects, activeProjectId]
   );
-  const projectCards = useMemo(
-    () => data.projects.map(p => ({
-      id: p.id,
-      name: p.name,
-      conf: p.conf,
-      drawingCount: p.drawings?.length || 0,
-      approvedCount: p.drawings?.filter(d => d.status === 'Approved').length || 0,
-      storagePath: p.storagePath,
-    })),
-    [data.projects]
-  );
 
   const [showProjectSelector, setShowProjectSelector] = useState(true);
+  // Project Access Hall: stays mounted while its opening motion plays over the workspace.
+  const [lobbyLaunching, setLobbyLaunching] = useState(false);
+  const lobbyCards = useMemo(
+    () => toLobbyCards(data.projects.map(p => ({
+      id: p.id,
+      name: p.name,
+      drawingCount: p.drawings?.length || 0,
+      approvedCount: p.drawings?.filter(d => d.status === 'Approved').length || 0,
+      lastUpdated: p.lastUpdated,
+      locked: !!p.conf?.password,
+    }))),
+    [data.projects]
+  );
+  const lobbyVisible = showProjectSelector || lobbyLaunching;
   const [remoteUpdateCount, setRemoteUpdateCount] = useState(0);
   const [showAdminLogin, setShowAdminLogin] = useState(false);
   useEffect(() => {
@@ -142,76 +121,67 @@ const App: React.FC = () => {
     initApp();
   }, []);
 
-  const handleSelectProject = async (projectId: string, passwordInput?: string) => {
+  /**
+   * Opens a project. Resolves true once it is open, false when it stayed closed (cancelled, failed, not found).
+   * A protected project asks for its password here and retries until it opens or the user cancels, so the
+   * caller (the lobby) can keep its closed book on screen until the answer is known. beforePrompt delays the
+   * password prompt until the caller's motion has settled, since prompt() freezes the page while it is open.
+   */
+  const handleSelectProject = async (projectId: string, opts: { beforePrompt?: Promise<unknown> } = {}): Promise<boolean> => {
     // Check for unsaved changes before switching projects
     const hasUnsaved = useStore.getState().hasUnsavedChanges();
     if (hasUnsaved && activeProjectId && projectId !== activeProjectId) {
       const confirmSwitch = window.confirm(
         'You have unsaved changes in the current project. Switching projects will discard these changes.\n\nWould you like to save the current project first?\n\nClick "OK" to save and switch, or "Cancel" to switch without saving (changes will be lost).'
       );
-      
+
       if (confirmSwitch) {
         // Save current project first
         const saved = await saveProject(activeProjectId);
         if (!saved) {
           alert('Save failed. Please try again or choose to switch without saving.');
-          return;
+          return false;
         }
       } else {
         // User chose to discard changes, confirm again
         const confirmDiscard = window.confirm('Are you sure you want to discard unsaved changes? This action cannot be undone.');
         if (!confirmDiscard) {
-          return; // Cancel the switch
+          return false; // Cancel the switch
         }
       }
     }
 
-    useStore.setState({ isLoading: true });
-    try {
-      if (true) {
-        // Pass password if provided
-        await loadProject(projectId, passwordInput);
-      } else {
-        // Local load (just set active)
-        setActiveProject(projectId);
-      }
-      setShowProjectSelector(false);
-      setActiveProject(projectId); // Ensure store knows active ID
-    } catch (e: any) {
-      if (e.message === 'PASSWORD_REQUIRED' || e.message === 'INVALID_PASSWORD') {
-        useStore.setState({ isLoading: false }); // Hide spinner to show prompt
-        // Simple prompt for now
-        const msg = e.message === 'INVALID_PASSWORD' ? "Incorrect Password. Try again:" : "This Registry is Protected. Enter Password:";
-        // Short delay to allow React render? PROMPT blocks immediately.
-        // We use setTimeout to allow UI update (hide spinner) before blocking.
-        setTimeout(() => {
+    let password: string | undefined;
+    for (;;) {
+      useStore.setState({ isLoading: true });
+      try {
+        await loadProject(projectId, password);
+        setShowProjectSelector(false);
+        setActiveProject(projectId); // Ensure store knows active ID
+        return true;
+      } catch (e: any) {
+        if (e.message === 'PASSWORD_REQUIRED' || e.message === 'INVALID_PASSWORD') {
+          useStore.setState({ isLoading: false }); // Hide the spinner before the prompt blocks the page
+          const msg = e.message === 'INVALID_PASSWORD' ? 'Incorrect Password. Try again:' : 'This Registry is Protected. Enter Password:';
+          await opts.beforePrompt?.catch(() => undefined);
+          // Let the page paint once before prompt() blocks it.
+          await new Promise(resolve => setTimeout(resolve, 50));
           const pwd = prompt(msg);
-          if (pwd !== null) {
-            handleSelectProject(projectId, pwd);
-          }
-        }, 50);
-        return;
-      } else if (isProjectNotFound(e)) {
-        // The store shows the "project does not exist" notice; stay on the selector. The local entry is kept
-        // (it may hold work that never reached the server), it is just not opened.
-        setShowProjectSelector(true);
-      } else {
-        alert("Failed to load project: " + e.message);
+          if (pwd === null) return false;
+          password = pwd;
+          continue;
+        }
+        if (isProjectNotFound(e)) {
+          // The store shows the "project does not exist" notice; stay on the selector. The local entry is kept
+          // (it may hold work that never reached the server), it is just not opened.
+          setShowProjectSelector(true);
+        } else {
+          alert('Failed to load project: ' + e.message);
+        }
+        return false;
+      } finally {
+        useStore.setState({ isLoading: false });
       }
-    } finally {
-      // If we are NOT recursing (i.e. error wasn't password related, or success), turn off loading.
-      // If password related, we returned early.
-      // But we need to make sure we don't leave spinner if we didn't return.
-      // Actually `return ` above skips this finally?
-      // No, `return ` inside catch executes finally.
-      // We want to avoid turning off loading if we are about to recurse?
-      // But the recursive call will set isLoading=true at start.
-      // So turning it off here briefly is fine, or we can use a flag.
-      // But wait: `setTimeout` makes it async.
-      // So `finally` block runs BEFORE `setTimeout` callback.
-      // So `isLoading` becomes false. Then prompt shows. Then recursive call sets true.
-      // This is perfect! We want spinner to hide so user sees the app (or at least prompt).
-      useStore.setState({ isLoading: false });
     }
   };
 
@@ -418,169 +388,25 @@ const App: React.FC = () => {
           <button className="shrink-0 rounded px-2 py-1 text-rose-800 hover:bg-white/70" onClick={clearProjectNotice} aria-label="Dismiss project notice">×</button>
         </div>
       )}
-      {/* New Project Selector Overlay (Static Prototype) */}
-      {showProjectSelector && !isLoading && (
-        <div className="fixed inset-0 z-[10000] flex flex-col bg-[radial-gradient(circle_at_top_left,_rgba(156,242,232,0.35),_transparent_24%),linear-gradient(180deg,#f4fbfa_0%,#f7fafc_42%,#eefaf7_100%)] overflow-hidden">
-
-          {/* Top Header */}
-          <div className="relative overflow-hidden bg-[rgba(15,118,110,0.88)] backdrop-blur-2xl border-b border-white/10 px-8 py-5 flex items-center justify-between shrink-0 shadow-[0_24px_48px_-12px_rgba(19,27,46,0.16)] z-10">
-            <div className="absolute inset-0 bg-[linear-gradient(135deg,rgba(255,255,255,0.18),transparent_35%,rgba(156,242,232,0.14)_100%)] pointer-events-none" />
-            <div className="relative flex items-center gap-4">
-              <div className="bg-white/95 p-1.5 rounded-2xl shadow-lg border border-white/40">
-                <img
-                  src="/pg-logo.jpg"
-                  alt="PG SHIPMANAGEMENT PTE. LTD. Logo"
-                  className="h-10 w-auto object-contain"
-                />
-              </div>
-              <div>
-                <p className="text-[9px] font-black uppercase tracking-[0.35em] text-teal-100/80 mb-1">
-                  Project Access Hall
-                </p>
-                <h1 className="text-2xl font-[1000] text-white tracking-tight uppercase leading-none">
-                  Select <span className="text-[#9CF2E8]">Project</span>
-                </h1>
-              </div>
-            </div>
-
-            {/* Storage Controls */}
-            <div className="relative flex items-center gap-3">
-              <a
-                href="/manual/"
-                target="_blank"
-                rel="noopener"
-                title="操作手册 / Guide"
-                aria-label="操作手册 / Guide"
-                className="inline-flex items-center justify-center p-2.5 rounded-full border border-white/15 bg-white/10 text-white/80 hover:bg-white hover:text-teal-700 transition-all active:scale-95 shadow-lg shadow-teal-950/10"
-              >
-                <BookOpen size={16} />
-              </a>
-              <button
-                onClick={handleGlobalRefresh}
-                className="inline-flex items-center justify-center p-2.5 rounded-full border border-white/15 bg-white/10 text-white/80 hover:bg-white hover:text-teal-700 transition-all active:scale-95 shadow-lg shadow-teal-950/10"
-              >
-                <RefreshCw size={16} />
-              </button>
-            </div>
-          </div>
-
-          {/* Grid Container (Scrollable Scroll Area) */}
-          <div className="flex-1 overflow-y-auto px-8 py-10 w-full max-w-[1800px] mx-auto">
-
-            {/* Grid Definition */}
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-6">
-
-              {/* Company Logo Card (First Element) */}
-              <div className="group relative flex flex-col items-center justify-center rounded-3xl border border-slate-100 bg-white shadow-lg shadow-slate-200/40 h-[260px] overflow-hidden">
-                <div className="w-full h-full flex flex-col items-center justify-center p-4 bg-gradient-to-br from-white to-slate-50/50">
-                  <img
-                    src="/pg-logo.jpg"
-                    alt="PG SHIPMANAGEMENT PTE. LTD. Logo"
-                    className="w-[95%] sm:w-[85%] md:w-full max-w-xs h-auto object-contain drop-shadow-md opacity-95 transition-transform duration-700 hover:scale-[1.05]"
-                  />
-                </div>
-              </div>
-
-              {/* Project Items (Dynamic) */}
-              {projectCards.map(p => {
-                const theme = getProjectTheme(p.id, p.name);
-                const total = p.drawingCount;
-                const approved = p.approvedCount;
-                const completion = total > 0 ? Math.round((approved / total) * 100) : 0;
-
-                return (
-                  <button
-                    key={p.id}
-                    onClick={() => handleSelectProject(p.id)}
-                    className={`group relative flex flex-col rounded-3xl border border-white shadow-lg shadow-slate-200/40 hover:shadow-2xl hover:-translate-y-1.5 transition-all duration-300 ease-out text-left h-[260px] overflow-hidden ${theme.bg}`}
-                  >
-                    {/* Top Color Banner */}
-                    <div className={`h-2 w-full bg-gradient-to-r opacity-80 ${theme.iconBg}`} />
-
-                    <div className="p-6 flex flex-col h-full w-full">
-                      <div className="flex justify-between items-start mb-6 w-full gap-2">
-                        <div className={`w-14 h-14 rounded-2xl flex items-center justify-center text-2xl font-black shadow-inner shrink-0 ${theme.iconBg} ${theme.iconText} bg-opacity-20`}>
-                          {p.name.substring(0, 2).toUpperCase()}
-                        </div>
-                        {total > 0 && (
-                          <div className="bg-white/60 text-slate-500 text-[9px] font-black uppercase tracking-wider px-2 py-1 rounded-lg border border-slate-100 flex items-center gap-1.5 shadow-sm">
-                            <div className={`w-1.5 h-1.5 rounded-full ${completion === 100 ? 'bg-emerald-500' : 'bg-amber-400 animate-pulse'}`} />
-                            {completion === 100 ? 'Completed' : 'Active'}
-                          </div>
-                        )}
-                      </div>
-
-                      <h3 className={`text-xl font-[1000] uppercase tracking-tight mb-2 transition-colors line-clamp-2 ${theme.iconText}`}>
-                        {p.name}
-                      </h3>
-
-                      {total > 0 ? (
-                        <div className="mt-auto w-full">
-                          <div className="flex justify-between items-end mb-1.5">
-                            <span className="text-[9px] font-black uppercase text-slate-400 tracking-wider">Progress</span>
-                            <span className={`text-sm font-[1000] ${theme.iconText}`}>{completion}%</span>
-                          </div>
-                          <div className="w-full h-2 bg-slate-100 rounded-full overflow-hidden shadow-inner">
-                            <div
-                              className={`h-full rounded-full transition-all duration-1000 ease-out ${theme.iconBg} bg-opacity-80`}
-                              style={{ width: `${completion}%` }}
-                            />
-                          </div>
-
-                          <div className="flex justify-between items-center mt-4 pt-4 border-t border-slate-900/5">
-                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
-                              Assets: {total}
-                            </span>
-                            <span className="text-[9px] font-bold text-slate-400 uppercase tracking-wider">
-                              {p.lastUpdated ? safeFormatDate(p.lastUpdated, 'MM/dd', 'New') : 'New'}
-                            </span>
-                          </div>
-                        </div>
-                      ) : (
-                        <div className="mt-auto w-full">
-                          <p className="text-xs font-black text-slate-400 uppercase tracking-widest mt-4 bg-white/50 p-3 rounded-xl inline-block border border-white/50">
-                            Ready to Load
-                          </p>
-                        </div>
-                      )}
-                    </div>
-                  </button>
-                );
-              })}
-
-              {/* Create New Project Card (Last Element) */}
-              <button
-                onClick={handleAddProject}
-                className="group relative flex flex-col items-center justify-center gap-4 p-8 rounded-3xl border-2 border-dashed border-slate-300 hover:border-teal-400 bg-slate-50/50 hover:bg-teal-50/30 transition-all h-[260px]"
-              >
-                <div className="w-16 h-16 rounded-full bg-white shadow-sm border border-slate-100 group-hover:bg-teal-50 flex items-center justify-center text-slate-300 group-hover:text-teal-500 transition-colors">
-                  <PlusCircle size={32} />
-                </div>
-                <span className="text-xs font-[1000] uppercase tracking-widest text-slate-400 group-hover:text-teal-600 text-center">Create<br />Workspace</span>
-              </button>
-
-            </div>
-
-            {/* No Projects State Handled by New Project Card now */}
-
-          </div>
-
-          {/* Fixed Footer for Selector */}
-          <div className="mt-auto pb-8 pt-4 w-full flex flex-col items-center justify-center gap-3 z-20 shrink-0 bg-gradient-to-t from-[#F4F7F9] to-transparent">
-            <button onClick={handleOfflineMode} className="text-slate-400 hover:text-slate-600 text-[10px] font-black uppercase tracking-widest underline decoration-2 decoration-slate-200 underline-offset-4 hover:decoration-slate-400 transition-all">
-              Skip / Enter Offline Mode (Local Cache)
-            </button>
-            {data.projects.length === 0 && (
-              <span className="text-[9px] font-bold text-amber-500 bg-amber-50 px-3 py-1 rounded-full uppercase tracking-widest shadow-sm">
-                Note: No projects found. Cloud sync might be required.
-              </span>
-            )}
-          </div>
-        </div>
+      {/* Project Access Hall (project selector) */}
+      {lobbyVisible && (
+        <ProjectLobby
+          cards={lobbyCards}
+          loading={isLoading}
+          open={showProjectSelector}
+          logoSrc="/pg-logo.jpg"
+          manualHref="/manual/"
+          showNoProjectsNote={data.projects.length === 0}
+          onSelect={(id, motionSettled) => handleSelectProject(id, { beforePrompt: motionSettled })}
+          onCreate={handleAddProject}
+          onRefresh={handleGlobalRefresh}
+          onOffline={handleOfflineMode}
+          onLaunchStart={() => setLobbyLaunching(true)}
+          onLaunchEnd={() => setLobbyLaunching(false)}
+        />
       )}
-
       {/* Full Screen Loading Overlay */}
-      {isLoading && (
+      {isLoading && !lobbyVisible && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-slate-900/20 backdrop-blur-md animate-in fade-in duration-300">
           <div className="bg-white rounded-3xl border-2 border-teal-200 shadow-2xl p-8 max-w-md mx-4">
             <div className="flex flex-col items-center gap-4">

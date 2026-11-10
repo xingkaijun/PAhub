@@ -18,6 +18,7 @@ const TESTS = [
   'round5-browser-smoke.mjs',
   'known-issues-browser-smoke.mjs',
   'manual-browser-smoke.mjs',
+  'lobby-browser-smoke.mjs',
 ];
 
 const run = (args, label) => new Promise(resolve => {
