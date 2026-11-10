@@ -124,7 +124,7 @@ const App: React.FC = () => {
   /**
    * Opens a project. Resolves true once it is open, false when it stayed closed (cancelled, failed, not found).
    * A protected project asks for its password here and retries until it opens or the user cancels, so the
-   * caller (the lobby) can keep its closed book on screen until the answer is known. beforePrompt delays the
+   * caller (the lobby) can keep its loading sheet on screen until the answer is known. beforePrompt delays the
    * password prompt until the caller's motion has settled, since prompt() freezes the page while it is open.
    */
   const handleSelectProject = async (projectId: string, opts: { beforePrompt?: Promise<unknown> } = {}): Promise<boolean> => {

@@ -15,7 +15,7 @@ export interface ProjectLobbyProps {
   showNoProjectsNote: boolean;
   /**
    * Opens the project; resolves true once it is open, false when it stayed closed (cancelled, failed).
-   * motionSettled resolves when the closed book fills the screen, so a password prompt can wait for it.
+   * motionSettled resolves when the loading sheet fills the screen, so a password prompt can wait for it.
    */
   onSelect: (id: string, motionSettled: Promise<void>) => Promise<boolean | void> | void;
   onCreate: () => void;
@@ -33,25 +33,18 @@ const prefersReducedMotion = () =>
 
 const nextFrame = () => new Promise<void>(resolve => requestAnimationFrame(() => requestAnimationFrame(() => resolve())));
 
-/** The closed book the chosen sheet turns into; the real register sits under it and its frost front. */
+/** The loading sheet the chosen card grows into; it fades out over the real register once that is ready. */
 function LaunchLayer({ logoSrc, projectName }: { logoSrc: string; projectName: string }) {
   return (
-    <>
-      <div className="pl-l-frost"><i className="f1" /><i className="f2" /><i className="f3" /><i className="tint" /></div>
-      <div className="pl-l-book">
-        <div className="pl-l-cover">
-          <span className="pl-l-cover-grid" />
-          <span className="pl-l-cover-spine" />
-          <span className="pl-l-cover-in">
-            <LogoPlaque src={logoSrc} />
-            <span className="pl-l-cover-kicker">Drawing register</span>
-            <b className="pl-l-cover-name">{projectName}</b>
-            <span className="pl-l-progress"><i /></span>
-          </span>
-          <span className="pl-l-cover-shade" />
-        </div>
-      </div>
-    </>
+    <div className="pl-l-sheet">
+      <span className="pl-l-sheet-grid" />
+      <span className="pl-l-sheet-in">
+        <LogoPlaque src={logoSrc} />
+        <span className="pl-l-sheet-kicker">Drawing register</span>
+        <b className="pl-l-sheet-name">{projectName}</b>
+        <span className="pl-l-progress"><i /></span>
+      </span>
+    </div>
   );
 }
 

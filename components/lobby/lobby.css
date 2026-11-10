@@ -160,7 +160,7 @@
 }
 
 
-/* ------------------------------------------------------------------ opening motion: closed book, cover opens, frost front */
+/* ------------------------------------------------------------------ opening motion: loading sheet, then a plain fade */
 .pl-launch { position: absolute; inset: 0; z-index: 20; pointer-events: none; visibility: hidden; contain: strict; }
 .pl-launch[data-warm="true"] { visibility: visible; }
 /* Once the workspace is ready only the launch layer fades; the room under it is dropped from paint. */
@@ -169,37 +169,20 @@
 .pl-launch[data-active="true"] { visibility: visible; pointer-events: auto; }
 .pl-l-progress { position: relative; display: block; width: 120px; height: 3px; border-radius: 3px; overflow: hidden; background: rgba(15,118,110,.12); }
 .pl-l-progress i { position: absolute; inset: 0; width: 40%; border-radius: 3px; background: #0f766e; animation: pl-indeterminate 1.1s cubic-bezier(.65,0,.35,1) infinite; }
-/* The frost front. Each layer is three screens wide with a fixed mask and slides left on transform alone,
-   so the clear zone (right) grows toward the spine without the mask being redrawn every frame.
-   Layer widths are 300% of the screen, so each 1% of mask below is 3% of the screen; sliding by -50% moves
-   the front 1.5 screens, from fully frosted to fully clear. */
-.pl-l-frost { position: absolute; inset: 0; overflow: hidden; visibility: hidden; }
-.pl-l-frost i { position: absolute; top: 0; bottom: 0; left: 0; width: 300%; display: block; will-change: transform; }
-.pl-l-frost .f1 { -webkit-backdrop-filter: blur(4px); backdrop-filter: blur(4px);
-  -webkit-mask-image: linear-gradient(to left, transparent 50%, #000 59.333%); mask-image: linear-gradient(to left, transparent 50%, #000 59.333%); }
-.pl-l-frost .f2 { -webkit-backdrop-filter: blur(12px); backdrop-filter: blur(12px);
-  -webkit-mask-image: linear-gradient(to left, transparent 55.333%, #000 63.333%); mask-image: linear-gradient(to left, transparent 55.333%, #000 63.333%); }
-.pl-l-frost .f3 { -webkit-backdrop-filter: blur(30px) saturate(1.15); backdrop-filter: blur(30px) saturate(1.15);
-  -webkit-mask-image: linear-gradient(to left, transparent 60%, #000 66.667%); mask-image: linear-gradient(to left, transparent 60%, #000 66.667%); }
-.pl-l-frost .tint { background: rgba(243,248,247,.62);
-  -webkit-mask-image: linear-gradient(to left, transparent 56.667%, #000 66.667%); mask-image: linear-gradient(to left, transparent 56.667%, #000 66.667%); }
-.pl-l-book { position: absolute; inset: 0; opacity: 0; transform-origin: 50% 50%; perspective: 2200px; perspective-origin: 0% 50%; will-change: transform; }
-.pl-l-cover {
-  position: absolute; inset: 0; overflow: hidden; transform-origin: 0% 50%; backface-visibility: hidden; -webkit-backface-visibility: hidden;
+.pl-l-sheet {
+  position: absolute; inset: 0; opacity: 0; overflow: hidden; transform-origin: 50% 50%; will-change: transform, opacity;
   background-color: #fbfcfb; color: #10302d; border-radius: 6px; box-shadow: 0 30px 60px -30px rgba(13,42,39,.45), inset 0 0 0 1px rgba(16,48,45,.16);
 }
-.pl-l-cover-grid { position: absolute; inset: 0;
+.pl-l-sheet-grid { position: absolute; inset: 0;
   background-image: linear-gradient(rgba(15,118,110,.08) 1px, transparent 1px), linear-gradient(90deg, rgba(15,118,110,.08) 1px, transparent 1px), linear-gradient(rgba(15,118,110,.035) 1px, transparent 1px), linear-gradient(90deg, rgba(15,118,110,.035) 1px, transparent 1px);
   background-size: 120px 120px, 120px 120px, 24px 24px, 24px 24px; }
-.pl-l-cover-spine { position: absolute; left: 0; top: 0; bottom: 0; width: 28px; background: linear-gradient(90deg, rgba(13,42,39,.16), rgba(13,42,39,0)); border-right: 1px solid rgba(16,48,45,.14); }
-.pl-l-cover-in { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; text-align: center; opacity: 0; }
-.pl-l-cover-in .pl-logo { width: 120px; height: 120px; padding: 12px; border-radius: 18px; border: 1px solid rgba(16,48,45,.18); box-shadow: 0 20px 40px -24px rgba(13,42,39,.5); }
-.pl-l-cover-kicker { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; letter-spacing: .22em; text-transform: uppercase; color: rgba(16,48,45,.55); }
-.pl-l-cover-name { font-size: 44px; font-weight: 800; letter-spacing: -.02em; color: #0d2a27; }
-.pl-l-cover-shade { position: absolute; inset: 0; opacity: 0; background: linear-gradient(90deg, rgba(13,42,39,.05), rgba(13,42,39,.4)); }
+.pl-l-sheet-in { position: absolute; inset: 0; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 18px; text-align: center; opacity: 0; }
+.pl-l-sheet-in .pl-logo { width: 120px; height: 120px; padding: 12px; border-radius: 18px; border: 1px solid rgba(16,48,45,.18); box-shadow: 0 20px 40px -24px rgba(13,42,39,.5); }
+.pl-l-sheet-kicker { font-family: ui-monospace, "SF Mono", Menlo, Consolas, monospace; font-size: 11px; letter-spacing: .22em; text-transform: uppercase; color: rgba(16,48,45,.55); }
+.pl-l-sheet-name { font-size: 44px; font-weight: 800; letter-spacing: -.02em; color: #0d2a27; }
 @media (max-width: 639px) {
-  .pl-l-cover-in .pl-logo { width: 84px; height: 84px; }
-  .pl-l-cover-name { font-size: 28px; }
+  .pl-l-sheet-in .pl-logo { width: 84px; height: 84px; }
+  .pl-l-sheet-name { font-size: 28px; }
 }
 
 

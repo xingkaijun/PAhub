@@ -2,10 +2,12 @@
 // Real browser, real hub server (fixture data), for the Project Access Hall (Blueprint lobby, the default selector):
 //  1. at 1440 and 390: the hall shows with no ?lobby parameter, the PG logo is visible (and large), every project has a
 //     card, the entry points are there (refresh, manual book icon, offline mode), no horizontal overflow;
-//  2. clicking a card plays the book opening (closed book fills the screen, then the cover opens) and lands on Inventory
-//     with its drawings, still without horizontal overflow;
-//  3. a password-protected project: the prompt appears only once the closed book is up; a wrong password asks again,
-//     the right one opens Inventory; cancelling returns to the hall with every card usable;
+//  2. clicking a card grows it into the loading sheet; once Inventory is ready underneath, the sheet only fades out
+//     (no book cover, no frost layers, opacity never goes back up) and lands on Inventory with its drawings, still
+//     without horizontal overflow;
+//  3. a password-protected project: the prompt appears only once the loading sheet is up and before the server has
+//     returned any of that project's data; a wrong password asks again, the right one opens Inventory; cancelling returns to the hall
+//     with every card usable;
 //  4. prefers-reduced-motion: the hall fades straight to Inventory;
 //  5. no console errors and no unexpected 4xx/5xx (the expected 401s of the password check are allowed).
 // Screenshots go to hub-server/test/artifacts/lobby-*.png.
@@ -77,18 +79,47 @@ try {
     assert.ok(before.sw <= before.vw, `${label} hall scrollWidth ${before.sw} > ${before.vw}`);
     await page.screenshot({ path: path.join(shots, `lobby-hall-${w}.png`) });
 
-    // 2. click -> closed book -> cover opens -> Inventory
+    // 2. click -> loading sheet -> sheet fades out -> Inventory
+    // Watch every frame: what is in the page when the fade starts, and the sheet's opacity while it fades.
+    await page.evaluate(() => {
+      const probe = window.__fadeProbe = { atReveal: null, opacities: [], done: false };
+      const tick = () => {
+        const root = document.querySelector('.pl-root');
+        if (!root) { probe.done = true; return; }
+        if (root.dataset.phase === 'revealing') {
+          const sheet = root.querySelector('.pl-l-sheet');
+          if (!probe.atReveal) probe.atReveal = {
+            inventoryReady: [...document.querySelectorAll('td')].some(td => td.textContent.trim() === 'DW-A-001'),
+            legacy: root.querySelectorAll('.pl-l-book, .pl-l-cover, .pl-l-frost').length,
+            animated: [...new Set(root.querySelector('.pl-launch').getAnimations({ subtree: true })
+              .filter(a => a.playState === 'running' && !(a instanceof CSSAnimation)).flatMap(a => a.effect.getKeyframes().flatMap(k => Object.keys(k)))
+              .filter(k => !['offset', 'easing', 'composite', 'computedOffset'].includes(k)))],
+          };
+          if (sheet) probe.opacities.push(Number(getComputedStyle(sheet).opacity));
+        }
+        requestAnimationFrame(tick);
+      };
+      requestAnimationFrame(tick);
+    });
     const t0 = Date.now();
     await card(page, NAME).click();
     await page.waitForFunction(() => document.querySelector('.pl-root')?.dataset.phase === 'revealing', null, { polling: 'raf', timeout: 15000 });
-    const tBook = Date.now() - t0;
+    const tSheet = Date.now() - t0;
     await inventory(page);
     const tDone = Date.now() - t0;
+    const probe = await page.evaluate(() => window.__fadeProbe);
+    assert.ok(probe.atReveal, `${label}: fade never observed`);
+    assert.equal(probe.atReveal.inventoryReady, true, `${label}: Inventory was not rendered under the sheet when the fade started`);
+    assert.equal(probe.atReveal.legacy, 0, `${label}: book/cover/frost elements still present`);
+    assert.deepEqual(probe.atReveal.animated, ['opacity'], `${label}: reveal animates ${JSON.stringify(probe.atReveal.animated)}`);
+    assert.ok(probe.opacities.length >= 3, `${label}: only ${probe.opacities.length} fade frames`);
+    probe.opacities.forEach((o, i) => assert.ok(i === 0 || o <= probe.opacities[i - 1] + 1e-6, `${label}: sheet opacity went back up ${JSON.stringify(probe.opacities)}`));
+    console.log(label, 'fade frames', JSON.stringify(probe.opacities.map(o => +o.toFixed(3)))); assert.ok(probe.opacities[0] > 0.5, `${label}: fade started at opacity ${probe.opacities[0]}`);
     assert.ok(tDone < 6000, `${label}: click to Inventory took ${tDone} ms`);
     const after = await widths(page);
     assert.ok(after.sw <= after.vw, `${label} Inventory scrollWidth ${after.sw} > ${after.vw}`);
     await page.screenshot({ path: path.join(shots, `lobby-inventory-${w}.png`) });
-    console.log(`${label} ${w}: hall shown without ?lobby, PG logo ${Math.round(logo.width)}px, scrollWidth ${before.sw}/${before.vw}; click -> book up ${tBook} ms -> Inventory ${tDone} ms, scrollWidth ${after.sw}/${after.vw}`);
+    console.log(`${label} ${w}: hall shown without ?lobby, PG logo ${Math.round(logo.width)}px, scrollWidth ${before.sw}/${before.vw}; click -> loading sheet ready ${tSheet} ms -> faded to Inventory ${tDone} ms (${probe.opacities.length} fade frames, opacity ${probe.opacities[0].toFixed(2)} -> ${probe.opacities.at(-1).toFixed(2)}, Inventory rendered under the sheet before the fade), scrollWidth ${after.sw}/${after.vw}`);
 
     // 3. password-protected project (desktop only; the flow is the same on phones)
     if (w === 1440) {
@@ -101,8 +132,11 @@ try {
       await page.goto(origin + '/'); await card(page, LOCKED).waitFor(); await page.waitForTimeout(600);
       const prompts = [];
       let answers = ['wrong', null];
+      // Successful loads of the locked project's data; none may happen before the right password.
+      let lockedLoaded = 0;
+      page.on('response', response => { if (response.ok() && new URL(response.url()).pathname.startsWith('/api/projects/proj-lock-001')) lockedLoaded++; });
       page.on('dialog', async dialog => {
-        prompts.push({ message: dialog.message() });
+        prompts.push({ message: dialog.message(), lockedLoaded });
         const answer = answers.shift();
         if (answer === null || answer === undefined) await dialog.dismiss(); else await dialog.accept(answer);
       });
@@ -112,7 +146,8 @@ try {
       const phases = await page.evaluate(() => window.__promptPhases);
       prompts.forEach((prompt, i) => { prompt.phase = phases[i]; });
       assert.match(prompts[0].message, /Protected/); assert.match(prompts[1].message, /Incorrect/);
-      assert.equal(prompts[0].phase, 'launching', 'prompt came after the book, phase ' + prompts[0].phase);
+      assert.equal(prompts[0].phase, 'launching', 'prompt came after the loading sheet, phase ' + prompts[0].phase);
+      assert.deepEqual(prompts.map(p => p.lockedLoaded), [0, 0], 'the locked project was served before its password');
       assert.equal(await card(page, NAME).isVisible(), true, 'hall usable after cancel');
       console.log('password: prompt shown during phase ' + prompts[0].phase + ', wrong password asked again, cancel -> back to the hall');
       answers = [SECRET];
@@ -122,6 +157,28 @@ try {
       console.log('password: right password -> Inventory');
     }
     await context.close();
+  }
+
+  // 3b. loading fails: the error is shown, the loading sheet goes away and the hall is usable again
+  {
+    const failing = await browser.newContext({ viewport: { width: 1440, height: 900 } });
+    const page = await failing.newPage();
+    page.on('pageerror', error => problems.push('lobby-fail pageerror: ' + error.message));
+    await page.goto(origin + '/'); await card(page, NAME).waitFor(); await page.waitForTimeout(600);
+    await page.route(/\/api\/projects\/proj-test-001(\?|$)/, route => route.fulfill({ status: 503, contentType: 'application/json', body: '{"error":"test outage"}' }));
+    const alerts = [];
+    page.on('dialog', async dialog => { alerts.push(dialog.message()); await dialog.accept(); });
+    await card(page, NAME).click();
+    await page.waitForFunction(() => document.querySelector('.pl-root')?.dataset.phase === 'idle', null, { timeout: 15000 });
+    assert.equal(alerts.length, 1, 'one error alert: ' + JSON.stringify(alerts));
+    assert.match(alerts[0], /Failed to load project/);
+    assert.equal(await page.locator('.pl-launch').getAttribute('data-active'), 'false', 'loading sheet still up after the failure');
+    assert.equal(await card(page, NAME).isVisible(), true, 'hall usable after a failed load');
+    await page.unroute(/\/api\/projects\/proj-test-001(\?|$)/);
+    await card(page, NAME).click();
+    await inventory(page);
+    console.log('load failure: alert "' + alerts[0].slice(0, 40) + '...", loading sheet removed, hall usable, second click -> Inventory');
+    await failing.close();
   }
 
   // 4. reduced motion

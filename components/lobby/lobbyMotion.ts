@@ -1,6 +1,6 @@
-// Click-to-open motion of the Project Access Hall: the chosen sheet becomes a closed book that fills the
-// screen, then its cover swings open on the left spine while a frosted front clears over the register.
-// Only transform and opacity are animated (compositor-friendly, no layout or mask work per frame).
+// Click-to-open motion of the Project Access Hall: the chosen sheet grows into a full-screen loading sheet
+// (PG logo, project name, progress line). Once the workspace underneath is ready, that sheet simply fades out
+// and leaves the real Inventory in place. Only transform and opacity are animated (compositor-friendly).
 
 export interface LaunchContext {
   root: HTMLElement;
@@ -19,15 +19,11 @@ export const MOTION = {
   /** Other sheets clear away, nearest first. */
   clear: 220,
   clearStagger: 22,
-  /** The chosen sheet lifts off and grows into a closed book filling the screen. */
-  bookDelay: 40,
-  bookGrow: 520,
-  /** The cover swings open on its left spine (was 760). */
-  coverOpen: 1100,
-  /** The frost front crosses the register; it trails the cover edge a little (was 1250). */
-  frostClear: 1700,
-  /** Share of frostClear the frost holds still while the cover starts to lift. */
-  frostHold: 0.05,
+  /** The chosen sheet lifts off and grows into the loading sheet filling the screen. */
+  sheetDelay: 40,
+  sheetGrow: 520,
+  /** The loading sheet fades away over the ready Inventory (replaces the book opening and frost sweep). */
+  fadeOut: 420,
   /** Reduced motion: plain fades only. */
   reducedIn: 160,
   reducedOut: 160,
@@ -35,6 +31,7 @@ export const MOTION = {
 
 const EASE_IN_OUT = 'cubic-bezier(0.65, 0, 0.35, 1)';
 const EASE_SOFT = 'cubic-bezier(0.22, 0.61, 0.36, 1)';
+const EASE_FADE = 'cubic-bezier(0.4, 0, 0.2, 1)';
 
 function q<T extends Element = HTMLElement>(el: ParentNode, sel: string) {
   return el.querySelector(sel) as T | null;
@@ -82,60 +79,39 @@ function collector() {
   return { anims, add, finished };
 }
 
-/** Click: the room clears sheet by sheet and the chosen sheet becomes a closed book filling the screen. */
+/** Click: the room clears sheet by sheet and the chosen sheet grows into the loading sheet filling the screen. */
 export function runLaunch(ctx: LaunchContext): LaunchRun {
   const { anims, add, finished } = collector();
-  const book = q(ctx.layer, '.pl-l-book');
-  const coverIn = q(ctx.layer, '.pl-l-cover-in');
+  const sheet = q(ctx.layer, '.pl-l-sheet');
+  const sheetIn = q(ctx.layer, '.pl-l-sheet-in');
   const r = ctx.card.getBoundingClientRect();
   const { others, chrome, hidden } = collect(ctx);
   hidden.forEach(el => add(el, [{ opacity: 0 }, { opacity: 0 }], { duration: 1 }));
 
   if (ctx.reduced) {
-    add(book, [{ opacity: 0 }, { opacity: 1 }], { duration: MOTION.reducedIn, easing: 'linear' });
-    add(coverIn, [{ opacity: 1 }, { opacity: 1 }], { duration: 1 });
+    add(sheet, [{ opacity: 0 }, { opacity: 1 }], { duration: MOTION.reducedIn, easing: 'linear' });
+    add(sheetIn, [{ opacity: 1 }, { opacity: 1 }], { duration: 1 });
   } else {
     distanceOrder(others, r).forEach((el, i) => add(el, [
       { opacity: 1, transform: 'none' }, { opacity: 0, transform: 'translateY(22px)' },
     ], { duration: MOTION.clear, delay: Math.min(i, 10) * MOTION.clearStagger, easing: EASE_SOFT }));
     chrome.forEach(el => add(el, [{ opacity: 1 }, { opacity: 0 }], { duration: 200, easing: 'linear' }));
     add(ctx.card, [{ opacity: 0 }, { opacity: 0 }], { duration: 1 });
-    add(book, [
+    add(sheet, [
       { transform: boxTo(r), opacity: 1 },
       { transform: 'none', opacity: 1 },
-    ], { duration: MOTION.bookGrow, delay: MOTION.bookDelay, easing: EASE_IN_OUT });
-    add(coverIn, [{ opacity: 0 }, { opacity: 0, offset: 0.6 }, { opacity: 1 }], { duration: MOTION.bookGrow + 40, delay: MOTION.bookDelay, easing: 'linear' });
+    ], { duration: MOTION.sheetGrow, delay: MOTION.sheetDelay, easing: EASE_IN_OUT });
+    add(sheetIn, [{ opacity: 0 }, { opacity: 0, offset: 0.6 }, { opacity: 1 }], { duration: MOTION.sheetGrow + 40, delay: MOTION.sheetDelay, easing: 'linear' });
   }
 
   return { finished: finished(), cancel: () => anims.forEach(a => a.cancel()) };
 }
 
-/**
- * Once the workspace underneath is ready: the cover swings open on its left spine like a book, and a frosted
- * front follows it across the real register, heavy at the moving front and clear on the side already uncovered.
- * Nothing above the frost layers may carry opacity, a filter or a mask, or their backdrop blur sees nothing.
- */
+/** Once the workspace underneath is ready (already rendered under the sheet): the loading sheet fades out. */
 export function runReveal(layer: HTMLElement, reduced: boolean): Promise<void> {
   const { add, finished } = collector();
-  const frost = q(layer, '.pl-l-frost');
-  if (reduced) {
-    add(q(layer, '.pl-l-book'), [{ opacity: 1 }, { opacity: 0 }], { duration: MOTION.reducedOut, easing: 'linear' });
-    return finished();
-  }
-  const frostTiming = { duration: MOTION.frostClear, easing: 'cubic-bezier(0.42, 0, 0.3, 1)' };
-  add(frost, [{ visibility: 'visible' }, { visibility: 'visible' }], { duration: MOTION.frostClear });
-  // Each frost layer is 300% wide: -50% slides its front 1.5 screens, from all frosted to all clear.
-  frost?.querySelectorAll('i').forEach(el => add(el, [
-    { transform: 'translate3d(0, 0, 0)' },
-    { transform: 'translate3d(0, 0, 0)', offset: MOTION.frostHold },
-    { transform: 'translate3d(-50%, 0, 0)' },
-  ], frostTiming));
-  const coverTiming = { duration: MOTION.coverOpen };
-  add(q(layer, '.pl-l-cover'), [
-    { transform: 'rotateY(0deg)' },
-    { transform: 'rotateY(10deg)', offset: 0.18 },
-    { transform: 'rotateY(90deg)' },
-  ], { ...coverTiming, easing: 'cubic-bezier(0.5, 0, 0.4, 1)' });
-  add(q(layer, '.pl-l-cover-shade'), [{ opacity: 0 }, { opacity: 1 }], { ...coverTiming, easing: 'linear' });
+  add(q(layer, '.pl-l-sheet'), [{ opacity: 1 }, { opacity: 0 }], reduced
+    ? { duration: MOTION.reducedOut, easing: 'linear' }
+    : { duration: MOTION.fadeOut, easing: EASE_FADE });
   return finished();
 }
