@@ -50,6 +50,9 @@ function ignoredDiff(base: any, returned: any, prefix = ''): string[] {
   return [...new Set([...Object.keys(base), ...Object.keys(returned)])].flatMap(k => ignoredDiff(base[k], returned[k], prefix ? prefix + '.' + k : k)).slice(0, 500);
 }
 export type MergeItem = { id: string; commentId: string; roundId: string; commentNumber: number; field: 'body'|'images'|'deleted'; base: any; builder: any; server: any; reason: string };
+// What a Builder reply apply wrote, for callers that log or react to it (status, audit).
+export type BuilderApplyInfo = { exportId: string; batchId: string; ops: any[] };
+
 export class PcfExchange {
   private secret: string;
   constructor(readonly storage: PcfStorage) {
@@ -337,7 +340,7 @@ export class PcfExchange {
     this.storage.images.externalize(p, structuredClone(returned));
     return this.applyComplete(p, d, body, returned, requestedBy, { id: batchId, hash: requestHash });
   }
-  apply(p: string, d: string, body: any, requestedBy: Actor, afterApply?: () => void) {
+  apply(p: string, d: string, body: any, requestedBy: Actor, afterApply?: (applied: BuilderApplyInfo) => void) {
     const returned = this.returned(body);
     if (returned.export?.mode === 'complete') return this.applyCompleteReceipt(p, d, body, returned, requestedBy);
     const batchId = uuid(body.batchId), file = path.join(this.storage.dataDir, 'pcf', p, d, 'imports', batchId + '.json');
@@ -401,7 +404,8 @@ export class PcfExchange {
     const outcome = this.storage.opsBatch(p, d, prepared.body, prepared.actor);
     if (outcome.result.conflicts.length) fail('Server changed while recovering import; manual recovery required', 409);
     if (outcome.result.applied.length && afterApply) {
-      afterApply();
+      // Also reached when a prepared intent is recovered (opsBatch replays its receipt): callbacks must be idempotent.
+      afterApply({ exportId: prepared.exportId, batchId: prepared.body.batchId, ops: prepared.body.ops });
       const latest = this.storage.load(p, d);
       outcome.result = { ...outcome.result, rev: latest.rev, data: this.storage.publicData(latest.data) };
     }

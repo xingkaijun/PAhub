@@ -4,7 +4,7 @@ import { safeId, fail, type Actor } from './pcf-model.ts';
 import { PcfRealtime } from './pcf-realtime.ts';
 import { PcfExchange } from './pcf-exchange.ts';
 import { TEMPLATE_VERSION, renderTemplate } from './pcf-template.ts';
-import { updateBuilderReplyPapcStatus } from './pcf-builder-replies.ts';
+import { completeBuilderReplyImport } from './pcf-builder-replies.ts';
 import { commentFocusHTML } from './pcf-comment-focus.ts';
 import { bannerToolbarHTML } from './pcf-banner-toolbar.ts';
 import type { AdminSession } from './admin-session.ts';
@@ -166,7 +166,7 @@ export class PcfApi {
           if (body.step === 'preview') return json(this.exchange.preview(p, d, body));
           if (body.step !== 'apply') fail('Import step must be preview or apply');
           const metadata = (body.html ? parseHTML(body.html) : body.json)?.export;
-          const outcome = this.exchange.apply(p, d, body, this.actor(body, ip), () => { if (metadata?.mode === 'builder' && metadata.exportId) updateBuilderReplyPapcStatus(this.storage, this.realtime, p, d, metadata.exportId); });
+          const outcome = this.exchange.apply(p, d, body, this.actor(body, ip), applied => { if (metadata?.mode === 'builder' && metadata.exportId) completeBuilderReplyImport(this.storage, this.realtime, p, d, applied, 'pcf'); });
           if (!outcome.replayed && (outcome.result.applied?.length || metadata?.mode === 'complete')) this.realtime.changed(p + '/' + d, outcome.result, outcome.actor, metadata?.mode === 'complete');
           return json(outcome.result);
         }

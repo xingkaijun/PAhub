@@ -1,6 +1,7 @@
 import React, { useState, useMemo, useEffect } from 'react';
 import { useStore } from '../store';
-import { AuditEntry } from '../types';
+import { describeAuditEntry } from '../lib/auditLogDescribe';
+import type { AuditEntry } from '../types';
 import { Calendar, Download, Copy, FileText, Printer, Check, Table2, ClipboardCheck, Filter, Database, HardDrive, Layers } from 'lucide-react';
 import { format, isWithinInterval, startOfDay, endOfDay, parseISO, addDays } from 'date-fns';
 
@@ -9,7 +10,8 @@ const TRANSITION_FILTERS = [
     { key: 'pending-review', label: 'Pending → Review', match: (detail: string) => /Status:.*Pending.*->.*Review/i.test(detail) },
     { key: 'review-sentout', label: 'Review → Sent Out', match: (detail: string) => /Status:.*Review.*->.*Waiting/i.test(detail) },
     { key: 'sentout-review', label: 'Sent Out → Review', match: (detail: string) => /Status:.*Waiting.*->.*Review/i.test(detail) },
-    { key: 'approved', label: 'Approved', match: (detail: string) => /Status:.*->.*Approved/i.test(detail) }
+    { key: 'approved', label: 'Approved', match: (detail: string) => /Status:.*->.*Approved/i.test(detail) },
+    { key: 'builder-reply', label: 'Builder reply', match: (detail: string) => /^Builder replies imported:/i.test(detail) }
 ] as const;
 
 // 本地日志与服务端写入日志统一成同一行形状，表格 / CSV / Copy / PDF 全部复用
@@ -25,24 +27,6 @@ interface ChangeRow {
     detail: string;
     note: string;
 }
-
-const asCount = (value: unknown): number => {
-    const parsed = Number(value);
-    return Number.isFinite(parsed) ? parsed : 0;
-};
-
-// detail 拼成与本地 statusHistory 完全一致的字符串，
-// TRANSITION_FILTERS 的正则筛选因此对服务端数据直接生效
-const describeAuditEntry = (entry: AuditEntry): string => {
-    if (entry.action === 'STATUS') {
-        const parts = [`Status: ${entry.detail.from ?? '?'} -> ${entry.detail.to ?? '?'}`];
-        if (entry.detail.round) parts.push(`Round: ${entry.detail.round.from} -> ${entry.detail.round.to}`);
-        return parts.join(' | ');
-    }
-    const from = (entry.detail.from || {}) as Record<string, unknown>;
-    const to = (entry.detail.to || {}) as Record<string, unknown>;
-    return `Comments: ${asCount(from.total)}/${asCount(from.open)} -> ${asCount(to.total)}/${asCount(to.open)}`;
-};
 
 // 按「本地日 + 图纸」合并意见变化为净变化：自动保存每 3 分钟一次，
 // 边填边存会产生 0→2、2→8、8→15… 一串中间行，不合并很难读
@@ -137,7 +121,7 @@ export const DailyLogReport: React.FC = () => {
                     drawingNo: drawing?.drawingNo || entry.drawingNo,
                     drawingTitle: drawing?.title || '',
                     customId: drawing?.customId || entry.customId,
-                    eventType: entry.action === 'STATUS' ? 'Status' : 'Comments',
+                    eventType: entry.action === 'STATUS' ? 'Status' : entry.action === 'BUILDER_REPLY' ? 'Builder Reply' : 'Comments',
                     detail: describeAuditEntry(entry),
                     note: entry.source,
                 };
@@ -318,6 +302,12 @@ export const DailyLogReport: React.FC = () => {
             };
         });
     }, [activeProject, startDate, endDate]);
+
+    // Server 模式下导入的船厂回复（BUILDER_REPLY）也进 PDF：发文记录下方单列一节，沿用当前筛选
+    const builderReplyRows = useMemo(
+        () => dailyChanges.filter(change => change.eventType === 'Builder Reply'),
+        [dailyChanges]
+    );
 
     // 导出为 PDF：html2canvas-pro（支持 Tailwind v4 的 oklch 颜色）和 jsPDF 已打包进本地构建，按需动态加载（单独的 chunk），不依赖外网 CDN，纯内网也能用
     const handleDownloadPDF = async () => {
@@ -685,6 +675,7 @@ export const DailyLogReport: React.FC = () => {
                                             <td className="px-4 py-3">
                                                 <span className={`px-2 py-1 rounded-md text-xs font-black uppercase ${change.eventType === 'Change' || change.eventType === 'Status' ? 'bg-blue-50 text-blue-700' :
                                                     change.eventType === 'Comments' ? 'bg-amber-50 text-amber-700' :
+                                                    change.eventType === 'Builder Reply' ? 'bg-indigo-50 text-indigo-700' :
                                                         change.eventType === 'Received' ? 'bg-green-50 text-green-700' :
                                                             'bg-purple-50 text-purple-700'
                                                     }`}>
@@ -866,6 +857,34 @@ export const DailyLogReport: React.FC = () => {
                         )}
                     </tbody>
                 </table>
+
+                {builderReplyRows.length > 0 && (
+                    <div data-testid="pdf-builder-replies" className="mt-6">
+                        <h3 className="text-xs font-black uppercase text-slate-700 tracking-widest mb-2">Builder Replies Imported ({builderReplyRows.length})</h3>
+                        <table className="w-full text-left border-collapse border border-slate-300">
+                            <thead className="bg-slate-100">
+                                <tr>
+                                    <th className="border border-slate-300 px-3 py-2 text-[10px] font-black uppercase text-slate-600 tracking-wider">Date / Time</th>
+                                    <th className="border border-slate-300 px-3 py-2 text-[10px] font-black uppercase text-slate-600 tracking-wider">ID</th>
+                                    <th className="border border-slate-300 px-3 py-2 text-[10px] font-black uppercase text-slate-600 tracking-wider">Drawing No.</th>
+                                    <th className="border border-slate-300 px-3 py-2 text-[10px] font-black uppercase text-slate-600 tracking-wider">Title</th>
+                                    <th className="border border-slate-300 px-3 py-2 text-[10px] font-black uppercase text-slate-600 tracking-wider">Detail</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {builderReplyRows.map((row, idx) => (
+                                    <tr key={idx} className="text-[10px] font-medium text-slate-800">
+                                        <td className="border border-slate-300 px-3 py-1.5 whitespace-nowrap">{row.date} {row.time.substring(0, 5)}</td>
+                                        <td className="border border-slate-300 px-3 py-1.5 font-bold uppercase">{row.customId}</td>
+                                        <td className="border border-slate-300 px-3 py-1.5">{row.drawingNo}</td>
+                                        <td className="border border-slate-300 px-3 py-1.5 leading-snug">{row.drawingTitle}</td>
+                                        <td className="border border-slate-300 px-3 py-1.5 leading-snug">{row.detail}</td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    </div>
+                )}
 
                 {/* 页脚备注区 */}
                 <div className="mt-4 text-left text-[8px] font-bold text-slate-400 tracking-widest uppercase">

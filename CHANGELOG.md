@@ -2,6 +2,19 @@
 
 本文件记录 2026 年 11 月 9 日（北京时间）对 PAhub 做的一次代码审查和随后的 5 轮修改：每轮的目的、具体改动、接口和命令的变化、对使用者的影响、迁移步骤、测试结果和提交号。时间均为北京时间（UTC+8）。以后的更新请按同样的格式续写在最上面。
 
+## 船厂回复导回写入日志、中文手册对齐英文界面（2026-11-13）
+
+### 目的
+
+导回船厂回复不改意见数，多数情况下也不改状态，Log（Server）里看不到任何记录。现在每次成功导回都留一条专门的日志；手册同步去掉已删除的 Sync to Cloud 按钮，并把引用的界面文字改成现在的英文。
+
+### 具体修改
+
+- **新日志动作 `BUILDER_REPLY`：** 批量导回（`/builder-replies/:set/apply`）和 PCF 单个导回（`POST /api/pcf/:p/:d/imports`，builder 模式）每成功合并一个文件，在同一 serial 段内紧接状态处理写一条 audit_log，detail 含 customId、drawingNo、exportId、batchId、轮次字母、回复条数、状态结果（`Waiting Reply -> Reviewing` 或 `unchanged (Reviewing)`）、via 和 source。按图纸 + batchId + exportId 去重：重放同一批次、崩溃后恢复、重复导回（Duplicate）都不会再写；没有新回复的导回不写。
+- **状态规则不变：** 仍然只有 Waiting Reply → Reviewing；Export to Builder 和导回不做其他状态改动。
+- **Daily Log：** `GET /api/projects/:id/audit` 返回 `BUILDER_REPLY`；Server 视图显示类型 Builder Reply，内容如 “Builder replies imported: 2 replies (Round B) · status unchanged (Reviewing)”。新增 Builder reply 筛选；Copy、CSV 包含这些行，Export PDF 在发文记录下方单列 “Builder Replies Imported”。
+- **手册：** `public/manual/index.html`、`MANUAL.md` 去掉 Sync to Cloud，说明停 3 秒自动保存和右下角 Unsaved Changes 卡片的 Save Now；引用的提示、密码对话框、Config 密码按钮、保存冲突等文字改为英文原文；Log 一节加 Builder Reply 说明。
+
 ## 按项目设置密码与加载页解锁（2026-11-13）
 
 ### 目的

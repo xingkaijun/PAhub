@@ -155,3 +155,46 @@ test('a reply import with no applied Builder changes does not advance Waiting Re
     assert.equal((f.hub.db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action='STATUS' AND row_id='dwg-001'").get() as any).n,0);
   } finally { await f.cleanup(); }
 });
+
+const builderReplyRows = (f: any, drawingId: string) => (f.hub.db.prepare("SELECT detail FROM audit_log WHERE action='BUILDER_REPLY' AND project_id='proj-test-001' AND row_id=? ORDER BY id").all(drawingId) as any[]).map(r => JSON.parse(r.detail));
+
+test('bulk Builder reply import writes one BUILDER_REPLY log row per applied file; replayed batch and re-import do not add another', async () => {
+  const f=await fixture(); try { const a=await f.record('dwg-001'),b=await f.record('dwg-003');
+    f.hub.db.prepare("UPDATE drawings SET status='Waiting Reply' WHERE id='dwg-001'").run(); f.hub.db.prepare("UPDATE drawings SET status='Reviewing' WHERE id='dwg-003'").run();
+    const set=await f.preview([{name:'a.html',body:f.reply(a,'a reply')},{name:'b.html',body:f.reply(b,'b reply')}]); const batch=randomUUID();
+    const first=await f.apply(set.value.importSetId,set.value.files.map((x:any)=>x.id),batch); assert.equal(first.value.results.filter((x:any)=>x.category==='applied').length,2);
+    const [ra]=builderReplyRows(f,'dwg-001'),[rb]=builderReplyRows(f,'dwg-003');
+    assert.equal(ra.exportId,a.exportId);assert.equal(ra.batchId,batch);assert.equal(ra.replies,1);assert.equal(ra.round,'A');assert.equal(ra.status,'Waiting Reply -> Reviewing');assert.equal(ra.via,'bulk');assert.equal(ra.source,'Builder reply import (bulk)');assert.ok(ra.customId);assert.ok(ra.drawingNo);
+    assert.equal(rb.status,'unchanged (Reviewing)');assert.equal(rb.replies,1);
+    // Status rule unchanged: only Waiting Reply moved.
+    assert.equal((f.hub.db.prepare('SELECT status FROM drawings WHERE id=?').get('dwg-001') as any).status,'Reviewing');assert.equal((f.hub.db.prepare('SELECT status FROM drawings WHERE id=?').get('dwg-003') as any).status,'Reviewing');
+    await f.apply(set.value.importSetId,set.value.files.map((x:any)=>x.id),batch);
+    const again=await f.preview([{name:'a-again.html',body:f.reply(a,'a reply')}]);assert.equal(again.value.files[0].category,'duplicate');
+    await f.apply(again.value.importSetId,[again.value.files[0].id]);
+    assert.equal(builderReplyRows(f,'dwg-001').length,1);assert.equal(builderReplyRows(f,'dwg-003').length,1);
+    // The Daily Log server query returns it.
+    const audit=await fetch(f.origin+'/api/projects/proj-test-001/audit?'+new URLSearchParams({from:'2000-01-01T00:00:00.000Z',to:'2100-01-01T00:00:00.000Z'}),{headers:f.auth});assert.equal(audit.status,200);
+    const entries=(await audit.json() as any).entries.filter((e:any)=>e.action==='BUILDER_REPLY');
+    assert.equal(entries.length,2);const ea=entries.find((e:any)=>e.drawingId==='dwg-001');assert.equal(ea.source,'Builder reply import (bulk)');assert.equal(ea.detail.status,'Waiting Reply -> Reviewing');assert.equal(ea.customId,ra.customId);
+  } finally { await f.cleanup(); }
+});
+
+test('single-file Builder reply import writes one BUILDER_REPLY log row; a replayed apply request does not write a second', async () => {
+  const f=await fixture(); try { const x=await f.record('dwg-002');f.hub.db.prepare("UPDATE drawings SET status='Reviewing' WHERE id='dwg-002'").run();
+    const html=f.reply(x,'single reply');const preview=await f.post(x.base+'imports',{step:'preview',html});assert.equal(preview.status,200);
+    const body={step:'apply',html,previewToken:preview.value.previewToken,batchId:randomUUID()};
+    assert.equal((await f.post(x.base+'imports',body)).status,200);assert.equal((await f.post(x.base+'imports',body)).status,200);
+    const rows=builderReplyRows(f,'dwg-002');assert.equal(rows.length,1);
+    assert.equal(rows[0].status,'unchanged (Reviewing)');assert.equal(rows[0].replies,1);assert.equal(rows[0].round,'A');assert.equal(rows[0].exportId,x.exportId);assert.equal(rows[0].via,'pcf');assert.equal(rows[0].source,'Builder reply import (PCF)');
+    assert.equal((f.hub.db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action='STATUS' AND row_id='dwg-002'").get() as any).n,0);
+  } finally { await f.cleanup(); }
+});
+
+test('single-file import from Waiting Reply logs the status move; an import with no applied replies logs nothing', async () => {
+  const f=await fixture(); try { const x=await f.record('dwg-001'),y=await f.record('dwg-004');
+    for (const id of ['dwg-001','dwg-004']) f.hub.db.prepare("UPDATE drawings SET status='Waiting Reply' WHERE id=?").run(id);
+    for (const [item,text] of [[x,'reply'],[y,'']] as const) { const html=f.reply(item,text);const preview=await f.post(item.base+'imports',{step:'preview',html});
+      assert.equal((await f.post(item.base+'imports',{step:'apply',html,previewToken:preview.value.previewToken,batchId:randomUUID()})).status,200); }
+    assert.equal(builderReplyRows(f,'dwg-001')[0].status,'Waiting Reply -> Reviewing');assert.equal(builderReplyRows(f,'dwg-004').length,0);
+  } finally { await f.cleanup(); }
+});

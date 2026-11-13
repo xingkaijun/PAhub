@@ -101,6 +101,7 @@ const EnglishGuide: React.FC = () => {
             <Section icon={<FileText size={18} />} title="4. Daily Log & Activity Reports">
               <ul className="space-y-3 text-[11px] font-medium text-slate-600 leading-relaxed">
                 <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-500" /> <strong>Data Strictness:</strong> Comment totals come from each drawing&apos;s PCF (counted automatically on every PCF save); drawings without a PCF use the Total/Open values entered by hand or with <code>c:12/3</code>. Internal notes are never counted.</li>
+                <li className="flex gap-2"><ChevronRight size={12} className="shrink-0 mt-0.5 text-teal-500" /> <strong>Builder replies in the log:</strong> Every Builder reply import (Import Builder Replies or the PCF&apos;s Import Builder Reply) adds a <strong>Builder Reply</strong> row to the Server log, e.g. &ldquo;Builder replies imported: 2 replies (Round B) · status unchanged (Reviewing)&rdquo;. Importing only moves Waiting Reply to Reviewing; other statuses stay as they are. Use the <strong>Builder reply</strong> filter to see only these rows.</li>
               </ul>
             </Section>
           </div>

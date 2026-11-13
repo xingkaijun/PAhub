@@ -35,13 +35,13 @@
 | PCF 内 JSON 替换导入、应用船厂回复、Send All 打包 | 禁止 | 允许 |
 | Settings、/api/admin 与管理控制台 | 禁止 | 允许 |
 
-未登录时上述管理员按钮置灰并提示“需要管理员权限”。服务端同样强制：需要管理员的写接口在未授权时返回 403，不能靠前端绕过。未设置 `ADMIN_PASSWORD` 时所有人都是管理员（本地开发便利），启动日志会打印警告；对外部署务必设置。`API_TOKEN` 仍用于机器调用，视为管理员；`PAHUB_BASIC_AUTH` 行为不变（管的是能否进站）。
+未登录时上述管理员按钮置灰并提示 “Administrator permission required”。服务端同样强制：需要管理员的写接口在未授权时返回 403，不能靠前端绕过。未设置 `ADMIN_PASSWORD` 时所有人都是管理员（本地开发便利），启动日志会打印警告；对外部署务必设置。`API_TOKEN` 仍用于机器调用，视为管理员；`PAHUB_BASIC_AUTH` 行为不变（管的是能否进站）。
 
 ## 项目密码与大厅解锁
 
-项目密码是项目访问权限，不等于管理员登录。管理员在 **Config → Project Password** 为当前项目设置、修改或清除密码；输入框为 password 类型，保存后只显示“已设置”，不回显原文，未修改输入时保持原密码。密码和哈希均不出现在 API 返回、项目 JSON 或后台导出中。
+项目密码是项目访问权限，不等于管理员登录。管理员在 **Config → Project Password** 为当前项目设置、修改或清除密码；输入框为 password 类型，状态只显示 “Set” / “Not set”，不回显原文；按钮为 Set Password / Change Password / Clear Password，未修改输入时保持原密码。密码和哈希均不出现在 API 返回、项目 JSON 或后台导出中。
 
-大厅中受保护项目可见小锁。点卡片后照常展开为全屏加载页（PG 标志、项目名），密码输入框直接出现在这张加载页上并自动聚焦，不再使用浏览器原生 prompt。按回车或“解锁项目”提交；密码错误在原位提示，可重试。同一来源对同一项目在 10 分钟内失败 5 次后临时限速。点“取消”或按 Esc，加载页淡出回大厅，卡片恢复可用；正确后继续加载并淡出进入 Inventory。无密码项目流程不变。
+大厅中受保护项目可见小锁。点卡片后照常展开为全屏加载页（PG 标志、项目名），密码输入框直接出现在这张加载页上并自动聚焦，不再使用浏览器原生 prompt。按回车或 “Unlock” 提交；密码错误在原位提示，可重试。同一来源对同一项目在 10 分钟内失败 5 次后临时限速。点 “Cancel” 或按 Esc，加载页淡出回大厅，卡片恢复可用；正确后继续加载并淡出进入 Inventory。无密码项目流程不变。
 
 密码正确后服务端签发项目专属的 HMAC 签名 cookie：HttpOnly、SameSite=Strict、有效期 12 小时；Secure 按实际 HTTPS 或 `X-Forwarded-Proto` 首项判断，与管理员会话一致。刷新、自动同步、drawings、PCF 页面/API、SSE、活动、日志、报表和导出都凭 cookie 访问，不再反复发送密码头。无有效 cookie 时项目接口返回 `401 PASSWORD_REQUIRED`，PCF 页面提示返回大厅。管理员会话与 `API_TOKEN` 视为已解锁全部项目；项目解锁不会获得管理员写权限。
 
@@ -59,7 +59,7 @@
 
 ## 图纸列表
 
-维护图号、标题、专业、责任人、版本、轮次、期限与状态；支持过滤、排序和历史记录。PCF 会同步总意见数、未关闭意见数、轮次、版本及项目更新时间，不直接覆盖图纸工作流状态。
+维护图号、标题、专业、责任人、版本、轮次、期限与状态；支持过滤、排序和历史记录。PCF 会同步总意见数、未关闭意见数、轮次、版本及项目更新时间，不直接覆盖图纸工作流状态。管理员的改动停止编辑约 3 秒后自动保存，另有定时同步；有未保存改动时右下角出现 Unsaved Changes 卡片，点 Save Now 立即保存（已没有单独的 Sync to Cloud 按钮）。
 
 ## Review Tracker 与 Send All
 
@@ -78,6 +78,8 @@ ZIP 含每张有 PCF 图纸的船厂版 HTML 和带 BOM 的 manifest.csv；无 P
 单张或 Send All 导出均生成船厂版：Owner 和非可写内容锁定，只能填写当前轮次未关闭意见的 Builder 回复。船厂保存 HTML 后回传，系统不负责邮件发送。
 
 在 PCF 的 Exchanges 中上传回传 HTML，先 Preview，检查自动合并、冲突和忽略项，再确认导入。Owner 不导入；只读内容被改会显示完整性警告，需要管理员确认才能忽略其改动。服务器在预览后改变会要求重新预览。不要打开不可信来信执行脚本，应直接上传解析。HMAC 是篡改检测，不是加密或身份签名。
+
+导回船厂回复（主表批量 Import Builder Replies 或 PCF 单个 Import Builder Reply）只会把 Waiting Reply 转回 Reviewing，其他状态不变；Export to Builder 不改状态。每个成功合并的回复文件在服务器日志里记一条 `BUILDER_REPLY`，Log 页切到 Server 可见，例如 “Builder replies imported: 2 replies (Round B) · status unchanged (Reviewing)”；同一批次重放或重复导回不会重复记录。Copy、CSV 包含这些行，Export PDF 在发文记录下方单列 “Builder Replies Imported”。
 
 ## 备份与恢复
 

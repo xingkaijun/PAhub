@@ -3,7 +3,7 @@ import { mkdirSync, readFileSync, writeFileSync, readdirSync, existsSync } from 
 import path from 'node:path';
 import { inflateRawSync } from 'node:zlib';
 import type { PcfStorage } from './pcf-storage.ts';
-import type { PcfExchange } from './pcf-exchange.ts';
+import type { PcfExchange, BuilderApplyInfo } from './pcf-exchange.ts';
 import type { PcfRealtime } from './pcf-realtime.ts';
 import { parseHTML } from './pcf-storage.ts';
 import { transitionDrawingStatus } from './drawing-status.ts';
@@ -21,6 +21,37 @@ export function updateBuilderReplyPapcStatus(storage: PcfStorage, realtime: PcfR
   if (row.status !== 'Waiting Reply') return `status unchanged (${row.status})`;
   transitionDrawingStatus(storage, realtime, projectId, drawingId, 'Reviewing', `Builder import (${exportId})`);
   return 'Reviewing';
+}
+
+// One BUILDER_REPLY audit row per applied Builder reply import, so the Daily Log (Server) shows imports that
+// change no comment counts and no status. Status rule is unchanged: only Waiting Reply -> Reviewing.
+// Idempotent per drawing + batchId + exportId: a replayed or recovered apply never writes a second row.
+export function recordBuilderReplyImport(storage: PcfStorage, projectId: string, drawingId: string, info: BuilderApplyInfo, statusBefore: string, via: 'bulk' | 'pcf') {
+  const db = storage.db;
+  const exists = db.prepare("SELECT 1 FROM audit_log WHERE project_id=? AND row_id=? AND action='BUILDER_REPLY' AND json_extract(detail,'$.batchId')=? AND json_extract(detail,'$.exportId')=?").get(projectId, drawingId, info.batchId, info.exportId);
+  if (exists) return false;
+  const row: any = db.prepare('SELECT custom_id,drawing_no,status FROM drawings WHERE project_id=? AND id=?').get(projectId, drawingId) || {};
+  const exported: any = db.prepare('SELECT round FROM pcf_exports WHERE project_id=? AND export_id=?').get(projectId, info.exportId);
+  const replies = new Set((info.ops || []).filter((op: any) => op?.type === 'content.set' && op.side === 'reply').map((op: any) => op.roundId)).size;
+  const statusAfter = String(row.status || statusBefore || '');
+  const status = statusBefore !== statusAfter ? `${statusBefore} -> ${statusAfter}` : `unchanged (${statusAfter})`;
+  const detail = {
+    customId: row.custom_id || '', drawingNo: row.drawing_no || '', exportId: info.exportId, batchId: info.batchId,
+    round: exported ? roundToLetters(Number(exported.round)) : '', replies, status, statusFrom: statusBefore, statusTo: statusAfter,
+    via, source: via === 'bulk' ? 'Builder reply import (bulk)' : 'Builder reply import (PCF)',
+  };
+  db.prepare("INSERT INTO audit_log(table_name,row_id,project_id,action,detail,created_at) VALUES('drawings',?,?,'BUILDER_REPLY',?,?)").run(drawingId, projectId, JSON.stringify(detail), new Date().toISOString());
+  return true;
+}
+
+// Caller holds storage.serial(projectId, drawingId): status update and its audit row are written back to back
+// with nothing interleaved. They are not wrapped in one SQL savepoint because a round change also rewrites the
+// PCF JSON file, which a rollback could not undo.
+export function completeBuilderReplyImport(storage: PcfStorage, realtime: PcfRealtime, projectId: string, drawingId: string, info: BuilderApplyInfo, via: 'bulk' | 'pcf') {
+  const before: any = storage.db.prepare('SELECT status FROM drawings WHERE project_id=? AND id=? AND COALESCE(_deleted,0)=0').get(projectId, drawingId);
+  const state = updateBuilderReplyPapcStatus(storage, realtime, projectId, drawingId, info.exportId);
+  recordBuilderReplyImport(storage, projectId, drawingId, info, String(before?.status || ''), via);
+  return state;
 }
 
 function zipEntries(bytes: Buffer): Array<{ name: string; bytes?: Buffer; error?: string }> {
@@ -131,8 +162,8 @@ export class PcfBuilderReplies {
           if (fresh.repeated) throw Error('duplicate');
           if (fresh.conflicts.length) { row.category = 'conflict'; row.conflicts = fresh.conflicts.length; row.previewToken = fresh.previewToken; results.push({ id, category: 'conflict', conflicts: fresh.conflicts.length }); return; }
           let state = `status unchanged (${row.papcStatus})`;
-          const outcome = this.exchange.apply(projectId, row.drawingId, { step: 'apply', html, previewToken: fresh.previewToken, batchId, ignoreOwner: true, adminPassword: this.adminPassword }, { clientId: 'builder-import', clientName: `Builder import (${fresh.exportId})`, ip: '127.0.0.1' }, () => {
-            state = updateBuilderReplyPapcStatus(this.storage, this.realtime, projectId, row.drawingId, fresh.exportId);
+          const outcome = this.exchange.apply(projectId, row.drawingId, { step: 'apply', html, previewToken: fresh.previewToken, batchId, ignoreOwner: true, adminPassword: this.adminPassword }, { clientId: 'builder-import', clientName: `Builder import (${fresh.exportId})`, ip: '127.0.0.1' }, applied => {
+            state = completeBuilderReplyImport(this.storage, this.realtime, projectId, row.drawingId, applied, 'bulk');
         });
         if (!outcome.replayed && outcome.result.applied.length) {
           const latest = this.storage.load(projectId, row.drawingId);

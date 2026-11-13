@@ -82,7 +82,7 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 <li><div><h3>写意见</h3><p>审图人员点图纸标题打开在线 PCF 写意见、贴附图；写完在 Tracker 里勾上自己的名字，全部勾完图纸就显示 Ready。</p></div></li>
 <li><div><h3>发给船厂</h3><p>管理员在 Tracker 点 Send All：点了 APR 的图纸转 Approved，其余转 Waiting Reply，并下载一个给船厂的压缩包，发邮件给船厂。</p></div></li>
 <li><div><h3>船厂回复</h3><p>船厂用浏览器打开 HTML，只在本轮未关闭的意见下填回复，点 Save copy to return 另存后发回。</p></div></li>
-<li><div><h3>导回合并</h3><p>管理员在主表用 Import Builder Replies 批量导回，预览无冲突就确认合并，图纸从 Waiting Reply 自动回到 Reviewing，轮次加一（A→B）。</p></div></li>
+<li><div><h3>导回合并</h3><p>管理员在主表用 Import Builder Replies 批量导回，预览无冲突就确认合并，图纸从 Waiting Reply 自动回到 Reviewing，轮次加一（A→B）；其他状态的图纸导回后状态不变。每次导回都会在 Log 的 Server 视图留一条 Builder Reply 记录。</p></div></li>
 <li><div><h3>下一轮或关闭</h3><p>审图人员看回复，关闭已解决的意见，未解决的进入下一轮；全部关闭后改成 Approved。</p></div></li>
 </ol>
 <div class="tablewrap"><table>
@@ -125,8 +125,8 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 <h3>项目选择页（Project Access Hall）</h3>
 <p>打开平台默认到蓝图大厅。每个项目一张卡片，显示项目缩写、Completed 或 Active、进度百分比、图纸数（Assets）和最后更新日期；受保护项目带小锁。刷新到受保护的上次项目或项目 URL 时，若没有有效解锁 cookie，会在大厅对该项目自动打开同一加载页密码流程。</p>
 <ul>
-<li><b>打开项目：</b>点卡片，卡片照常展开为全屏加载页（PG 标志、项目名）。有密码且尚未解锁时，输入框直接显示在这张加载页上并自动聚焦，按回车或“解锁项目”提交，不再弹出浏览器原生 prompt。</li>
-<li><b>密码错误或取消：</b>错误在原位显示，可重试；同一来源对同一项目 10 分钟内失败 5 次后临时限速。点“取消”或按 Esc，加载页淡出回大厅，卡片恢复可用。密码正确后继续加载，再照常淡出进入 Inventory；无密码项目流程不变。</li>
+<li><b>打开项目：</b>点卡片，卡片照常展开为全屏加载页（PG 标志、项目名）。有密码且尚未解锁时，输入框直接显示在这张加载页上并自动聚焦，按回车或 “Unlock” 提交（输入框标签是 Project password），不再弹出浏览器原生 prompt。</li>
+<li><b>密码错误或取消：</b>错误在原位显示，可重试；同一来源对同一项目 10 分钟内失败 5 次后临时限速。点 “Cancel” 或按 Esc，加载页淡出回大厅，卡片恢复可用。密码正确后继续加载，再照常淡出进入 Inventory；无密码项目流程不变。</li>
 <li><b>解锁有效期：</b>服务端签发该项目专属 HMAC 签名 cookie，HttpOnly、SameSite=Strict、12 小时有效；Secure 按实际 HTTPS 或 <code>X-Forwarded-Proto</code> 首项判断，与管理员会话一致。刷新、自动同步、drawings、PCF 页面/API、SSE、活动、日志、报表和导出都凭 cookie 访问，不必反复传密码头。未解锁的项目接口返回 <code>401 PASSWORD_REQUIRED</code>，PCF 页面提示返回大厅。修改或清除密码会更新版本，使旧解锁 cookie 立即失效。</li>
 <li><b>刷新列表：</b>右上角的刷新按钮。</li>
 <li><b>新建项目（管理员）：</b>最后一张卡片 Create Workspace，按提示输入船号或项目名，例如 <code>PG-VLEC-H2684</code>。</li>
@@ -138,14 +138,14 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 <thead><tr><th>位置</th><th>作用</th></tr></thead>
 <tbody>
 <tr><td>左上角 Logo</td><td>回到主表 Inventory</td></tr>
-<tr><td>标签页</td><td>Inventory、Activity、Log、Tracker、Comments、Config（非管理员带锁，提示“需要管理员权限”）、Guide</td></tr>
+<tr><td>标签页</td><td>Inventory、Activity、Log、Tracker、Comments、Config（非管理员带锁，提示 “Administrator permission required”）、Guide</td></tr>
 <tr><td>项目按钮（项目名加下拉箭头）</td><td>回到项目选择页；红色角标是还没保存的改动数</td></tr>
 <tr><td>Reviewer / Administrator</td><td>登录或退出管理员</td></tr>
 <tr><td>底部</td><td>显示图纸总数（Entities Logged）和版本号 PA-V3.1-LTD</td></tr>
 </tbody></table></div>
 <ul>
 <li><b>切换项目时有没保存的改动：</b>先问是否保存再切换（确定＝保存并切换）；点取消会再问一次是否放弃改动。</li>
-<li><b>保存方式（管理员）：</b>改动后 3 秒自动保存，另外每隔几分钟定时同步一次（默认 3 分钟，Config 里可改，设 0 关闭）。右下角浮出的 Unsaved Changes 卡片上有 Save Now 可以立刻保存。没保存就关页面，浏览器会提醒。</li>
+<li><b>保存方式（管理员）：</b>改动后 3 秒自动保存，另外每隔几分钟定时同步一次（默认 3 分钟，Config 里可改，设 0 关闭）。有未保存的改动时，右下角会浮出 Unsaved Changes 卡片，显示待保存的条数，点上面的 Save Now 立刻保存。原来主表和 Tracker 上的 Sync to Cloud 按钮已经去掉，不需要再手动同步。没保存就关页面，浏览器会提醒。</li>
 <li><b>访客看到的数据：</b>定时从服务器静默刷新；别人改了图纸，实时推送只取变了的那几张。</li>
 </ul>
 
@@ -158,7 +158,6 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 <tbody>
 <tr><td>搜索框</td><td>所有人</td><td>搜图号、标题、专业、ID、审图人、备注，不分大小写；也能输 <code>show:标签</code></td></tr>
 <tr><td>Import Builder Replies</td><td>管理员</td><td>批量导回船厂回复，见<a href="#builder">船厂往来</a></td></tr>
-<tr><td>Sync to Cloud</td><td>管理员</td><td>立刻把项目数据同步到服务器，按下后显示 Syncing...</td></tr>
 <tr><td>Print List</td><td>所有人</td><td>按当前筛选打印图纸清单</td></tr>
 <tr><td>Team Setup</td><td>管理员</td><td>按专业分配审图人</td></tr>
 <tr><td>Bulk Load</td><td>管理员</td><td>粘贴批量导入图纸</td></tr>
@@ -238,8 +237,8 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 <tr><td><code>@001 due:2026-02-15</code> 或 <code>dl:02-15</code></td><td>改截止日；只写月日（02-15 或 02.15）就是今年</td></tr>
 <tr><td><code>@001 to:张三,李四</code></td><td>把审图人换成这几个人；<code>add:</code> 追加，<code>rm:</code> 去掉，不分大小写</td></tr>
 <tr><td><code>@张三 add: 001 002</code> / <code>@张三 rm: 001 002</code></td><td>反过来写：把这个人加到几张图纸上，或从图纸上去掉；在搜索框里按 Enter 也能用</td></tr>
-<tr><td><code>@001 c:12/3</code></td><td>手工设意见总数/未关闭数；有 PCF 的图纸不允许，提示“意见数由 PCF 管理，不能手工修改。”</td></tr>
-<tr><td><code>@001 v:3</code></td><td>改版本；有 PCF 的图纸不允许，提示“版本由 PCF 管理，不能手工修改。”</td></tr>
+<tr><td><code>@001 c:12/3</code></td><td>手工设意见总数/未关闭数；有 PCF 的图纸不允许，提示 “The comment count is managed by the PCF and cannot be edited manually.”</td></tr>
+<tr><td><code>@001 v:3</code></td><td>改版本；有 PCF 的图纸不允许，提示 “The version is managed by the PCF and cannot be edited manually.”</td></tr>
 <tr><td><code>@001 rd:B</code></td><td>一律不允许，轮次只能靠状态流转改变</td></tr>
 </tbody></table></div>
 <p><code>@</code> 后面的编号可以写 ID、完整图号，或图号的一部分（包含即可匹配）；批量改状态的 <code>@R/@W/@A</code> 例外，要完全一致。</p>
@@ -256,7 +255,6 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 <tr><td>Urge List / Urge Active</td><td>只看已过期的图纸，用来催人</td></tr>
 <tr><td>Export CSV</td><td>导出当前筛选的图纸：编号、标题、专业、状态、过期天数、截止日，每个审图人一列（Done / Pending），Excel 直接打开不乱码。ID 列是编号，Drawing No 列是图号</td></tr>
 <tr><td>Refresh</td><td>强制从服务器重读追踪数据</td></tr>
-<tr><td>Sync to Cloud（管理员）</td><td>立刻保存到服务器</td></tr>
 <tr><td>审图人名牌</td><td>点一下切换这个人“完成/未完成”；右边显示 d/n 的进度，全部完成显示 Ready</td></tr>
 <tr><td>APR 按钮</td><td>只在 Ready 的图纸上有。按下表示这张图纸 Send All 时直接转 Approved</td></tr>
 <tr><td>Ready Drawings (N)</td><td>可折叠，最新审完的排前面，带 Send All 按钮（管理员）</td></tr>
@@ -266,14 +264,14 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 <h3>Send All 一键发送 <span class="tag">看代码推断</span></h3>
 <ol class="steps">
 <li><div><h3>把要发的图纸审完</h3><p>所有审图人都在 Tracker 勾了完成，图纸进入 Ready Drawings。要直接批准的，先点 APR。</p></div></li>
-<li><div><h3>点 Send All</h3><p>弹出确认：“将 N 张 Ready 图纸状态更新：• a 张 → Approved • w 张 → Waiting Reply，发送后将自动下载 p 张图纸的船厂版 PCF 压缩包（无 PCF 的 x 张将跳过）”。只有点了 APR 的转 Approved，其余全部转 Waiting Reply；压缩包里包括这些 Ready 图纸中所有有 PCF 的。</p></div></li>
+<li><div><h3>点 Send All</h3><p>弹出确认：“Update the status of N Ready drawing(s): • a → Approved • w → Waiting Reply. After sending, a builder PCF archive for p drawing(s) downloads automatically (x without a PCF will be skipped). Continue?”。只有点了 APR 的转 Approved，其余全部转 Waiting Reply；压缩包里包括这些 Ready 图纸中所有有 PCF 的。</p></div></li>
 <li><div><h3>等它跑完</h3><p>按钮依次显示 Sending...、Verifying...、Packing...：先保存状态、清掉这些图纸的勾选和 APR，再从服务器回读核对，最后下载一个压缩包，里面是每张图纸的船厂版 HTML。</p></div></li>
 <li><div><h3>发邮件</h3><p>把压缩包发给船厂。压缩包没保存好，点顶部的 Download Again 重新生成。</p></div></li>
 </ol>
 <ul>
-<li><b>“状态已在本地更新，但保存到服务器失败”：</b>点 Sync to Cloud 重试。</li>
-<li><b>“已保存，但服务器写入校验未通过”：</b>点 Refresh 核对状态。</li>
-<li><b>“状态已发送，但打包下载失败”：</b>状态已经改了，点 Download Again 再下一次，或点 Dismiss 关掉提示。</li>
+<li><b>“Statuses were updated locally, but saving to the server failed. Click Save Now to retry.”：</b>状态只改在本地，没存到服务器。点右下角 Unsaved Changes 卡片上的 Save Now 重试（3 秒后也会自动再存）。</li>
+<li><b>“Saved, but the server write check failed …”：</b>点 Refresh 核对状态，需要时再点 Save Now。</li>
+<li><b>“Statuses were sent, but the archive download failed …”：</b>状态已经改了，点 Download Again 再下一次，或点 Dismiss 关掉提示。</li>
 <li><b>没有 PCF 的图纸：</b>状态照改，但不进压缩包。</li>
 </ul>
 
@@ -309,15 +307,27 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 <thead><tr><th>控件</th><th>作用</th></tr></thead>
 <tbody>
 <tr><td>From / To</td><td>日期范围，默认今天</td></tr>
-<tr><td>Local / Server</td><td>Local 用项目数据里的状态历史；Server 用服务器的操作日志，还包含意见数变化和来源（pcf、hub、import 等）</td></tr>
+<tr><td>Local / Server</td><td>Local 用项目数据里的状态历史；Server 用服务器的操作日志，还包含意见数变化、船厂回复导回（Builder Reply）和来源（pcf、hub、import 等）</td></tr>
 <tr><td>Merged by day / Raw entries</td><td>Server 模式下，把同一张图纸同一天的意见数变化合成一条（例如 Comments: 0/0 → 15/15），或显示原始每条</td></tr>
-<tr><td>流转筛选</td><td>Pending → Review、Review → Sent Out（发给船厂）、Sent Out → Review（船厂回复后）、Approved</td></tr>
+<tr><td>流转筛选</td><td>Pending → Review、Review → Sent Out（发给船厂）、Sent Out → Review（船厂回复后）、Approved、Builder reply（只看船厂回复导回记录，Server 模式下有）</td></tr>
 <tr><td>Copy</td><td>把记录以文字复制到剪贴板</td></tr>
 <tr><td>CSV</td><td>导出 CSV</td></tr>
 <tr><td>Transmittal / Hide</td><td>显示发文记录：这段时间内转成 Waiting Reply 或 Approved 的图纸。里面的 Copy Table 复制成表格，粘到 Excel 或邮件里保留格式</td></tr>
 <tr><td>Export PDF</td><td>把发文记录导出成 Transmittal_Record_开始日期_结束日期.pdf。组件已打包进平台，纯内网也能用</td></tr>
 </tbody></table></div>
-<p>表格列：Date、Time、ID、Drawing、Event、Detail、Note。</p>
+<p>表格列：Date、Time、ID、Drawing No、Title、Type、Detail、Note。Type 有 Status、Comments、Builder Reply（Server）或 Change、Received、Sent（Local）。</p>
+<h3>船厂回复导回记录（Builder Reply）</h3>
+<p>批量导回（主表 Import Builder Replies）和单个文件导回（在线 PCF 的 EXPORT ▾ → Import Builder Reply）每成功合并一个文件，服务器就记一条 Builder Reply 日志。船厂回复不改意见总数和未关闭数，所以以前在 Log 里看不出来，现在切到 Server 就能看到，例如：</p>
+<ul>
+<li><code>Builder replies imported: 2 replies (Round B) · status unchanged (Reviewing)</code></li>
+<li><code>Builder replies imported: 1 reply (Round A) · status Waiting Reply -&gt; Reviewing</code></li>
+</ul>
+<ul>
+<li><b>内容：</b>导回的回复条数、回复的是哪一轮、状态结果；Note 列写来源（Builder reply import (bulk) 或 Builder reply import (PCF)）。</li>
+<li><b>状态规则不变：</b>导回只会把 Waiting Reply 转回 Reviewing（这一步另有一条 Status 记录），其他状态一律不动；Export to Builder 不改状态。</li>
+<li><b>不会重复记：</b>同一批次重放、重复导回同一份文件（Duplicate import）或文件里没有新回复，都不会多记一条。</li>
+<li><b>导出：</b>Copy、CSV 都包含这些行；Export PDF 在发文记录下方单列一节 “Builder Replies Imported”（需要先切到 Server）。筛选里点 Builder reply 只看这类记录。</li>
+</ul>
 
 <h2 id="config">Config 项目设置（管理员）</h2>
 <p>不是管理员时标签带锁。设置保存时只发改过的项，两个管理员改不同的项都会保留，改同一项会出黄色冲突提示（见<a href="#banner">提示条与冲突</a>）。</p>
@@ -331,7 +341,7 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 <tr><td>Review Policy (WD)</td><td>A 轮周期 1–30 个工作日（默认 14），之后每轮 1–21 个（默认 7），截止日跳过周末和下面设的节假日</td></tr>
 <tr><td>Public Holidays</td><td>选日期添加节假日，可删除</td></tr>
 <tr><td>Platform Health</td><td>四项自检：是否有团队、专业负责人是否全覆盖、是否设了项目密码、是否有节假日，给出 x/4 分</td></tr>
-<tr><td>Project Configuration</td><td>Project Report Name（报告上显示的项目名）；Project Password（管理员可设置、修改、清除，password 类型输入框，保存后只显示“已设置”，不回显原文；未修改保持原密码）；Auto-Sync Interval（0–60 分钟，默认 3，0 关闭定时同步）</td></tr>
+<tr><td>Project Configuration</td><td>Project Report Name（报告上显示的项目名）；Project Password（管理员可设置、修改、清除，password 类型输入框，状态显示 “Set” 或 “Not set”，不回显原文；按钮为 Set Password / Change Password / Clear Password，保存成功提示 “Project password set” 或 “Project password cleared”；未修改保持原密码）；Auto-Sync Interval（0–60 分钟，默认 3，0 关闭定时同步）</td></tr>
 <tr><td>Project Summary &amp; Ship Milestones</td><td>船东名、里程碑更新日期，以及每条船的船号、开工、入坞、下水、交船、合同交船日期，可加减船；用在 Activity 报告第一页</td></tr>
 </tbody></table></div>
 <h3>Local Backup 和 Local Restore <span class="tag">Restore 看代码推断</span></h3>
@@ -349,7 +359,7 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 </ul>
 
 <h2 id="pcf">在线 PCF</h2>
-<p>在主表、Tracker 或 Comments 点图纸标题，在新标签页打开这张图纸的 PCF。访客和管理员都能写意见、贴图、保存、导出给船厂；导入 JSON 和导回船厂回复要管理员，按钮上会提示“需要管理员权限”。</p>
+<p>在主表、Tracker 或 Comments 点图纸标题，在新标签页打开这张图纸的 PCF。访客和管理员都能写意见、贴图、保存、导出给船厂；导入 JSON 和导回船厂回复要管理员，按钮上会提示 “Administrator permission required”。</p>
 <figure class="shot"><img src="/manual/img/pcf-1.jpg" loading="lazy" decoding="async" alt="在线 PCF 页面"><figcaption>在线 PCF：顶部是菜单栏，下面是图纸控制区和意见列表</figcaption></figure>
 <h3>顶部菜单栏</h3>
 <div class="tablewrap"><table>
@@ -463,7 +473,7 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 <li><div><h3>打开导回窗口</h3><p>主表点 Import Builder Replies（手机在 More 里），或直接把文件拖到主表上。</p></div></li>
 <li><div><h3>放入文件</h3><p>拖入或选择 ZIP 或多个 .html。一次最多 50 个文件、共 50 MB。</p></div></li>
 <li><div><h3>点 Preview replies</h3><p>逐个文件列出 File、Drawing、Round、New replies、Auto、Conflicts、Result、PAPC status。匹配靠的是文件里嵌的导出编号，不看文件名。</p></div></li>
-<li><div><h3>点 Apply all clean</h3><p>导回所有没有冲突的文件。写入前会再预览一次，这期间有人改了的会变成 Conflict。图纸是 Waiting Reply 的自动转回 Reviewing 并进入下一轮；其他状态不动；不会自动变 Approved。</p></div></li>
+<li><div><h3>点 Apply all clean</h3><p>导回所有没有冲突的文件。写入前会再预览一次，这期间有人改了的会变成 Conflict。图纸是 Waiting Reply 的自动转回 Reviewing 并进入下一轮；其他状态不动；不会自动变 Approved。每个导回成功的文件在 Log 里记一条 Builder Reply。</p></div></li>
 <li><div><h3>处理冲突</h3><p>Conflict 行点 Resolve…，会打开那张图纸的 PCF 逐条处理；不想处理点 Skip。没处理的冲突、跳过的、船东内容被改的，下次打开窗口还会列出来。点 New import 重新开始。</p></div></li>
 </ol>
 <figure class="shot"><img src="/manual/img/builder-4.jpg" loading="lazy" decoding="async" alt="批量导回预览"><figcaption>批量导回的预览结果</figcaption></figure>
@@ -484,7 +494,7 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 <li><div><h3>打开那张图纸的在线 PCF</h3><p>EXPORT ▾ → Import Builder Reply，选船厂发回的 HTML。</p></div></li>
 <li><div><h3>看预览</h3><p>分三块：Automatic merges（自动合并）、Conflicts（冲突）、Ignored changes（被忽略的改动，比如船厂改了只读内容，会写明位置和原因）。</p></div></li>
 <li><div><h3>处理冲突</h3><p>每处选 Use Server、Use Builder 或 Manual merge；图片按整组比较（Builder images / Server images）。也可以点 All Builder 或 All Server 一次选完。</p></div></li>
-<li><div><h3>点 Apply</h3><p>合并写入，点 Cancel 放弃。</p></div></li>
+<li><div><h3>点 Apply</h3><p>合并写入，点 Cancel 放弃。状态规则和批量导回一样：只有 Waiting Reply 会转回 Reviewing，其他状态不动；同样在 Log 里记一条 Builder Reply。</p></div></li>
 </ol>
 <figure class="shot"><img src="/manual/img/builder-5.jpg" loading="lazy" decoding="async" alt="单个文件导回预览"><figcaption>单个文件导回的预览：自动合并、冲突、被忽略的改动</figcaption></figure>
 
@@ -514,9 +524,9 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 <p>主表和项目设置保存时只发改过的字段，并带上版本号和改之前的值。</p>
 <ul>
 <li><b>改的是不同字段：</b>比如一个人改标题、另一个改专业，两边都保留，不提示。</li>
-<li><b>改的是同一字段：</b>后保存的人这一批一条都不写入，页面顶部出现黄色提示条，例如 “保存冲突：DW-A-001（版本） 已被其他人先修改。本次保存没有写入……”。</li>
+<li><b>改的是同一字段：</b>后保存的人这一批一条都不写入，页面顶部出现黄色提示条，例如 “Save conflict: DW-A-001 (Version) changed by someone else first. Nothing was saved this time. …”。</li>
 <li><b>冲突后的处理：</b>冲突的字段换成服务器上的最新值，你其他没冲突的改动保留，下次自动保存时再发。看一下换回来的值，需要的话重新改。</li>
-<li><b>项目设置冲突：</b>提示写“保存冲突：项目设置（A 轮周期）……”；专业负责人按专业分别比较。</li>
+<li><b>项目设置冲突：</b>提示写 “Save conflict: project settings (Round A Cycle) changed by someone else first …”；专业负责人按专业分别比较。</li>
 <li><b>旧页面不受保护：</b>平台更新后，还开着旧页面没刷新的人保存时仍会直接覆盖。更新后让大家刷新一下。</li>
 </ul>
 <figure class="shot"><img src="/manual/img/banner-1.jpg" loading="lazy" decoding="async" alt="黄色保存冲突提示条"><figcaption>黄色保存冲突提示条（第 2 轮测试时在真浏览器里截的）</figcaption></figure>
@@ -597,11 +607,11 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 
 <h2 id="admin">后台管理页 <span class="tag">看代码推断</span></h2>
 <ul>
-<li><b>入口：</b>在浏览器打开 <code>/admin</code>（例如 <code>http://服务器:8080/admin</code>），用 ADMIN_PASSWORD 登录。没设 ADMIN_PASSWORD 时这个页面返回 404。页面标题还是旧名字 “PAPC D1 后台管理”。</li>
+<li><b>入口：</b>在浏览器打开 <code>/admin</code>（例如 <code>http://服务器:8080/admin</code>），用 ADMIN_PASSWORD 登录。没设 ADMIN_PASSWORD 时这个页面返回 404。页面标题还是旧名字 “PAPC D1 Admin Console”，界面文字已改为英文。</li>
 <li><b>Dashboard：</b>概览。</li>
 <li><b>D1 控制台：</b>按表浏览数据库，可以添加行、编辑、删（软删除），分页。直接改库绕过了前端的所有检查，尽量少用。</li>
 <li><b>SQL：</b>只能查询，每次用只读连接执行，写入和建表语句会被拒绝。</li>
-<li><b>导出整库 / 导入整库：</b>导入前会问 “导入将覆盖数据库中同 ID 的项目数据。是否继续？”。</li>
+<li><b>导出整库 / 导入整库：</b>导入前会问 “Importing overwrites projects with the same ID in the database. Continue?”。</li>
 </ul>
 
 <h2 id="faq">小技巧和常见问题</h2>
@@ -620,7 +630,7 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 </ul>
 <h3>常见问题</h3>
 <ul>
-<li><b>按钮是灰的、提示“需要管理员权限”：</b>右上角登录管理员。</li>
+<li><b>按钮是灰的、提示 “Administrator permission required”：</b>右上角登录管理员。</li>
 <li><b>主表里版本和意见数改不了：</b>有 PCF 的图纸这两项由 PCF 管，到 PCF 里改。</li>
 <li><b>轮次怎么改：</b>不能手工改。Waiting Reply 转回 Reviewing 时自动加一，导回船厂回复时会自动转。</li>
 <li><b>Comments 里看不到最新意见：</b>点 Refresh register。</li>

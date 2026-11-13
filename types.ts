@@ -179,7 +179,7 @@ export interface SaveResult {
 export interface AuditEntry {
   id: string;
   drawingId: string;
-  action: 'STATUS' | 'COMMENTS';
+  action: 'STATUS' | 'COMMENTS' | 'BUILDER_REPLY';
   createdAt: string; // ISO-8601 UTC
   customId: string;
   drawingNo: string;
