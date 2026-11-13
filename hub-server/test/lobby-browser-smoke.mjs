@@ -5,9 +5,8 @@
 //  2. clicking a card grows it into the loading sheet; once Inventory is ready underneath, the sheet only fades out
 //     (no book cover, no frost layers, opacity never goes back up) and lands on Inventory with its drawings, still
 //     without horizontal overflow;
-//  3. a password-protected project: the prompt appears only once the loading sheet is up and before the server has
-//     returned any of that project's data; a wrong password asks again, the right one opens Inventory; cancelling returns to the hall
-//     with every card usable;
+//  3. a password-protected project: inline loading-sheet challenge, wrong/right/cancel/Esc, refresh cookie;
+//     screenshots at 1920 and 1366 cover the password form; no native prompt is allowed.
 //  4. prefers-reduced-motion: the hall fades straight to Inventory;
 //  5. no console errors and no unexpected 4xx/5xx (the expected 401s of the password check are allowed).
 // Screenshots go to hub-server/test/artifacts/lobby-*.png.
@@ -22,7 +21,7 @@ import { createHub } from '../dist/app.mjs';
 const root = fileURLToPath(new URL('../..', import.meta.url));
 const temp = await mkdtemp(path.join(tmpdir(), 'pahub-lobby-e2e-'));
 const shots = path.join(root, 'hub-server/test/artifacts'); await mkdir(shots, { recursive: true });
-Object.assign(process.env, { PORT: '0', PAHUB_DATA_DIR: temp, PAPC_DB_PATH: path.join(temp, 'papc.db'), API_TOKEN: '', ADMIN_PASSWORD: '' });
+Object.assign(process.env, { PORT: '0', PAHUB_DATA_DIR: temp, PAPC_DB_PATH: path.join(temp, 'papc.db'), API_TOKEN: '', ADMIN_PASSWORD: 'fixture-admin-only' });
 const hub = await createHub({ host: '127.0.0.1' }); let browser;
 const origin = 'http://127.0.0.1:' + hub.port, NAME = 'PG-VLEC-H2684', LOCKED = 'PG-LOCK-H0001', SECRET = 'open-sesame';
 const problems = [];
@@ -36,7 +35,7 @@ const watch = (page, label) => {
   });
   page.on('response', response => {
     const url = new URL(response.url());
-    if (response.status() === 401 && url.pathname === '/api/projects/proj-lock-001') return;
+    if (response.status() === 401 && url.pathname.startsWith('/api/projects/proj-lock-001')) return;
     if (response.status() >= 400) problems.push(label + ' ' + response.status() + ' ' + url.pathname);
   });
 };
@@ -54,7 +53,7 @@ try {
   hub.db.exec(await readFile(path.join(root, 'hub-server/test/fixtures/seed-test-data.sql'), 'utf8'));
   // A second, password-protected project: same drawings, a project password in its settings.
   hub.db.exec(`INSERT INTO projects (id, name, storage_path, last_updated) VALUES ('proj-lock-001', '${LOCKED}', NULL, datetime('now'))`);
-  hub.db.exec(`INSERT INTO project_settings (project_id, setting_key, setting_value) VALUES ('proj-lock-001', 'password', '${SECRET}')`);
+  await hub.writer.patch('proj-lock-001', { conf: { password: SECRET } });
   const cols = 'custom_id, drawing_no, discipline, title, status, version, current_round, review_deadline, manual_comments_count, manual_open_comments_count, received_date, category';
   hub.db.exec(`INSERT INTO drawings (id, project_id, ${cols}) SELECT 'lock-' || id, 'proj-lock-001', ${cols} FROM drawings WHERE project_id='proj-test-001'`);
 
@@ -121,41 +120,51 @@ try {
     await page.screenshot({ path: path.join(shots, `lobby-inventory-${w}.png`) });
     console.log(`${label} ${w}: hall shown without ?lobby, PG logo ${Math.round(logo.width)}px, scrollWidth ${before.sw}/${before.vw}; click -> loading sheet ready ${tSheet} ms -> faded to Inventory ${tDone} ms (${probe.opacities.length} fade frames, opacity ${probe.opacities[0].toFixed(2)} -> ${probe.opacities.at(-1).toFixed(2)}, Inventory rendered under the sheet before the fade), scrollWidth ${after.sw}/${after.vw}`);
 
-    // 3. password-protected project (desktop only; the flow is the same on phones)
-    if (w === 1440) {
-      // Record the hall's phase at the moment each prompt opens (the page is frozen while it is open).
-      await page.addInitScript(() => {
-        const original = window.prompt.bind(window);
-        window.__promptPhases = [];
-        window.prompt = (...args) => { window.__promptPhases.push(document.querySelector('.pl-root')?.dataset.phase || 'gone'); return original(...args); };
-      });
-      await page.goto(origin + '/'); await card(page, LOCKED).waitFor(); await page.waitForTimeout(600);
-      const prompts = [];
-      let answers = ['wrong', null];
-      // Successful loads of the locked project's data; none may happen before the right password.
-      let lockedLoaded = 0;
-      page.on('response', response => { if (response.ok() && new URL(response.url()).pathname.startsWith('/api/projects/proj-lock-001')) lockedLoaded++; });
-      page.on('dialog', async dialog => {
-        prompts.push({ message: dialog.message(), lockedLoaded });
-        const answer = answers.shift();
-        if (answer === null || answer === undefined) await dialog.dismiss(); else await dialog.accept(answer);
-      });
-      await card(page, LOCKED).click();
-      await page.waitForFunction(() => document.querySelector('.pl-root')?.dataset.phase === 'idle', null, { timeout: 15000 });
-      assert.equal(prompts.length, 2, 'asked twice: ' + JSON.stringify(prompts));
-      const phases = await page.evaluate(() => window.__promptPhases);
-      prompts.forEach((prompt, i) => { prompt.phase = phases[i]; });
-      assert.match(prompts[0].message, /Protected/); assert.match(prompts[1].message, /Incorrect/);
-      assert.equal(prompts[0].phase, 'launching', 'prompt came after the loading sheet, phase ' + prompts[0].phase);
-      assert.deepEqual(prompts.map(p => p.lockedLoaded), [0, 0], 'the locked project was served before its password');
-      assert.equal(await card(page, NAME).isVisible(), true, 'hall usable after cancel');
-      console.log('password: prompt shown during phase ' + prompts[0].phase + ', wrong password asked again, cancel -> back to the hall');
-      answers = [SECRET];
-      await card(page, LOCKED).click();
-      await inventory(page);
-      assert.equal(prompts.length, 3); assert.match(prompts[2].message, /Protected/);
-      console.log('password: right password -> Inventory');
-    }
+    // Password form is covered below in fresh anonymous contexts at the requested screenshot sizes.
+    await context.close();
+  }
+
+  // 3. The actual inline challenge: keyboard, cancel, wrong/right passwords, and persisted unlock cookies.
+  for (const [w, h] of [[1920, 1080], [1366, 768]]) {
+    const context = await browser.newContext({ viewport: { width: w, height: h } });
+    const page = await context.newPage(); watch(page, 'password' + w);
+    page.on('dialog', async dialog => { problems.push('unexpected native dialog: ' + dialog.type()); await dialog.dismiss(); });
+    const password = page.getByLabel('项目密码 / Project password', { exact: true });
+    await page.goto(origin + '/'); await card(page, LOCKED).waitFor();
+    assert.equal(await card(page, LOCKED).locator('.pl-lock').count(), 1, 'protected list item shows lock');
+    await card(page, LOCKED).click();
+    await password.waitFor();
+    await page.waitForFunction(() => document.activeElement?.id === 'project-unlock-password');
+    assert.equal(await page.locator('.pl-root').getAttribute('data-phase'), 'launching');
+    const bounds = await password.boundingBox();
+    assert.ok(bounds && bounds.x >= 0 && bounds.y > 0 && bounds.x + bounds.width <= w && bounds.y + bounds.height < h, 'form fits viewport');
+    await page.screenshot({ path: path.join(shots, `lobby-password-${w}.png`) });
+    await password.fill('fixture-wrong'); await password.press('Enter');
+    await page.getByRole('alert').filter({ hasText: '密码错误' }).waitFor();
+    assert.equal(await password.inputValue(), '', 'wrong password cleared');
+    await page.getByRole('button', { name: '取消 / Cancel', exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('.pl-root')?.dataset.phase === 'idle');
+    assert.equal(await card(page, LOCKED).isEnabled(), true);
+    await page.waitForFunction(() => document.activeElement?.dataset.projectId === 'proj-lock-001');
+    await card(page, LOCKED).click(); await password.waitFor(); await page.keyboard.press('Escape');
+    await page.waitForFunction(() => document.querySelector('.pl-root')?.dataset.phase === 'idle');
+    await card(page, LOCKED).click(); await password.waitFor();
+    await password.fill(SECRET); await password.press('Enter'); await inventory(page);
+    const cookies = await context.cookies();
+    assert.ok(cookies.some(cookie => cookie.name.startsWith('pahub_project_') && cookie.httpOnly && cookie.sameSite === 'Strict'), 'server unlock cookie');
+    await page.reload(); await inventory(page); // last protected project: same sheet, but cookie skips input
+    assert.equal(await password.count(), 0);
+    const persisted = await page.evaluate(() => localStorage.getItem('pahub-storage'));
+    assert.ok(!persisted.includes(SECRET), 'unlock password never persisted');
+    // Lose the cookie while retaining the last-project URL/cache: refresh must challenge on the sheet again.
+    await context.clearCookies(); await page.reload(); await password.waitFor();
+    await page.keyboard.press('Escape');
+    await page.waitForFunction(() => document.querySelector('.pl-root')?.dataset.phase === 'idle');
+    await page.goto(origin + '/?project=proj-lock-001'); await password.waitFor();
+    await page.getByRole('button', { name: '取消 / Cancel', exact: true }).click();
+    await page.waitForFunction(() => document.querySelector('.pl-root')?.dataset.phase === 'idle');
+    assert.ok((await widths(page)).sw <= w);
+    console.log(`password ${w}: focus/inline error/cancel/Esc/correct/refresh/deep link PASS; screenshot lobby-password-${w}.png`);
     await context.close();
   }
 

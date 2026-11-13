@@ -1,4 +1,5 @@
 import { Project, ReviewTrackerData } from '../../types';
+import { withoutProjectSecrets } from '../../lib/project';
 
 export interface ProjectBackupPayload {
   project: Project;
@@ -12,7 +13,7 @@ export const downloadProjectBackup = (project: Project, reviewTracker?: ReviewTr
   const filename = `PA_${hullName}_${timestamp}.json`;
 
   const payload: ProjectBackupPayload = {
-    project,
+    project: withoutProjectSecrets(project),
     reviewTracker: reviewTracker || {},
     _backupVersion: 2,
   };
@@ -28,7 +29,7 @@ export const downloadProjectBackup = (project: Project, reviewTracker?: ReviewTr
 };
 
 export const parseProjectBackup = (content: string): ProjectBackupPayload => {
-  const raw = JSON.parse(content);
+  const raw = withoutProjectSecrets(JSON.parse(content));
 
   // 兼容旧版导出（直接就是 Project 对象，没有 wrapper）
   if (raw.drawings && Array.isArray(raw.drawings) && !raw.project) {

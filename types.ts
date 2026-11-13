@@ -68,7 +68,10 @@ export interface ProjectConfig {
   holidays: string[]; // ISO Date strings YYYY-MM-DD
   roundACycle: number; // Days
   otherRoundsCycle: number; // Days
-  password?: string; // Optional Project Password
+  /** Write-only password update. Never returned, persisted or exported by the client. */
+  password?: string;
+  passwordSet?: boolean;
+  passwordVersion?: string; // Public concurrency token, not a credential
   displayName?: string; // Custom Project Display Name for Reports
   autoSyncInterval?: number; // Project-specific auto-sync interval
   lastUpdated?: string; // Last modification timestamp
@@ -83,6 +86,7 @@ export interface Project {
   name: string;
   drawings: Drawing[];
   storagePath?: string;
+  passwordProtected?: boolean;
   conf: ProjectConfig;
   lastUpdated?: string;
 }

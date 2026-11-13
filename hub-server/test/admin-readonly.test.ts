@@ -59,6 +59,8 @@ test('with ADMIN_PASSWORD the admin console works and the old default is rejecte
       'CREATE TABLE pahub_should_not_exist (id TEXT)',
       'DROP TABLE projects',
       `ATTACH DATABASE '${path.join(dir, 'attached.db').replace(/\\/g, '/')}' AS extra`,
+      `/* hidden attach */ ATTACH DATABASE '${path.join(dir, 'papc.db').replace(/\\/g, '/')}' AS original`,
+      'PRAGMA query_only=OFF',
       '-- SELECT is not a shield\nDELETE FROM projects',
     ]) {
       const attempt = await sql(write);

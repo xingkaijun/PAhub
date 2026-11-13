@@ -1,5 +1,6 @@
 import type { DatabaseSync, SQLOutputValue } from 'node:sqlite';
 import { drawingRevision } from './drawing-revision.ts';
+import { passwordState } from './project-password.ts';
 type Row = Record<string, SQLOutputValue>;
 
 function parse(value: SQLOutputValue | undefined, fallback: unknown): any {
@@ -11,7 +12,7 @@ function integer(value: SQLOutputValue | undefined, fallback: number | null): nu
   const parsed = parseInt(String(value),10); return Number.isFinite(parsed) ? parsed : 0;
 }
 export function getProjectList(db: DatabaseSync) {
-  return db.prepare('SELECT id,name,storage_path,last_updated FROM projects ORDER BY name COLLATE NOCASE ASC').all().map(row => ({ id:row.id,name:row.name,storagePath:row.storage_path || undefined,lastUpdated:row.last_updated || undefined }));
+  return db.prepare('SELECT p.id,p.name,p.storage_path,p.last_updated,CASE WHEN length(s.password_hash)>0 THEN 1 ELSE 0 END AS password_protected FROM projects p LEFT JOIN project_passwords s ON s.project_id=p.id ORDER BY p.name COLLATE NOCASE ASC').all().map(row => ({ id:row.id,name:row.name,storagePath:row.storage_path || undefined,lastUpdated:row.last_updated || undefined,passwordProtected:!!row.password_protected }));
 }
 export function getProjectConfiguration(db: DatabaseSync, projectId: string) {
   const settings = Object.fromEntries(db.prepare('SELECT setting_key,setting_value FROM project_settings WHERE project_id=?').all(projectId).map(row => [String(row.setting_key),row.setting_value]));
@@ -20,7 +21,7 @@ export function getProjectConfiguration(db: DatabaseSync, projectId: string) {
   for (const row of db.prepare('SELECT discipline,reviewer_id FROM discipline_default_assignees WHERE project_id=?').all(projectId)) (assignees[String(row.discipline)] ||= []).push(row.reviewer_id);
   return { reviewers:db.prepare('SELECT id,display_name AS name FROM reviewers').all().map(row => ({...row})),disciplineDefaults:defaults,
     holidays:parse(settings.holidays,[]),roundACycle:integer(settings.roundACycle,10),otherRoundsCycle:integer(settings.otherRoundsCycle,5),
-    password:settings.password ?? null,displayName:settings.displayName ?? null,autoSyncInterval:integer(settings.autoSyncInterval,null),
+    passwordSet:!!passwordState(db,projectId).hash,passwordVersion:passwordState(db,projectId).version,displayName:settings.displayName ?? null,autoSyncInterval:integer(settings.autoSyncInterval,null),
     projectSummary:parse(settings.projectSummary,null),defaultAssignees:assignees };
 }
 // Drawing rows in the project-read shape. With ids, only those drawings (json_each keeps one statement per table).

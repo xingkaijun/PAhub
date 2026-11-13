@@ -6,7 +6,7 @@ import { calculateDeadline, projectDateKey } from '../lib/deadline';
 import { buildDrawingPatch, PCF_MANAGED_FIELDS, type DirtyDrawingBase, type DirtyDrawingFields } from '../lib/drawing-fields';
 import { describeDrawingConflicts } from '../lib/project-save';
 import { ApiError } from '../services/api/apiClient';
-import { ensureDrawingHasId, normalizeProjectDrawingIds, stripProjectPayload, recalculateReviewDeadline } from '../lib/project';
+import { ensureDrawingHasId, normalizeProjectDrawingIds, stripProjectPayload, recalculateReviewDeadline, withoutProjectSecrets } from '../lib/project';
 import { editableDrawingUpdates, applyDrawingUpdates } from '../lib/drawing-edit';
 import { describeVerification } from '../lib/project-save';
 import type { AuditLogResult, ProjectSlice, SliceCreator } from './types';
@@ -57,7 +57,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     let rawProject: Project | null, remoteTracker: ReviewTrackerData | null;
     try {
       [rawProject, remoteTracker] = await Promise.all([
-        projectsApi.loadProjectIfChanged(stub, stub.conf?.password),
+        projectsApi.loadProjectIfChanged(stub),
         projectsApi.loadReviewTrackerIfChanged(stub.id).catch(() => null),
       ]);
     }
@@ -90,7 +90,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     const stub = get().data.projects.find(p => p.id === projectId);
     if (!stub || !drawingIds.length)
       return 0;
-    const result = await projectsApi.loadDrawings(projectId, drawingIds, stub.conf?.password);
+    const result = await projectsApi.loadDrawings(projectId, drawingIds);
     const fetched = new Map(normalizeProjectDrawingIds({ ...stub, drawings: result.drawings || [] }, generateId).drawings.map(d => [d.id, d]));
     const gone = new Set(result.missing || []);
     let changed = 0;
@@ -608,15 +608,17 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
           // 按 ID 合并，避免同名项目污染
           const existingIndex = mergedProjects.findIndex(p => p.id === rp.id);
           if (existingIndex > -1) {
-            mergedProjects[existingIndex] = { ...mergedProjects[existingIndex], storagePath: rp.storagePath };
+            mergedProjects[existingIndex] = { ...mergedProjects[existingIndex], name: rp.name, storagePath: rp.storagePath, passwordProtected: rp.passwordProtected, conf: { ...mergedProjects[existingIndex].conf, passwordSet: rp.passwordProtected } };
           }
           else {
             mergedProjects.push({
               id: rp.id,
               name: rp.name,
               storagePath: rp.storagePath,
+              passwordProtected: rp.passwordProtected,
               drawings: [],
               conf: {
+                passwordSet: rp.passwordProtected,
                 reviewers: state.data.settings.reviewers,
                 disciplineDefaults: state.data.settings.disciplineDefaults,
                 holidays: state.data.settings.holidays,
@@ -638,7 +640,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
       throw err;
     }
   },
-  loadProject: async (projectId: string, passwordInput?: string) => {
+  loadProject: async (projectId: string, _legacyPassword?: string, signal?: AbortSignal) => {
     const { data } = get();
     const projectStub = data.projects.find(p => p.id === projectId);
     if (!projectStub)
@@ -648,8 +650,9 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
       // 404 means the project was deleted on the server -> ProjectNotFoundError and a notice. The exception is a project
       // just made with "New project" whose first save has not reached the server yet (localOnly): open the local
       // copy, as before, so creating a project keeps working.
-      const remote = await projectsApi.loadProject(projectStub, passwordInput)
+      const remote = await projectsApi.loadProject(projectStub, undefined, signal)
         .catch(err => { if (isProjectNotFound(err) && isLocalOnlyProject(projectStub)) return projectStub; throw err; });
+      signal?.throwIfAborted();
       const fullProject = normalizeProjectDrawingIds(remote, generateId);
       // Inject defaults
       const globalSettings = data.settings;
@@ -661,6 +664,23 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
           roundACycle: globalSettings.roundACycle,
           otherRoundsCycle: globalSettings.otherRoundsCycle
         };
+      }
+      // Re-unlocking the current project is a refresh, not a project switch. Session expiry
+      // must not discard edits made before the hall's password challenge appeared.
+      const current = get();
+      if (current.activeProjectId === projectId && current.hasUnsavedChanges()) {
+        set(state => {
+          const local = state.data.projects.find(p => p.id === projectId);
+          if (!local || state.activeProjectId !== projectId) return state;
+          const merged = mergeProjectPreservingDirty(local, fullProject, state._dirtyDrawingIds,
+            state._deletedDrawingIds, state._dirtyConfKeys.size ? state._dirtyConfKeys : state._dirtyConf,
+            state.reviewTracker, state.reviewTracker, state._dirtyTrackerDrawingIds, state._dirtyTracker,
+            state._dirtyDrawingFields);
+          return { data: { ...state.data, projects: state.data.projects.map(p => p.id === projectId ? merged.project : p) },
+            reviewTracker: merged.reviewTracker, isLoading: false };
+        });
+        void get().refreshAdminPresence(projectId);
+        return;
       }
       set(state => ({
         data: {
@@ -685,13 +705,15 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
       void get().refreshAdminPresence(projectId);
     }
     catch (err: any) {
-      set({ isLoading: false, error: err.message,
+      set({ isLoading: false, error: signal?.aborted ? null : err.message,
         ...(isProjectNotFound(err) ? { projectNotice: { message: projectNotFoundMessage(projectStub.name, false), projectId, at: Date.now() } } : {}) });
       throw err;
     }
   },
   testConnection: async () => projectsApi.testConnection(),
   updateProjectConfig: (projectId, updates) => set((state) => {
+    // Passwords have a separate write-only settings flow; never put a draft in the persisted store.
+    updates = withoutProjectSecrets(updates);
     const shouldRecalculateDeadlines = updates.holidays !== undefined ||
       updates.roundACycle !== undefined ||
       updates.otherRoundsCycle !== undefined;
@@ -728,7 +750,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     };
   }),
   restoreProject: (project) => set((state) => {
-    const restoredProject = { ...project };
+    const restoredProject = withoutProjectSecrets(project);
     // 恢复后标记所有 drawing 为脏，确保用户手动保存时同步到云端
     const newDirty = new Set(state._dirtyDrawingIds);
     const newDirtyTrackerIds = new Set(state._dirtyTrackerDrawingIds);

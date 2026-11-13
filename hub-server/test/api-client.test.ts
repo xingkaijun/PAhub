@@ -25,7 +25,8 @@ test('apiClient resolves a trimmed base, preserves encoded IDs and leaves authen
   assert.equal(calls[0].url, 'https://hub.test/nested/api/projects/p%20%2F%E4%B8%AD%E6%96%87');
   assert.equal(new Headers(calls[0].init.headers).has('Authorization'), false);
   assert.equal(new Headers(calls[0].init.headers).get('Content-Type'), 'application/json');
-  assert.equal(calls[0].init.body, JSON.stringify({ password: 'guard' }));
+  assert.equal(calls[0].init.body, JSON.stringify({}));
+  assert.equal(new Headers(calls[0].init.headers).has('X-Project-Password'), false);
   assert.strictEqual(calls[0].init.signal, signal);
   const absolute = createApiClient({ baseUrl: ' https://remote.test/custom/api/ ' });
   assert.equal(absolute.url('health'), 'https://remote.test/custom/api/health');
@@ -78,6 +79,26 @@ test('projectsApi turns 404 into ProjectNotFoundError (no local copy handed back
   await assert.rejects(createProjectsApi(client).loadProject(project), (error: any) => error?.code === 'PROJECT_NOT_FOUND' && error.projectId === 'new');
   const denied = fixture(() => Response.json({ error: 'PASSWORD_REQUIRED' }, { status: 401 }));
   await assert.rejects(createProjectsApi(denied.client).loadProject(project), /PASSWORD_REQUIRED/);
+});
+
+test('catch-up tracker reads wait for the cold ETag before revalidation', async () => {
+  let release!: () => void;
+  const blocked = new Promise<void>(resolve => { release = resolve; });
+  let reads = 0;
+  const { client, calls } = fixture(async () => {
+    if (++reads === 1) { await blocked; return Response.json({}, { headers: { ETag: '"tracker-v1"' } }); }
+    return new Response(null, { status: 304 });
+  });
+  const api = createProjectsApi(client);
+  const cold = api.loadReviewTracker('p');
+  const catchup = api.loadReviewTrackerIfChanged('p');
+  await new Promise<void>(resolve => setImmediate(resolve));
+  assert.equal(calls.length, 1);
+  release();
+  await cold;
+  assert.equal(await catchup, null);
+  assert.equal(calls.length, 2);
+  assert.equal(new Headers(calls[1].init.headers).get('If-None-Match'), '"tracker-v1"');
 });
 
 test('projectsApi delta, tracker, audit and heartbeat use original routes and payloads', async () => {

@@ -6,10 +6,14 @@ import type { PcfApi } from './pcf-api.ts';
 import { PcfBuilderReplies } from './pcf-builder-replies.ts';
 import { ProjectComments } from './comments-register.ts';
 import { exportCommentsExcel } from './comments-excel.ts';
+import { compressBody, negotiateEncoding, COMPRESS_MIN_BYTES, type Encoding } from './http.ts';
 
 export function registerPcfRoutes(router: Router, pcf: PcfApi, adminPassword?: string) {
   const replies = new PcfBuilderReplies(pcf.storage, pcf.exchange, pcf.realtime, adminPassword);
   const comments = new ProjectComments(pcf.storage);
+  // Aggregate result identities already invalidate with PCF metadata/content and ageing.
+  // Reuse their compressed JSON too; repeated warm reads must not recompress 15,000 rows.
+  const compressedComments = new WeakMap<object, Map<Encoding, Promise<Buffer>>>();
   router.add({ pattern: /^\/api\/projects\/([^/]+)\/drawings\/([^/]+)\/status$/, methods: ['POST'], admin: true, handle: async ctx => {
     const [p,d] = ctx.params.map(safeId), input = await ctx.json();
     const result = await pcf.storage.serial(p,d,() => transitionDrawingStatus(pcf.storage,pcf.realtime,p,d,input.status));
@@ -22,9 +26,23 @@ export function registerPcfRoutes(router: Router, pcf: PcfApi, adminPassword?: s
     } });
     const { body, etag } = comments.json(result);
     const unchanged = (ctx.request.headers.get('if-none-match') || '').split(',').some(value => value.trim().replace(/^W[/]/,'') === etag || value.trim() === '*');
-    return new Response(unchanged ? null : body, { status: unchanged ? 304 : 200, headers: { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'private, no-cache', ETag: etag, 'X-Content-Type-Options': 'nosniff' } });
+    const headers: Record<string, string> = { 'Content-Type': 'application/json; charset=utf-8', 'Cache-Control': 'private, no-cache', ETag: etag, 'X-Content-Type-Options': 'nosniff', Vary: 'Accept-Encoding' };
+    if (unchanged) return new Response(null, { status: 304, headers });
+    const encoding = negotiateEncoding(ctx.request.headers.get('accept-encoding') || undefined);
+    if (encoding && Buffer.byteLength(body) >= COMPRESS_MIN_BYTES) {
+      let variants = compressedComments.get(result);
+      if (!variants) { variants = new Map(); compressedComments.set(result, variants); }
+      let compressed = variants.get(encoding);
+      if (!compressed) {
+        compressed = compressBody(Buffer.from(body), encoding).catch(error => { variants!.delete(encoding); throw error; });
+        variants.set(encoding, compressed);
+      }
+      const bytes = await compressed;
+      return new Response(new Uint8Array(bytes), { headers: { ...headers, 'Content-Encoding': encoding, 'Content-Length': String(bytes.length) } });
+    }
+    return new Response(body, { headers });
   } });
-  router.add({ pattern: /^\/api\/projects\/([^/]+)\/events$/, methods: ['GET'], handle: ctx => pcf.realtime.projectStream(safeId(ctx.params[0]),ctx.request.signal) });
+  router.add({ pattern: /^\/api\/projects\/([^/]+)\/events$/, methods: ['GET'], handle: ctx => pcf.realtime.projectStream(safeId(ctx.params[0]),ctx.request.signal,() => !router.options.projectSession || router.options.projectSession.allowed(ctx.request,safeId(ctx.params[0]))) });
   router.add({ pattern: /^\/api\/projects\/([^/]+)\/builder-replies(?:\/([^/]+))?(?:\/([^/]+))?(?:\/([^/]+))?$/, auth: 'none', handle: async ctx => {
     const [rawP,action,setId,fileId] = ctx.params, p = safeId(rawP), request = ctx.request;
     // The API token remains the machine credential; every builder-reply operation is administrative

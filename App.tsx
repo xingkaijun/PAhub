@@ -30,7 +30,7 @@ import {
   ClipboardCheck,
   MessageSquare
 } from 'lucide-react';
-import { ProjectLobby } from './components/lobby/ProjectLobby';
+import { ProjectLobby, type RequestProjectPassword } from './components/lobby/ProjectLobby';
 import { toLobbyCards } from './components/lobby/lobbyModel';
 
 const Settings = lazy(() => import('./components/Settings').then(module => ({ default: module.Settings })));
@@ -77,6 +77,8 @@ const App: React.FC = () => {
   const [showProjectSelector, setShowProjectSelector] = useState(true);
   // Project Access Hall: stays mounted while its opening motion plays over the workspace.
   const [lobbyLaunching, setLobbyLaunching] = useState(false);
+  const [resumeProjectId, setResumeProjectId] = useState<string>();
+  const [startupReady, setStartupReady] = useState(false);
   const lobbyCards = useMemo(
     () => toLobbyCards(data.projects.map(p => ({
       id: p.id,
@@ -84,7 +86,7 @@ const App: React.FC = () => {
       drawingCount: p.drawings?.length || 0,
       approvedCount: p.drawings?.filter(d => d.status === 'Approved').length || 0,
       lastUpdated: p.lastUpdated,
-      locked: !!p.conf?.password,
+      locked: !!(p.passwordProtected || p.conf?.passwordSet),
     }))),
     [data.projects]
   );
@@ -109,6 +111,13 @@ const App: React.FC = () => {
         // Try to fetch Server List
         await fetchGlobalSettings();
         await fetchProjectList();
+        const state = useStore.getState();
+        const query = new URLSearchParams(window.location.search);
+        const requested = query.get('project') || query.get('projectId');
+        const last = state.data.projects.find(p => p.id === (requested || state.activeProjectId));
+        // A protected deep link / last project must never reveal its persisted payload before server authorization.
+        if (last && (requested || last.passwordProtected || last.conf?.passwordSet)) setResumeProjectId(last.id);
+        setStartupReady(true);
         console.log("Server list fetched. Ready for selection.");
       } catch (err) {
         console.error("Server connection failed", err);
@@ -121,13 +130,10 @@ const App: React.FC = () => {
     initApp();
   }, []);
 
-  /**
-   * Opens a project. Resolves true once it is open, false when it stayed closed (cancelled, failed, not found).
-   * A protected project asks for its password here and retries until it opens or the user cancels, so the
-   * caller (the lobby) can keep its loading sheet on screen until the answer is known. beforePrompt delays the
-   * password prompt until the caller's motion has settled, since prompt() freezes the page while it is open.
-   */
-  const handleSelectProject = async (projectId: string, opts: { beforePrompt?: Promise<unknown> } = {}): Promise<boolean> => {
+  /** The lobby owns the challenge UI; the server owns password verification and unlock cookies. */
+  const handleSelectProject = async (projectId: string, opts: {
+    requestPassword: RequestProjectPassword; signal: AbortSignal;
+  }): Promise<boolean> => {
     // Check for unsaved changes before switching projects
     const hasUnsaved = useStore.getState().hasUnsavedChanges();
     if (hasUnsaved && activeProjectId && projectId !== activeProjectId) {
@@ -151,24 +157,33 @@ const App: React.FC = () => {
       }
     }
 
-    let password: string | undefined;
     for (;;) {
       useStore.setState({ isLoading: true });
       try {
-        await loadProject(projectId, password);
+        opts.signal.throwIfAborted();
+        await loadProject(projectId, undefined, opts.signal);
+        opts.signal.throwIfAborted();
         setShowProjectSelector(false);
-        setActiveProject(projectId); // Ensure store knows active ID
+        setActiveProject(projectId);
+        setResumeProjectId(undefined);
         return true;
       } catch (e: any) {
-        if (e.message === 'PASSWORD_REQUIRED' || e.message === 'INVALID_PASSWORD') {
-          useStore.setState({ isLoading: false }); // Hide the spinner before the prompt blocks the page
-          const msg = e.message === 'INVALID_PASSWORD' ? 'Incorrect Password. Try again:' : 'This Registry is Protected. Enter Password:';
-          await opts.beforePrompt?.catch(() => undefined);
-          // Let the page paint once before prompt() blocks it.
-          await new Promise(resolve => setTimeout(resolve, 50));
-          const pwd = prompt(msg);
-          if (pwd === null) return false;
-          password = pwd;
+        if (opts.signal.aborted || e.name === 'AbortError') return false;
+        if (e.message === 'PASSWORD_REQUIRED') {
+          useStore.setState({ isLoading: false });
+          let error: string | undefined;
+          for (;;) {
+            const password = await opts.requestPassword(error);
+            if (password === null || opts.signal.aborted) { setResumeProjectId(undefined); return false; }
+            try {
+              await projectsApi.unlockProject(projectId, password, opts.signal);
+              break;
+            } catch (unlockError: any) {
+              if (opts.signal.aborted) return false;
+              error = unlockError.message === 'INVALID_PASSWORD' ? '密码错误，请重试。' : unlockError.status === 429
+                ? '尝试次数过多，请在 10 分钟后重试。' : '解锁失败，请重试。';
+            }
+          }
           continue;
         }
         if (isProjectNotFound(e)) {
@@ -184,6 +199,17 @@ const App: React.FC = () => {
       }
     }
   };
+
+  useEffect(() => {
+    const locked = (event: Event) => {
+      const id = (event as CustomEvent<{ projectId: string }>).detail?.projectId;
+      if (!id || lobbyVisible || id !== activeProjectId) return;
+      setResumeProjectId(id);
+      setShowProjectSelector(true);
+    };
+    window.addEventListener('pahub:project-locked', locked);
+    return () => window.removeEventListener('pahub:project-locked', locked);
+  }, [activeProjectId, lobbyVisible]);
 
   const handleOfflineMode = () => {
     setShowProjectSelector(false);
@@ -234,17 +260,15 @@ const App: React.FC = () => {
           console.log(`[Read-Only Mode] Skipping auto-fetch: local unsaved changes pending.`);
           return;
         }
-        // 获取配置中的项目密码（如果该项目受密码保护）
         console.log(`[Read-Only Mode] Auto-fetching latest data from server (Interval: ${intervalMinutes}m)...`);
-        const projectConfPw = activeProject?.conf?.password;
-        await loadProject(activeProjectId, projectConfPw).catch(e => {
+        await loadProject(activeProjectId).catch(e => {
           console.warn('Auto-fetch in read-only mode failed:', e.message);
         });
       }
     }, intervalMinutes * 60 * 1000);
 
     return () => clearInterval(interval);
-  }, [activeProjectId, showProjectSelector, data.settings.autoSyncInterval, currentProject?.conf?.autoSyncInterval, currentProject?.conf?.password, isEditMode, loadProject, saveProject]);
+  }, [activeProjectId, showProjectSelector, data.settings.autoSyncInterval, currentProject?.conf?.autoSyncInterval, currentProject?.conf?.passwordSet, isEditMode, loadProject, saveProject]);
 
   useEffect(() => {
     // One stream per open project, kept across tab switches (switching tabs used to drop and reopen it, refetching everything).
@@ -397,7 +421,8 @@ const App: React.FC = () => {
           logoSrc="/pg-logo.jpg"
           manualHref="/manual/"
           showNoProjectsNote={data.projects.length === 0}
-          onSelect={(id, motionSettled) => handleSelectProject(id, { beforePrompt: motionSettled })}
+          autoSelectId={startupReady ? resumeProjectId : undefined}
+          onSelect={(id, _motionSettled, requestPassword, signal) => handleSelectProject(id, { requestPassword, signal })}
           onCreate={handleAddProject}
           onRefresh={handleGlobalRefresh}
           onOffline={handleOfflineMode}
@@ -455,7 +480,7 @@ const App: React.FC = () => {
 
         <div className="hidden md:flex flex-1 min-w-0 items-center justify-center px-4 z-[1]">
           {/* Main Navigation Tabs */}
-          <nav className="flex items-center gap-1 bg-black/15 backdrop-blur-sm p-1 rounded-full border border-white/10 shadow-inner shadow-black/10 min-w-0">
+          <nav className="flex items-center gap-1 bg-black/15 backdrop-blur-sm p-1 rounded-full border border-white/10 shadow-inner shadow-black/10 min-w-0 max-w-full overflow-x-auto">
             <button
               onClick={() => setActiveTab('drawings')}
               className={`flex items-center gap-1.5 px-3 xl:px-5 py-2 rounded-full text-[10px] font-[1000] uppercase tracking-[0.15em] transition-all duration-300 shrink-0 ${activeTab === 'drawings' ? 'bg-white text-teal-700 shadow-lg shadow-black/10' : 'text-teal-50/75 hover:text-white hover:bg-white/10'}`}

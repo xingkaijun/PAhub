@@ -1,7 +1,8 @@
 import type { PersistOptions } from 'zustand/middleware';
 import type { Drawing, Project } from '../types';
 import type { AppState } from './types';
-import { normalizeProjectDrawingIds, stripProjectPayload } from '../lib/project';
+import { normalizeProjectDrawingIds, stripProjectPayload, withoutProjectSecrets } from '../lib/project';
+const safeConfKeys = (keys: unknown): string[] => Array.isArray(keys) ? keys.filter((key): key is string => typeof key === 'string' && !/password/i.test(key)) : [];
 const generateId = () => Math.random().toString(36).substr(2, 9);
 // Keep version 2 and its serialized Sets compatible with already-open/local pages.
 export const persistenceOptions: PersistOptions<AppState, any> = {
@@ -17,9 +18,9 @@ export const persistenceOptions: PersistOptions<AppState, any> = {
     _deletedDrawingIds: [...state._deletedDrawingIds],
     _dirtyDrawingFields: Object.fromEntries(Object.entries(state._dirtyDrawingFields).map(([id, fields]) => [id, [...fields]])),
     _dirtyDrawingBase: state._dirtyDrawingBase,
-    _dirtyConf: state._dirtyConf,
-    _dirtyConfKeys: [...state._dirtyConfKeys],
-    _dirtyConfBase: state._dirtyConfBase,
+    _dirtyConf: state._dirtyConf && (state._dirtyConfKeys.size === 0 || safeConfKeys([...state._dirtyConfKeys]).length > 0),
+    _dirtyConfKeys: safeConfKeys([...state._dirtyConfKeys]),
+    _dirtyConfBase: withoutProjectSecrets(state._dirtyConfBase),
     _dirtyTracker: state._dirtyTracker,
     _dirtyTrackerDrawingIds: Array.from(state._dirtyTrackerDrawingIds),
   }),
@@ -55,8 +56,9 @@ export const persistenceOptions: PersistOptions<AppState, any> = {
     _dirtyDrawingIds: new Set(persistedState?._dirtyDrawingIds || []),
     _deletedDrawingIds: new Set(persistedState?._deletedDrawingIds || []),
     _dirtyDrawingFields: Object.fromEntries(Object.entries(persistedState?._dirtyDrawingFields || {}).map(([id, fields]) => [id, new Set(fields as (keyof Drawing)[])])),
-    _dirtyConfKeys: new Set(Array.isArray(persistedState?._dirtyConfKeys) ? persistedState._dirtyConfKeys : []),
-    _dirtyConfBase: persistedState?._dirtyConfBase && typeof persistedState._dirtyConfBase === 'object' ? persistedState._dirtyConfBase : {},
+    _dirtyConf: Boolean(persistedState?._dirtyConf) && (!Array.isArray(persistedState?._dirtyConfKeys) || persistedState._dirtyConfKeys.length === 0 || safeConfKeys(persistedState._dirtyConfKeys).length > 0),
+    _dirtyConfKeys: new Set(safeConfKeys(persistedState?._dirtyConfKeys)),
+    _dirtyConfBase: persistedState?._dirtyConfBase && typeof persistedState._dirtyConfBase === 'object' ? withoutProjectSecrets(persistedState._dirtyConfBase) : {},
     _dirtyDrawingBase: persistedState?._dirtyDrawingBase && typeof persistedState._dirtyDrawingBase === 'object' ? persistedState._dirtyDrawingBase : {},
     _dirtyTrackerDrawingIds: persistedState?._dirtyTrackerDrawingIds instanceof Set
       ? persistedState._dirtyTrackerDrawingIds

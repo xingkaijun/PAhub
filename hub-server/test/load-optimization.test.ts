@@ -9,6 +9,7 @@ import path from 'node:path';
 import { brotliDecompressSync, gunzipSync } from 'node:zlib';
 import http from 'node:http';
 import { createHub } from '../src/app.ts';
+import { setProjectPassword } from '../src/project-password.ts';
 import { ROOT_DIR } from '../src/config.ts';
 import { compressibleType, negotiateEncoding, staticCacheControl } from '../src/http.ts';
 import { etagMatches } from '../src/etag.ts';
@@ -93,11 +94,11 @@ test('drawings by id: only the named drawings, same shape and rev as the full re
     assert.equal((await f.json(PROJECT + '/drawings')).status, 400, 'ids required');
     assert.equal((await f.json('/api/projects/no-such/drawings?ids=a')).status, 404);
     assert.equal((await f.json(PROJECT + '/drawings?ids=' + Array.from({ length: 501 }, (_, i) => 'x' + i).join(','))).status, 400, 'bounded');
-    // Password-protected project: same rule as the full read.
-    f.hub.db.prepare("INSERT OR REPLACE INTO project_settings (project_id, setting_key, setting_value) VALUES (?, 'password', ?)").run(P, '密码1');
-    assert.equal((await f.json(PROJECT + '/drawings?ids=dwg-001')).status, 401);
-    assert.equal((await f.json(PROJECT + '/drawings?ids=dwg-001', 'GET', undefined, { 'X-Project-Password': 'wrong' })).status, 401);
-    assert.equal((await f.json(PROJECT + '/drawings?ids=dwg-001', 'GET', undefined, { 'X-Project-Password': encodeURIComponent('密码1') })).status, 200);
+    // In local development ADMIN_PASSWORD is unset, so all callers are administrators:
+    // protection is bypassed without repeating a project password header. Full anonymous
+    // locked/unlocked coverage lives in project-password.test.ts with ADMIN_PASSWORD set.
+    setProjectPassword(f.hub.db,P,'fictional-load-test-password');
+    assert.equal((await f.json(PROJECT + '/drawings?ids=dwg-001')).status, 200);
   } finally { await f.cleanup(); }
 });
 
@@ -231,7 +232,8 @@ test('projects api: sends If-None-Match, reuses the held body on 304, shares ide
   status = -1;
   const a = api.loadProject(stub), b = api.loadProject(stub), c = api.loadProjectIfChanged(stub);
   await new Promise(r => setTimeout(r, 10));
-  assert.equal(sent.length, 5, 'two identical loads share one request; the catch-up read goes on its own');
+  assert.equal(sent.length, 4, 'two identical loads share one request; catch-up waits for its validator');
   status = 304; waiting.splice(0).forEach(r => r());
   await Promise.all([a, b, c]);
+  assert.equal(sent.length, 5, 'catch-up still makes its own newer conditional request');
 });

@@ -51,8 +51,10 @@ const drawing = (over: Partial<Drawing>): Drawing => ({
 
 test('Tracker CSV puts the drawing number in Drawing No and the custom id in ID', () => {
   const rows = [
-    drawing({ id: 'dwg-001', customId: '001', drawingNo: 'H2684-110-001', title: 'Midship section, frames 50-80', assignees: ['Zhang', 'Li'], reviewDeadline: '2026-11-12' }),
-    drawing({ id: 'dwg-002', customId: '002', drawingNo: 'H2684-210-"002"', title: 'Fuel oil', assignees: ['Li'], reviewDeadline: '2026-11-05' }),
+    // Explicit local wall-clock timestamps match this CSV's date-fns local-calendar contract;
+    // bare YYYY-MM-DD is parsed as UTC and shifts to the previous date on negative-offset hosts.
+    drawing({ id: 'dwg-001', customId: '001', drawingNo: 'H2684-110-001', title: 'Midship section, frames 50-80', assignees: ['Zhang', 'Li'], reviewDeadline: '2026-11-12T12:00:00' }),
+    drawing({ id: 'dwg-002', customId: '002', drawingNo: 'H2684-210-"002"', title: 'Fuel oil', assignees: ['Li'], reviewDeadline: '2026-11-05T12:00:00' }),
   ];
   const csv = buildReviewTrackerCsv(rows, { 'dwg-001': { Zhang: { done: true } as any }, 'dwg-002': { Li: { done: true } as any } }, new Date('2026-11-10T08:00:00'));
   const lines = csv.split('\r\n');

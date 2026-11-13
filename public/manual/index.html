@@ -117,15 +117,17 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 <li><b>有效期：</b>登录 12 小时有效；连续输错 5 次要等 10 分钟才能再试。</li>
 <li><b>退出：</b>再点一下 Administrator 按钮就退出。</li>
 <li><b>没设 ADMIN_PASSWORD 时：</b>所有人都算管理员，不用登录。</li>
-<li><b>项目密码：</b>项目可以另设访问密码，打开时弹出 “This Registry is Protected. Enter Password:”，输错会提示 “Incorrect Password. Try again:”。</li>
+<li><b>项目密码：</b>项目可另设访问密码，与管理员密码不同。受保护项目须先在大厅加载页解锁；管理员会话和带有效 <code>API_TOKEN</code> 的请求免输项目密码。项目解锁不会授予管理员写权限。下面表格中的项目操作均以已解锁为前提。</li>
 </ul>
 <figure class="shot"><img src="/manual/img/perm-1.jpg" loading="lazy" decoding="async" alt="管理员登录弹窗"><figcaption>管理员登录弹窗：Administrator Sign-in</figcaption></figure>
 
 <h2 id="shell">项目选择页和顶栏</h2>
 <h3>项目选择页（Project Access Hall）</h3>
-<p>每次打开平台都先到这里。每个项目一张卡片，显示项目缩写、Completed 或 Active、进度百分比、图纸数（Assets）和最后更新日期。</p>
+<p>打开平台默认到蓝图大厅。每个项目一张卡片，显示项目缩写、Completed 或 Active、进度百分比、图纸数（Assets）和最后更新日期；受保护项目带小锁。刷新到受保护的上次项目或项目 URL 时，若没有有效解锁 cookie，会在大厅对该项目自动打开同一加载页密码流程。</p>
 <ul>
-<li><b>打开项目：</b>点卡片。有项目密码时先输密码。</li>
+<li><b>打开项目：</b>点卡片，卡片照常展开为全屏加载页（PG 标志、项目名）。有密码且尚未解锁时，输入框直接显示在这张加载页上并自动聚焦，按回车或“解锁项目”提交，不再弹出浏览器原生 prompt。</li>
+<li><b>密码错误或取消：</b>错误在原位显示，可重试；同一来源对同一项目 10 分钟内失败 5 次后临时限速。点“取消”或按 Esc，加载页淡出回大厅，卡片恢复可用。密码正确后继续加载，再照常淡出进入 Inventory；无密码项目流程不变。</li>
+<li><b>解锁有效期：</b>服务端签发该项目专属 HMAC 签名 cookie，HttpOnly、SameSite=Strict、12 小时有效；Secure 按实际 HTTPS 或 <code>X-Forwarded-Proto</code> 首项判断，与管理员会话一致。刷新、自动同步、drawings、PCF 页面/API、SSE、活动、日志、报表和导出都凭 cookie 访问，不必反复传密码头。未解锁的项目接口返回 <code>401 PASSWORD_REQUIRED</code>，PCF 页面提示返回大厅。修改或清除密码会更新版本，使旧解锁 cookie 立即失效。</li>
 <li><b>刷新列表：</b>右上角的刷新按钮。</li>
 <li><b>新建项目（管理员）：</b>最后一张卡片 Create Workspace，按提示输入船号或项目名，例如 <code>PG-VLEC-H2684</code>。</li>
 <li><b>离线模式：</b>底部 Skip / Enter Offline Mode (Local Cache)，打开浏览器里缓存的本地数据。</li>
@@ -329,12 +331,12 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 <tr><td>Review Policy (WD)</td><td>A 轮周期 1–30 个工作日（默认 14），之后每轮 1–21 个（默认 7），截止日跳过周末和下面设的节假日</td></tr>
 <tr><td>Public Holidays</td><td>选日期添加节假日，可删除</td></tr>
 <tr><td>Platform Health</td><td>四项自检：是否有团队、专业负责人是否全覆盖、是否设了项目密码、是否有节假日，给出 x/4 分</td></tr>
-<tr><td>Project Configuration</td><td>Project Report Name（报告上显示的项目名）；Project Password（可选，打开项目时要输，明文显示）；Auto-Sync Interval（0–60 分钟，默认 3，0 关闭定时同步）</td></tr>
+<tr><td>Project Configuration</td><td>Project Report Name（报告上显示的项目名）；Project Password（管理员可设置、修改、清除，password 类型输入框，保存后只显示“已设置”，不回显原文；未修改保持原密码）；Auto-Sync Interval（0–60 分钟，默认 3，0 关闭定时同步）</td></tr>
 <tr><td>Project Summary &amp; Ship Milestones</td><td>船东名、里程碑更新日期，以及每条船的船号、开工、入坞、下水、交船、合同交船日期，可加减船；用在 Activity 报告第一页</td></tr>
 </tbody></table></div>
 <h3>Local Backup 和 Local Restore <span class="tag">Restore 看代码推断</span></h3>
 <ul>
-<li><b>Local Backup：</b>下载 <code>PA_项目名_年月日时分.json</code>，包含项目数据和 Tracker 数据。<b>不包含 PCF 意见内容和图片</b>，整库备份要在服务器上做（见<a href="#ops">部署运维</a>）。</li>
+<li><b>Local Backup：</b>下载 <code>PA_项目名_年月日时分.json</code>，包含项目数据和 Tracker 数据。<b>不包含项目密码、密码哈希、PCF 意见内容和图片</b>；任何 API 与后台导出也不会返回项目密码或哈希。整库备份要在服务器上做（见<a href="#ops">部署运维</a>）。</li>
 <li><b>Local Restore：</b>选一个备份 .json（旧版备份也认），只恢复到浏览器里；确认无误后要再点 Save to Cloud 才写到服务器。这种保存不带“改之前的值”，会直接覆盖服务器上的设置。</li>
 </ul>
 
@@ -564,6 +566,13 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 <li><b>只做一次：</b>成功后不再重复。</li>
 </ul>
 <p>自动迁移只管 HTML 转 JSON，<b>不管图片</b>。图片拆分要自己跑下面的 hub:migrate-pcf-images。</p>
+<h3>项目密码：升级与自动迁移</h3>
+<ol class="steps">
+<li><div><h3>停服、备份并配置管理员密码</h3><p>升级前停止 Hub，备份整个数据目录。对外部署必须设置 <code>ADMIN_PASSWORD</code>；否则所有访客都按本地开发模式视为管理员，免输项目密码。拉代码后重新 <code>npm run hub:build</code> 再启动，推到 main 不会自动部署。</p></div></li>
+<li><div><h3>启动先备份、再迁移</h3><p>监听之前，SQLite <code>VACUUM INTO</code> 创建含已提交 WAL 内容的一致全库备份：<code>PAHUB_DATA_DIR/backups/before-project-password-&lt;时间戳&gt;-&lt;随机编号&gt;.db</code>。随后事务中使用 <code>node:crypto</code> 的 scrypt 和随机盐，把旧明文迁到独立 <code>project_passwords</code> 哈希表，并删除 <code>project_settings.password</code>。迁移幂等，无明文则不再备份，无需手工重设原密码。数据库和备份目录须可写；备份或迁移失败会拒绝启动，不会继续明文服务。</p></div></li>
+<li><div><h3>保护旧明文备份</h3><p>迁移备份仍包含旧明文密码，要限制文件权限、离线保管，Windows 上核对 ACL。不要放进仓库或经网页下载。API、项目详情/列表、JSON 和后台导出均不返回密码或哈希。</p></div></li>
+<li><div><h3>需要回滚时</h3><p>先停服、另存当前数据库，再将迁移前备份恢复到 <code>PAPC_DB_PATH</code>；移走当前库的 <code>-wal</code> / <code>-shm</code> 文件，并按完整备份恢复相关数据，再启动匹配旧版本。不要让旧版本直接运行在迁移后的库上。重启后需重新建立项目解锁会话。</p></div></li>
+</ol>
 <h3>图片迁移 hub:migrate-pcf-images</h3>
 <ol class="steps">
 <li><div><h3>停服并备份</h3><p>停掉 Hub，把整个数据目录拷一份。</p></div></li>

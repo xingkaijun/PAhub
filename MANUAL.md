@@ -6,7 +6,7 @@
 
 需要 Node.js 24。首次运行 npm ci，然后 npm run hub:build；设置服务端环境变量后运行 npm run hub:start。默认地址 http://localhost:8080，局域网用户使用主机 IP。服务器不会自动读取 .env；Vite 的 VITE_ 值在构建时读取。
 
-建议设置 ADMIN_PASSWORD、API_TOKEN；前端 VITE_DATA_API_TOKEN 须与服务器一致后重新构建。ADMIN_PASSWORD 同时用于管理员登录、管理后台和需要管理员的 PCF 操作；未设置时所有人视为管理员（仅适合本地开发，启动日志会告警）；不设置 API_TOKEN 时所有接口匿名可用；公网暴露时可用 PAHUB_BASIC_AUTH 开启 Basic Auth（见 README）。共享 API token 不是个人账号，局域网 HTTP 不加密凭据。数据目录由 PAHUB_DATA_DIR 指定，默认 data；数据库默认为该目录的 papc.db。
+建议设置 ADMIN_PASSWORD、API_TOKEN；前端 VITE_DATA_API_TOKEN 须与服务器一致后重新构建。ADMIN_PASSWORD 同时用于管理员登录、管理后台和需要管理员的 PCF 操作；未设置时所有人视为管理员（仅适合本地开发，启动日志会告警）；未设置 API_TOKEN 时不要求共享机器令牌，但受保护项目仍须解锁；公网暴露时可用 PAHUB_BASIC_AUTH 开启 Basic Auth（见 README）。共享 API token 不是个人账号，局域网 HTTP 不加密凭据。数据目录由 PAHUB_DATA_DIR 指定，默认 data；数据库默认为该目录的 papc.db。
 
 ## Comments：全项目意见汇总
 
@@ -22,7 +22,7 @@
 
 系统只有两种身份，不按人分账号：
 
-- **审图人员**（无密码）：打开站点即为审图人员。可浏览项目、图纸列表、Comments、Activity Report、Daily Log（均只读），可导出报表；在 PCF 页面内可正常审图、写/改/关闭意见并保存。不能做任何批量或项目级写操作。
+- **审图人员**（未登录管理员）：打开站点即为审图人员；有项目密码的项目须先解锁。解锁后可浏览项目、图纸列表、Comments、Activity Report、Daily Log（均只读），可导出报表；在 PCF 页面内可正常审图、写/改/关闭意见并保存。不能做任何批量或项目级写操作。
 - **管理员**（输入管理员密码）：在页面右上角或列表、Tracker 的 Admin Sign-in 输入服务端 `ADMIN_PASSWORD`。登录成功由服务端设置 12 小时会话（httpOnly、SameSite=Strict），页面据此解锁；再次点击可退出登录。会话以服务端为准，刷新页面后仍然有效，服务器重启后失效。会话 cookie 仅在请求为 HTTPS 时附加 Secure：直连 HTTPS，或经反向代理且 `X-Forwarded-Proto` 首项为 `https`（不依据 `NODE_ENV` 判断）。
 
 | 操作 | 审图人员 | 管理员 |
@@ -36,6 +36,22 @@
 | Settings、/api/admin 与管理控制台 | 禁止 | 允许 |
 
 未登录时上述管理员按钮置灰并提示“需要管理员权限”。服务端同样强制：需要管理员的写接口在未授权时返回 403，不能靠前端绕过。未设置 `ADMIN_PASSWORD` 时所有人都是管理员（本地开发便利），启动日志会打印警告；对外部署务必设置。`API_TOKEN` 仍用于机器调用，视为管理员；`PAHUB_BASIC_AUTH` 行为不变（管的是能否进站）。
+
+## 项目密码与大厅解锁
+
+项目密码是项目访问权限，不等于管理员登录。管理员在 **Config → Project Password** 为当前项目设置、修改或清除密码；输入框为 password 类型，保存后只显示“已设置”，不回显原文，未修改输入时保持原密码。密码和哈希均不出现在 API 返回、项目 JSON 或后台导出中。
+
+大厅中受保护项目可见小锁。点卡片后照常展开为全屏加载页（PG 标志、项目名），密码输入框直接出现在这张加载页上并自动聚焦，不再使用浏览器原生 prompt。按回车或“解锁项目”提交；密码错误在原位提示，可重试。同一来源对同一项目在 10 分钟内失败 5 次后临时限速。点“取消”或按 Esc，加载页淡出回大厅，卡片恢复可用；正确后继续加载并淡出进入 Inventory。无密码项目流程不变。
+
+密码正确后服务端签发项目专属的 HMAC 签名 cookie：HttpOnly、SameSite=Strict、有效期 12 小时；Secure 按实际 HTTPS 或 `X-Forwarded-Proto` 首项判断，与管理员会话一致。刷新、自动同步、drawings、PCF 页面/API、SSE、活动、日志、报表和导出都凭 cookie 访问，不再反复发送密码头。无有效 cookie 时项目接口返回 `401 PASSWORD_REQUIRED`，PCF 页面提示返回大厅。管理员会话与 `API_TOKEN` 视为已解锁全部项目；项目解锁不会获得管理员写权限。
+
+修改或清除密码会更新密码版本，旧解锁 cookie 立即失效。刷新到受保护的上次项目或项目 URL 时，若没有有效 cookie，回到大厅并对该项目走同一加载页输入流程。
+
+### 升级与明文密码迁移
+
+部署前停止 Hub 并备份完整数据目录，确认服务端已设置 `ADMIN_PASSWORD`；未设置时沿用本地开发模式，所有人都是管理员，会跳过项目密码。拉代码后执行 `npm run hub:build`，然后重启（推送 main 不会自动部署）。启动时在监听之前用 SQLite `VACUUM INTO` 创建含已提交 WAL 内容的一致全库备份，文件为 `PAHUB_DATA_DIR/backups/before-project-password-<时间戳>-<随机编号>.db`；随后在事务中用 `node:crypto` 的 scrypt 和随机盐将旧明文迁入独立的 `project_passwords` 哈希表，并删除 `project_settings.password`。迁移幂等，无明文时不再备份或转换，无需手工重设原项目密码。数据库与备份目录须可写，备份或迁移失败将拒绝启动，不会继续明文服务。
+
+迁移备份包含旧明文密码，应限制文件权限、离线保管，不要经网页下载或提交仓库；Windows 部署还应核对备份目录的 ACL。回滚时停止 Hub，先另存当前数据库，再将迁移前备份恢复到 `PAPC_DB_PATH`，移走当前库的 `-wal` / `-shm` 文件（并按完整备份恢复相关数据），然后启动匹配的旧版本；不要让旧版本直接读取迁移后的库。重启后需重新建立解锁会话。
 
 ## 编辑锁与保存
 
@@ -77,4 +93,4 @@ PCF 的 Download HTML copy 与 Export JSON 用于自己的完整离线副本：�
 
 ## 从旧 HTML 存储迁移
 
-先停止 Hub，复制整个 data 到新的目录（含 DB/WAL、历史、往来基线和密钥）。先对副本执行 `npm run hub:migrate-pcf-json -- --data-dir <副本目录> --dry-run`，再加 `--hub-stopped` 实跑。查看文档/快照数及字节统计；检查页面、编辑、导出和船厂回复。原 HTML 目录保留为 `pcf-html-backup-*`，整体 data 备份位于数据目录同级。正式切换和回滚步骤见 [迁移说明](docs/PCF_JSON_MIGRATION.md)。认证开关仍默认关闭，不设置 API_TOKEN/Basic Auth 时内网匿名使用不变。
+先停止 Hub，复制整个 data 到新的目录（含 DB/WAL、历史、往来基线和密钥）。先对副本执行 `npm run hub:migrate-pcf-json -- --data-dir <副本目录> --dry-run`，再加 `--hub-stopped` 实跑。查看文档/快照数及字节统计；检查页面、编辑、导出和船厂回复。原 HTML 目录保留为 `pcf-html-backup-*`，整体 data 备份位于数据目录同级。正式切换和回滚步骤见 [迁移说明](docs/PCF_JSON_MIGRATION.md)。站点认证开关仍默认关闭；不设置 API_TOKEN/Basic Auth 时无需站点共享凭据，但已设置项目密码的项目仍受项目解锁保护。

@@ -55,6 +55,11 @@ export function createApiClient(config: ApiClientConfig = {}) {
         data = JSON.parse(raw);
         message = typeof data.error === 'string' ? data.error : typeof data.message === 'string' ? data.message : '';
       } catch { /* Legacy APIs return text and reverse proxies may return HTML. */ }
+      if (response.status === 401 && message === 'PASSWORD_REQUIRED' && typeof window !== 'undefined') {
+        const pathname = new URL(url(resource)).pathname;
+        const scope = pathname.match(/\/api\/(?:projects|pcf)\/([^/]+)(?:\/|$)/);
+        if (scope && !pathname.endsWith('/unlock')) window.dispatchEvent(new CustomEvent('pahub:project-locked', { detail: { projectId: decodeURIComponent(scope[1]) } }));
+      }
       throw new ApiError(message || 'API request failed: ' + response.status, response.status, data && typeof data === 'object' ? data : undefined);
     }
     return response;

@@ -9,6 +9,7 @@ import {
 import { format } from 'date-fns';
 import { downloadProjectBackup, parseProjectBackup } from '../services/data/localProjectFile';
 import { calculateDeadline, reviewCycleDays } from '../lib/deadline';
+import { projectsApi } from '../services/api/projectsApi';
 
 export const Settings: React.FC = () => {
   const { data, updateSettings, updateProjectConfig, saveActiveProject, loadProject, fetchProjectList, isLoading, activeProjectId, error, clearError, restoreProject, reviewTracker } = useStore();
@@ -24,6 +25,40 @@ export const Settings: React.FC = () => {
   // Local UI inputs
   const [newReviewer, setNewReviewer] = useState('');
   const [newHoliday, setNewHoliday] = useState('');
+  const [passwordDraft, setPasswordDraft] = useState('');
+  const [passwordBusy, setPasswordBusy] = useState(false);
+  const [passwordNotice, setPasswordNotice] = useState('');
+  const isAdmin = useStore(state => state.isEditMode);
+  const passwordRequest = useRef<AbortController | null>(null);
+  useEffect(() => {
+    setPasswordDraft(''); setPasswordNotice(''); setPasswordBusy(false);
+    return () => passwordRequest.current?.abort();
+  }, [activeProjectId, isAdmin]);
+
+  const savePassword = async (clear = false) => {
+    if (!project || !isAdmin || passwordBusy || (!clear && !passwordDraft.trim())) return;
+    const projectId = project.id;
+    const controller = new AbortController(); passwordRequest.current = controller;
+    setPasswordBusy(true); setPasswordNotice('');
+    try {
+      const saved = await projectsApi.saveDelta(projectId, {
+        conf: { password: clear ? '' : passwordDraft },
+        confBase: { passwordVersion: project.conf.passwordVersion },
+      }, controller.signal);
+      controller.signal.throwIfAborted();
+      if (!saved.conf) throw new Error('服务器未返回密码设置状态');
+      const { passwordSet, passwordVersion } = saved.conf;
+      // Only adopt credential status; other unsaved Config edits remain untouched.
+      useStore.setState(state => ({ data: { ...state.data, projects: state.data.projects.map(p => p.id === projectId
+        ? { ...p, passwordProtected: passwordSet, conf: { ...p.conf, passwordSet, passwordVersion } } : p) } }));
+      setPasswordDraft(''); setPasswordNotice(clear ? '项目密码已清除' : '项目密码已设置');
+    } catch (error) {
+      if (!controller.signal.aborted) setPasswordNotice('保存失败：' + (error instanceof Error ? error.message : String(error)));
+    } finally {
+      if (!controller.signal.aborted) setPasswordBusy(false);
+      if (passwordRequest.current === controller) passwordRequest.current = null;
+    }
+  };
 
   const activeDisciplines = React.useMemo(() => {
     if (!project) return [];
@@ -148,7 +183,7 @@ export const Settings: React.FC = () => {
     const totalReviewers = activeSettings.reviewers.length;
     const assignedDisciplines = activeDisciplines.filter(d => activeSettings.disciplineDefaults[d]);
     const assignmentCoverage = activeDisciplines.length > 0 ? (assignedDisciplines.length / activeDisciplines.length) * 100 : 0;
-    const hasPassword = !!(activeSettings as any).password;
+    const hasPassword = !!project?.conf.passwordSet;
     const hasHolidays = activeSettings.holidays.length > 0;
 
     return {
@@ -191,7 +226,7 @@ export const Settings: React.FC = () => {
                       const confirmed = window.confirm('⚠️ 警告：拉取云端数据会覆盖掉本地未同步的更改。\n\n确定要继续吗？');
                       if (!confirmed) return;
                       try {
-                        await loadProject(activeProjectId, project?.conf?.password);
+                        await loadProject(activeProjectId);
                         alert('✅ 云端拉取成功');
                       } catch (e: any) {
                         alert(`❌ 拉取失败: ${e.message}`);
@@ -472,28 +507,35 @@ export const Settings: React.FC = () => {
                 />
               </div>
 
-              {/* Password */}
+              {/* Password: write-only local draft, never part of persisted project configuration. */}
               <div className="space-y-2">
-                <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider ml-1">Project Password (Optional)</label>
-                <div className="relative group/input">
-                  <input
-                    type="text"
-                    value={(activeSettings as any).password || ''}
-                    onChange={(e) => {
-                      if (project) {
-                        updateProjectConfig(project.id, { password: e.target.value });
-                      }
-                    }}
-                    placeholder="NO PASSWORD SET"
-                    disabled={!project}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500 transition-all placeholder:text-slate-300 group-hover/input:bg-white"
-                  />
-                  <div className="absolute right-3 top-1/2 -translate-y-1/2 opacity-0 group-hover/input:opacity-100 transition-opacity">
-                    {(activeSettings as any).password ? <Lock size={14} className="text-red-400" /> : <CheckCircle size={14} className="text-slate-300" />}
-                  </div>
+                <label htmlFor="config-project-password" className="text-[9px] font-black text-slate-400 uppercase tracking-wider ml-1">Project Password (Optional)</label>
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
+                  {project?.conf.passwordSet ? <Lock size={14} /> : <CheckCircle size={14} />}
+                  <span>{project?.conf.passwordSet ? '已设置' : '未设置'}</span>
                 </div>
-                <p className="text-[9px] font-bold text-slate-300 leading-relaxed pl-1 max-w-md">
-                  Requires password entry when loading from Server.
+                <input
+                  id="config-project-password"
+                  type="password"
+                  autoComplete="new-password"
+                  value={passwordDraft}
+                  onChange={event => setPasswordDraft(event.target.value)}
+                  onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void savePassword(); } }}
+                  placeholder={project?.conf.passwordSet ? '输入新密码以修改' : '输入项目密码'}
+                  disabled={!project || !isAdmin || passwordBusy}
+                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500 transition-all placeholder:text-slate-300"
+                />
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => void savePassword()} disabled={!project || !isAdmin || passwordBusy || !passwordDraft.trim()}
+                    className="rounded-lg bg-teal-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-40">
+                    {passwordBusy ? '保存中…' : project?.conf.passwordSet ? '修改密码' : '设置密码'}
+                  </button>
+                  <button type="button" onClick={() => void savePassword(true)} disabled={!project?.conf.passwordSet || !isAdmin || passwordBusy}
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 disabled:opacity-40">清除密码</button>
+                </div>
+                <p role="status" className="text-xs text-slate-600">{passwordNotice}</p>
+                <p className="text-[9px] font-bold text-slate-400 leading-relaxed pl-1 max-w-md">
+                  仅管理员可设置；立即保存。密码不回显、不进入本地备份。修改或清除后，已有项目解锁会话立即失效。
                 </p>
               </div>
 

@@ -6,6 +6,7 @@ import type { PcfRealtime } from './pcf-realtime.ts';
 import { fail, safeId } from './pcf-model.ts';
 import { mergeConfiguration } from './project-config-merge.ts';
 import { getProjectConfiguration } from './project-read.ts';
+import { setProjectPassword } from './project-password.ts';
 
 export type RecordValue = Record<string, any>;
 export type Verification = { ok: boolean; checked: number; mismatched: { id: string; customId?: string; fields: string[] }[]; error?: string };
@@ -22,8 +23,9 @@ export function transaction<T>(db: DatabaseSync, name: string, work: () => T): T
 export function saveConfiguration(db: DatabaseSync, projectId: string, conf: RecordValue, full: boolean): number {
   return transaction(db, 'project_configuration', () => {
     let statements = 0;
+    if (Object.hasOwn(conf, 'password')) { setProjectPassword(db,projectId,conf.password); statements++; }
     const settings: RecordValue = {
-      displayName: conf.displayName, password: conf.password,
+      displayName: conf.displayName,
       holidays: Array.isArray(conf.holidays) ? JSON.stringify(conf.holidays) : full ? '[]' : undefined,
       roundACycle: conf.roundACycle, otherRoundsCycle: conf.otherRoundsCycle,
       autoSyncInterval: conf.autoSyncInterval,

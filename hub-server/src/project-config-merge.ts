@@ -6,7 +6,7 @@ export type RecordValue = Record<string, any>;
 export type ConfigConflict = { key: string; entry?: string; current: unknown };
 
 // Settings stored as their own row (project_settings); the conflict check covers exactly these.
-const SCALAR_KEYS = ['displayName', 'password', 'holidays', 'roundACycle', 'otherRoundsCycle', 'autoSyncInterval', 'projectSummary'];
+const SCALAR_KEYS = ['displayName', 'holidays', 'roundACycle', 'otherRoundsCycle', 'autoSyncInterval', 'projectSummary'];
 // Maps stored one row per discipline: merged entry by entry, so two people editing different disciplines both keep their change.
 const MAP_KEYS = ['disciplineDefaults', 'defaultAssignees'];
 const NUMBER_DEFAULTS: Record<string, number | null> = { roundACycle: 10, otherRoundsCycle: 5, autoSyncInterval: null };
@@ -44,6 +44,9 @@ export function mergeConfiguration(db: DatabaseSync, projectId: string, conf: Re
   const current = getProjectConfiguration(db, projectId) as RecordValue;
   const conflicts: ConfigConflict[] = [];
   const result: RecordValue = { ...conf };
+  // Never compare or disclose stored password material. Concurrent password edits compare
+  // a public random version instead, and conflicts return only that non-secret version.
+  if ('password' in conf && 'passwordVersion' in base && current.passwordVersion !== base.passwordVersion) conflicts.push({ key: 'password', current: current.passwordVersion });
   for (const key of SCALAR_KEYS) {
     if (!(key in conf) || !(key in base)) continue;
     if (!same(key, current[key], base[key]) && !same(key, current[key], conf[key])) conflicts.push({ key, current: current[key] });

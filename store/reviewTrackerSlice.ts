@@ -99,7 +99,7 @@ export const createReviewTrackerSlice: SliceCreator<ReviewTrackerSlice> = (set, 
     let remoteTracker: ReviewTrackerData;
     try {
       [remoteProject, remoteTracker] = await Promise.all([
-        projectsApi.loadProject(project, project.conf?.password),
+        projectsApi.loadProject(project),
         projectsApi.loadReviewTracker(project.id),
       ]);
     }

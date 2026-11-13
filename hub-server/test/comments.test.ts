@@ -446,6 +446,14 @@ test('phase 9: ETag revalidates cached JSON, remains authenticated and changes a
     const first = await f.get(), etag = first.headers.get('etag'); assert.ok(etag);
     const body = await first.text();
     const same = await f.get(); assert.equal(same.headers.get('etag'), etag); assert.equal(await same.text(), body);
+    // Cached compressed variants must share the JSON/ETag, never bleed across encodings.
+    for (const encoding of ['gzip', 'br', 'identity', 'gzip']) {
+      const variant = await f.get(project, new URLSearchParams(), 'comments', { ...f.auth, 'Accept-Encoding': encoding });
+      assert.equal(variant.headers.get('etag'), etag);
+      assert.match(variant.headers.get('vary') || '', /Accept-Encoding/);
+      assert.equal(variant.headers.get('content-encoding'), encoding === 'identity' ? null : encoding);
+      assert.equal(await variant.text(), body);
+    }
     const notModified = await f.get(project, new URLSearchParams(), 'comments', { ...f.auth, 'If-None-Match': 'W/' + etag });
     assert.equal(notModified.status, 304); assert.equal(await notModified.text(), '');
     assert.equal((await f.get(project, new URLSearchParams(), 'comments', { 'If-None-Match': etag! })).status, 401);

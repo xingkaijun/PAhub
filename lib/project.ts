@@ -11,8 +11,28 @@ export const ensureDrawingHasId = (drawing: Drawing, createId: () => string): Dr
 export const sortHistoryAsc = (history: Remark[] | undefined): Remark[] =>
   [...(history || [])].sort((a, b) => String(a.createdAt).localeCompare(String(b.createdAt)));
 
+// Legacy caches/imports may contain plaintext credentials. Public status/version flags are safe,
+// but password drafts and hash/salt fields must never survive hydration, backup or persistence.
+export function withoutProjectSecrets<T>(value: T): T {
+  if (!value || typeof value !== 'object') return value;
+  if (Array.isArray(value)) {
+    const children = value.map(withoutProjectSecrets);
+    return children.every((child, index) => child === value[index]) ? value : children as T;
+  }
+  let changed = false;
+  const entries = Object.entries(value).flatMap(([key, child]) => {
+    if (/password/i.test(key) && !['passwordSet', 'passwordVersion', 'passwordProtected'].includes(key)) {
+      changed = true; return [];
+    }
+    const safe = withoutProjectSecrets(child);
+    if (safe !== child) changed = true;
+    return [[key, safe]];
+  });
+  return changed ? Object.fromEntries(entries) as T : value;
+}
+
 export const normalizeProjectDrawingIds = (project: Project, createId: () => string): Project => ({
-  ...project,
+  ...withoutProjectSecrets(project),
   drawings: (project.drawings || []).map(d => ({
     ...ensureDrawingHasId(d, createId),
     currentRound: d.currentRound || 'A',
@@ -21,12 +41,9 @@ export const normalizeProjectDrawingIds = (project: Project, createId: () => str
 });
 
 export const stripProjectPayload = (project: Project, keepPayload: boolean): Project => {
-  if (keepPayload) return project;
-  return {
-    ...project,
-    drawings: [],
-
-  };
+  const safe = withoutProjectSecrets(project);
+  if (keepPayload) return safe;
+  return { ...safe, drawings: [] };
 };
 
 export const getReviewStartDate = (drawing: Drawing, at: Date) => {

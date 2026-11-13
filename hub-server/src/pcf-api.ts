@@ -8,12 +8,13 @@ import { updateBuilderReplyPapcStatus } from './pcf-builder-replies.ts';
 import { commentFocusHTML } from './pcf-comment-focus.ts';
 import { bannerToolbarHTML } from './pcf-banner-toolbar.ts';
 import type { AdminSession } from './admin-session.ts';
+import type { ProjectSession } from './project-session.ts';
 
 export class PcfApi {
   readonly realtime = new PcfRealtime();
   private secret: string;
   readonly exchange: PcfExchange;
-  constructor(readonly storage: PcfStorage, private token?: string, private admin?: AdminSession) { this.secret = token || randomBytes(32).toString('hex'); this.exchange = new PcfExchange(storage); }
+  constructor(readonly storage: PcfStorage, private token?: string, private admin?: AdminSession, private projectSession?: ProjectSession) { this.secret = token || randomBytes(32).toString('hex'); this.exchange = new PcfExchange(storage); }
   private requiresAdmin(request: Request) { return Boolean(this.admin && !this.admin.isAdmin(request)); }
   private grant(p: string, d: string) {
     const payload = Buffer.from(JSON.stringify({ p, d, expires: Date.now() + 12 * 3600000 })).toString('base64url');
@@ -46,6 +47,7 @@ export class PcfApi {
     const url = new URL(request.url), parts = url.pathname.split('/').filter(Boolean).map(decodeURIComponent);
     const page = parts[0] === 'pcf';
     const p = safeId(parts[page ? 1 : 2]), d = parts[page ? 2 : 3], tail = parts.slice(page ? 3 : 4).join('/');
+    const challenge = this.projectSession?.challenge(request,p); if (challenge) return challenge;
     const json = (value: unknown, status = 200, headers = {}) => Response.json(value, { status, headers: { 'Cache-Control': 'no-store', ...headers } });
     if (!page && ['index', 'presence'].includes(d) && !tail && request.method === 'GET') {
       if (!this.bearer(request)) return json({ error: 'Unauthorized' }, 401);
@@ -124,7 +126,7 @@ export class PcfApi {
         const actor = this.actor({ clientId: url.searchParams.get('clientId'), clientName: url.searchParams.get('clientName') }, ip);
         const from = Number(request.headers.get('Last-Event-ID') || url.searchParams.get('rev') || 0);
         const expires = eventGrant && this.validScopedCredential(eventGrant, p, d) ? JSON.parse(Buffer.from(eventGrant.split('.')[0], 'base64url').toString()).expires : Infinity;
-        return this.realtime.stream(p + '/' + d, actor, rev, from, request.signal, expires);
+        return this.realtime.stream(p + '/' + d, actor, rev, from, request.signal, expires, () => !this.projectSession || this.projectSession.allowed(request,p));
       });
     }
     let body: any = null;

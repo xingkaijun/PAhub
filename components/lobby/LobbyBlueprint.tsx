@@ -45,6 +45,7 @@ export function LobbyBlueprint(p: LobbyViewProps) {
             type="button"
             className="pl-card"
             data-pl-card
+            data-project-id={c.id}
             data-status={c.status}
             data-selected={p.selectedId === c.id || undefined}
             style={{ '--pl-i': Math.min(i, 12), '--pl-pct': c.completion / 100 } as React.CSSProperties}

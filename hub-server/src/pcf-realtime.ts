@@ -51,12 +51,12 @@ export class PcfRealtime {
     const timer = setTimeout(() => { this.presenceTimers.delete(projectId); this.projectPresence(projectId); }, 200);
     timer.unref(); this.presenceTimers.set(projectId, timer);
   }
-  projectStream(projectId: string, signal: AbortSignal) {
+  projectStream(projectId: string, signal: AbortSignal, authorized = () => true) {
     const encoder = new TextEncoder(); let stop = () => {};
     const stream = new ReadableStream<Uint8Array>({
       start: controller => {
         let closed = false;
-        const send = (event: HubEvent) => { if (!closed) controller.enqueue(encoder.encode('event: ' + event.type + '\ndata: ' + JSON.stringify(event.data) + '\n\n')); };
+        const send = (event: HubEvent) => { if (!authorized()) { stop(); return; } if (!closed) controller.enqueue(encoder.encode('event: ' + event.type + '\ndata: ' + JSON.stringify(event.data) + '\n\n')); };
         const listeners = this.projectListeners.get(projectId) || new Set(); listeners.add(send); this.projectListeners.set(projectId, listeners);
         const stops = this.projectConnections.get(projectId) || new Set<() => void>(); this.projectConnections.set(projectId, stops);
         const ping = setInterval(() => send({ type: 'ping', data: { at: this.now() } }), 25000); ping.unref();
@@ -90,12 +90,12 @@ export class PcfRealtime {
       if (changed) { this.announce(key); this.scheduleProjectPresence(key.slice(0, key.indexOf('/'))); }
     }
   }
-  stream(key: string, actor: Actor, rev: number, fromRev: number, signal: AbortSignal, expires = Infinity) {
+  stream(key: string, actor: Actor, rev: number, fromRev: number, signal: AbortSignal, expires = Infinity, authorized = () => true) {
     const encoder = new TextEncoder(); let stop = () => {};
     const stream = new ReadableStream<Uint8Array>({
       start: controller => {
         let closed = false;
-        const send = (event: HubEvent) => { if (!closed) controller.enqueue(encoder.encode((event.id !== undefined ? 'id: ' + event.id + '\n' : '') + 'event: ' + event.type + '\ndata: ' + JSON.stringify(event.data) + '\n\n')); };
+        const send = (event: HubEvent) => { if (!authorized() || this.now() >= expires) { stop(); return; } if (!closed) controller.enqueue(encoder.encode((event.id !== undefined ? 'id: ' + event.id + '\n' : '') + 'event: ' + event.type + '\ndata: ' + JSON.stringify(event.data) + '\n\n')); };
         const unsubscribe = this.bus.subscribe(key, send);
         const ping = setInterval(() => { if (this.now() >= expires) stop(); else send({ type: 'ping', data: { at: this.now() } }); }, 25000); ping.unref();
         const drawing = this.connections.get(key) || new Map(), sockets = drawing.get(actor.clientId) || new Set<() => void>();

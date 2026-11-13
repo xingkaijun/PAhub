@@ -1,4 +1,4 @@
-import { DatabaseSync, type SQLInputValue } from 'node:sqlite';
+import { DatabaseSync, constants as sqlite, type SQLInputValue } from 'node:sqlite';
 import { readFileSync } from 'node:fs';
 import { ROOT_DIR } from './config.ts';
 import path from 'node:path';
@@ -6,6 +6,19 @@ import { errorResponse } from './router.ts';
 import { getProjectDetail, getProjectList, getReviewTracker } from './project-read.ts';
 import { transaction, type ProjectWriter, type RecordValue } from './project-write.ts';
 import { writeDrawing } from './drawing-write.ts';
+
+const privateKey = (key: string) => /password|secret|hash/i.test(key);
+function redact(value: any): any {
+  if (Array.isArray(value)) return value.map(redact);
+  if (value && typeof value === 'object') {
+    if (privateKey(String(value.setting_key || ''))) return { ...value, setting_value: '[redacted]' };
+    return Object.fromEntries(Object.entries(value).filter(([key]) => !privateKey(key)).map(([key, entry]) => {
+      if (key === 'detail' && typeof entry === 'string') { try { return [key, JSON.stringify(redact(JSON.parse(entry)))]; } catch { return [key, entry]; } }
+      return [key, redact(entry)];
+    }));
+  }
+  return value;
+}
 
 const allowedTables = ['projects','reviewers','drawings','drawing_assignees','drawing_status_history','review_tracker','discipline_defaults','discipline_default_assignees','project_settings','audit_log'];
 const identifier = (name: string) => '"' + name.replaceAll('"','""') + '"';
@@ -15,7 +28,7 @@ export class AdminApi {
   private password: string;
   constructor(readonly db: DatabaseSync, readonly dbPath: string, password: string | undefined, readonly writer: ProjectWriter) {this.password=password?.trim() || '';}
   private audit(table: string, action: string, detail?: unknown, id?: string) {
-    this.db.prepare('INSERT INTO audit_log(table_name,row_id,action,detail) VALUES(?,?,?,?)').run(table,id || null,action,detail === undefined ? null : JSON.stringify(detail));
+    this.db.prepare('INSERT INTO audit_log(table_name,row_id,action,detail) VALUES(?,?,?,?)').run(table,id || null,action,detail === undefined ? null : JSON.stringify(redact(detail)));
   }
   private notify(table: string, rows: RecordValue[]) {
     for (const row of rows) {
@@ -26,9 +39,43 @@ export class AdminApi {
     }
   }
   private readOnlyQuery(sql: string) {
-    const reader=new DatabaseSync(this.dbPath,{readOnly:true});
-    try {reader.exec('PRAGMA query_only=ON');return reader.prepare(sql).all().map(row => Object.fromEntries(Object.entries(row).map(([key,value]) => [key,value instanceof Uint8Array ? Array.from(value) : value])));}
-    finally {reader.close();}
+    // Never execute arbitrary SQL against credentials: aliases/hex()/json_group_array()
+    // defeat output-key filtering. Query a private, sanitized in-memory snapshot instead.
+    const reader=new DatabaseSync(':memory:');
+    try {
+      const tables=this.db.prepare("SELECT name,sql FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' AND name != 'project_passwords'").all();
+      for (const {name,sql:schema} of tables) {
+        const table=String(name);
+        if (!schema) continue;
+        reader.exec(String(schema));
+        const columns=this.db.prepare('PRAGMA table_info(' + identifier(table) + ')').all().map(row=>String(row.name));
+        const insert=reader.prepare('INSERT INTO '+identifier(table)+' ('+columns.map(identifier).join(',')+') VALUES ('+columns.map(()=>'?').join(',')+')');
+        for (const row of this.db.prepare('SELECT * FROM '+identifier(table)).all()) {
+          if (table==='project_settings' && privateKey(String(row.setting_key))) continue;
+          const sanitized=redact(row);
+          insert.run(...columns.map(column=>(sanitized[column] ?? null) as SQLInputValue));
+        }
+      }
+      reader.exec('PRAGMA query_only=ON');
+      // query_only does not prohibit ATTACH (and a writable in-memory connection could
+      // otherwise attach the real DB, undoing sanitization). SQLite's parser-level
+      // authorizer prevents file attachment even with comments, aliases or PRAGMA tricks.
+      // Keep the harmless historical :memory: attachment contract; all its writes still
+      // fail query_only. No file-backed database can enter this connection.
+      let denied = false;
+      reader.setAuthorizer((action, first) => {
+        if (action === sqlite.SQLITE_ATTACH && first !== ':memory:' || action === sqlite.SQLITE_PRAGMA) {
+          denied = true; return sqlite.SQLITE_DENY;
+        }
+        return sqlite.SQLITE_OK;
+      });
+      try {
+        return reader.prepare(sql).all().map(row => Object.fromEntries(Object.entries(row).map(([key,value]) => [key,value instanceof Uint8Array ? Array.from(value) : value])));
+      } catch (error) {
+        if (denied) throw new Error('Read-only SQL console: database attachments and PRAGMA statements are disabled');
+        throw error;
+      }
+    } finally {reader.close();}
   }
   async handle(request: Request): Promise<Response> {
     const url=new URL(request.url),pathname=url.pathname.replace(/^\/api/,'');
@@ -45,7 +92,7 @@ export class AdminApi {
     const segments=pathname.split('/').filter(Boolean);
     if (segments[1]==='api' && segments[2]==='tables') {
       if (segments.length===3 && request.method==='GET') {
-        const tables=this.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().filter(row => !String(row.name).startsWith('sqlite_') && !String(row.name).startsWith('d1_') && !String(row.name).startsWith('_cf_')).map(row => ({name:row.name,count:this.db.prepare('SELECT COUNT(*) AS c FROM ' + identifier(String(row.name))).get()!.c}));
+        const tables=this.db.prepare("SELECT name FROM sqlite_master WHERE type='table'").all().filter(row => !String(row.name).startsWith('sqlite_') && !String(row.name).startsWith('d1_') && !String(row.name).startsWith('_cf_') && row.name !== 'project_passwords').map(row => ({name:row.name,count:this.db.prepare('SELECT COUNT(*) AS c FROM ' + identifier(String(row.name))).get()!.c}));
         return Response.json({tables});
       }
       const table=segments[3];if (!table) return errorResponse('Table required',400);
@@ -56,6 +103,7 @@ export class AdminApi {
       if (segments.length===4 && request.method==='GET') {
         const page=Math.max(1,Number(url.searchParams.get('page')) || 1),search=url.searchParams.get('search') || '',projectId=url.searchParams.get('projectId');
         const predicates: string[]=[],params:SQLInputValue[]=[];
+        if (table==='project_settings') predicates.push("lower(setting_key) NOT LIKE '%password%' AND lower(setting_key) NOT LIKE '%hash%' AND lower(setting_key) NOT LIKE '%secret%'");
         if (search) {
           const idMatch=search.match(/^(?:id|customid):(.*)$/i),idValue=idMatch?.[1].trim();
           if (idValue && columns.includes('custom_id')) {predicates.push('custom_id LIKE ?');params.push('%'+idValue+'%');}
@@ -72,11 +120,11 @@ export class AdminApi {
         let select='*';
         if (columns.includes('drawing_id')) select += ', (SELECT custom_id FROM drawings d WHERE d.id=' + (columns.includes('raw_drawing_ref')?'COALESCE('+table+'.drawing_id,'+table+'.raw_drawing_ref)':table+'.drawing_id') + ') AS _custom_id';
         const total=Number(this.db.prepare('SELECT COUNT(*) AS c FROM '+table+' '+where).get(...params)!.c);
-        return Response.json({rows:this.db.prepare('SELECT '+select+' FROM '+table+' '+where+' LIMIT ? OFFSET ?').all(...params,50,(page-1)*50),total,page,pageSize:50});
+        return Response.json({rows:redact(this.db.prepare('SELECT '+select+' FROM '+table+' '+where+' LIMIT ? OFFSET ?').all(...params,50,(page-1)*50)),total,page,pageSize:50});
       }
       const pk=columns.includes('id')?'id':columns.includes('project_id')?'project_id':'id';
       const id=segments[4]===undefined?undefined:decodeURIComponent(segments[4]);
-      const validateColumns=(data:RecordValue) => { if (!Object.keys(data).length || Object.keys(data).some(c=>!columns.includes(c))) throw Object.assign(new Error('Invalid table columns'),{status:400}); };
+      const validateColumns=(data:RecordValue) => { if (table==='project_settings' && privateKey(String(data.setting_key || ''))) throw Object.assign(new Error('Use project Config to change project passwords'),{status:400}); if (!Object.keys(data).length || Object.keys(data).some(c=>!columns.includes(c))) throw Object.assign(new Error('Invalid table columns'),{status:400}); };
       if (segments.length===4 && request.method==='POST') {
         const data=await body();validateColumns(data);
         if (table==='drawings') {

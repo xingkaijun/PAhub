@@ -34,7 +34,7 @@ export interface ProjectSlice {
   saveProject: (projectId: string) => Promise<boolean>;
   fetchGlobalSettings: () => Promise<void>;
   fetchProjectList: () => Promise<void>;
-  loadProject: (projectId: string, passwordInput?: string) => Promise<void>;
+  loadProject: (projectId: string, _legacyPassword?: string, signal?: AbortSignal) => Promise<void>;
   refreshProjectPreservingDirty: (projectId: string) => Promise<number>;
   /** Refetch only these drawings (drawing-changed) and merge them like a full refresh would, keeping unsaved edits. */
   refreshDrawingsPreservingDirty: (projectId: string, drawingIds: string[]) => Promise<number>;

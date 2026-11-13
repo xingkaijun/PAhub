@@ -14,11 +14,14 @@ test('native normalized reads preserve the legacy view contract', async () => {
   const db = new DatabaseSync(':memory:');
   try {
     initializeSchema(db); db.exec(await readFile(path.join(ROOT_DIR,"hub-server/test/fixtures/legacy-views.sql"),"utf8")); db.exec(await readFile(path.join(ROOT_DIR,'hub-server/test/fixtures/seed-test-data.sql'),'utf8'));
-    assert.deepEqual(JSON.parse(JSON.stringify(getProjectList(db))),JSON.parse(JSON.stringify(db.prepare('SELECT * FROM api_projects ORDER BY name COLLATE NOCASE ASC').all().map(row => ({id:row.id,name:row.name,storagePath:row.storage_path || undefined,lastUpdated:row.last_updated || undefined})))));
+    assert.deepEqual(JSON.parse(JSON.stringify(getProjectList(db))),JSON.parse(JSON.stringify(db.prepare('SELECT * FROM api_projects ORDER BY name COLLATE NOCASE ASC').all().map(row => ({id:row.id,name:row.name,storagePath:row.storage_path || undefined,lastUpdated:row.last_updated || undefined,passwordProtected:false})))));
     const row = db.prepare('SELECT * FROM api_project_details').get()!;
     const expected = {...JSON.parse(String(row.project_json)),...(row.storage_path ? {storagePath:row.storage_path} : {}),conf:JSON.parse(String(row.conf_json)),lastUpdated:row.last_updated};
+    delete expected.conf.password;
+    expected.conf.passwordSet=false;
+    expected.conf.passwordVersion='';
     expected.drawings.forEach((d:any) => d.hasPcf=false);
-    // rev is additive (optimistic-concurrency token for app saves); the legacy view contract is otherwise unchanged.
+    // Password material was intentionally removed; rev and password metadata are additive.
     const actual = JSON.parse(JSON.stringify(getProjectDetail(db,'proj-test-001')));
     for (const d of actual.drawings) { assert.match(d.rev,/^[0-9a-f]{16}$/); delete d.rev; }
     assert.deepEqual(actual,expected);
