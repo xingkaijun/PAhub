@@ -5,7 +5,7 @@ import { useStore } from '../store';
 import { DrawingStatus } from '../types';
 
 export type ManualOwnershipField = 'comments' | 'version' | 'round';
-const ADMIN_REQUIRED = '需要管理员权限 (Administrator permission required)';
+const ADMIN_REQUIRED = 'Administrator permission required';
 
 // UI ownership guard: PCF owns its summary fields, and the server owns round transitions.
 // Returning a message means the whole command must be blocked (including mixed batches).
@@ -16,13 +16,13 @@ export function manualFieldBlockMessage(
   const hasPcf = drawings.some(d => d.hasPcf === true);
   if (field === 'round') {
     return hasPcf
-      ? '当前轮次由 PCF 管理，不能手工修改。'
-      : '当前轮次由服务端状态流转管理，不能手工修改。';
+      ? 'The current round is managed by the PCF and cannot be edited manually.'
+      : 'The current round is managed by server status changes and cannot be edited manually.';
   }
   if (!hasPcf) return null;
   return field === 'comments'
-    ? '意见数由 PCF 管理，不能手工修改。'
-    : '版本由 PCF 管理，不能手工修改。';
+    ? 'The comment count is managed by the PCF and cannot be edited manually.'
+    : 'The version is managed by the PCF and cannot be edited manually.';
 }
 
 export const CommandBar: React.FC = () => {

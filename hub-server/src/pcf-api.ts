@@ -108,14 +108,10 @@ export class PcfApi {
     }
     const eventGrant = tail === 'events' ? url.searchParams.get('credential') : null;
     if (!this.bearer(request) && !this.validScopedCredential(request.headers.get('X-PCF-Token'), p, d) && !this.validScopedCredential(eventGrant, p, d)) return json({ error: 'Unauthorized' }, 401);
-    // Reviewers may edit the PCF document itself. Replacing it wholesale with imported JSON and
-    // applying shipyard replies are project-level writes reserved for administrators.
-    if (request.method === 'PUT' && tail === 'document' && this.requiresAdmin(request)) {
-      const text = await request.clone().text();
-      let replacing = false;
-      try { replacing = text ? JSON.parse(text)?.importJSON === true : false; } catch { /* invalid JSON fails later with 400 */ }
-      if (replacing) return json({ error: 'Administrator permission required' }, 403);
-    }
+    // Reviewers edit the PCF through POST ops. PUT document replaces the whole document (the PCF page uses it
+    // only for Import JSON), so it is a project-level write reserved for administrators whatever the body says:
+    // otherwise a plain PUT could bypass admin-only actions such as voiding an export or restoring history.
+    if (request.method === 'PUT' && tail === 'document' && this.requiresAdmin(request)) return json({ error: 'Administrator permission required' }, 403);
     if (request.method === 'POST' && tail === 'imports' && this.requiresAdmin(request)) return json({ error: 'Administrator permission required' }, 403);
     // Voiding a shipyard export and restoring a history snapshot change the project's correspondence record
     // or replace the whole document: administrator-only, like the other project-level writes.

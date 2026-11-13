@@ -132,7 +132,7 @@ test('API_TOKEN still reaches the APIs and counts as administrator for the new c
   } finally { await f.cleanup(); }
 });
 
-test('PCF document edits are open to reviewers; JSON replacement and reply/import apply need an administrator', async () => {
+test('PCF ops edits are open to reviewers; document replacement and reply/import apply need an administrator', async () => {
   const f = await fixture({ password: PASSWORD });
   try {
     const base = '/api/pcf/proj-test-001/dwg-005';
@@ -144,7 +144,7 @@ test('PCF document edits are open to reviewers; JSON replacement and reply/impor
     const session = await (await f.request('/api/session')).json() as any;
     assert.equal(session.admin, false);
 
-    // Plain document saves (no importJSON) stay open; replacement imports do not.
+    // Reviewers save through ops; replacing the whole document (import or plain PUT) is administrator-only.
     const imported = await f.request(base + '/document', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ clientId: 'reviewer', baseRev: live.rev, data: live.data, importJSON: true }) });
     assert.equal(imported.status, 403);
     assert.equal((await f.request(base + '/imports', jsonPost({ step: 'preview', html: '' }))).status, 403);
@@ -197,6 +197,53 @@ test('voiding a shipyard export and restoring a history snapshot need an adminis
     const restored = await f.request(base + '/history/' + snapshot + '/restore', admin({ clientId: 'admin', baseRev: live.rev }));
     assert.equal(restored.status, 200);
     assert.ok(((await restored.json()) as any).rev > live.rev);
+  } finally { await f.cleanup(); }
+});
+
+test('a reviewer cannot replace the PCF document with a plain PUT; an administrator can; reviewer ops keep working', async () => {
+  const f = await fixture({ password: PASSWORD });
+  try {
+    const base = '/api/pcf/proj-test-001/dwg-005';
+    const put = (value: unknown, cookie?: string): RequestInit => ({ ...jsonPost(value, cookie), method: 'PUT' });
+    assert.equal((await f.request(base + '/create', jsonPost({}))).status, 200);
+    let live = await (await f.request(base + '/data')).json() as any;
+    const original = live.data;
+    // Normal reviewer workflow: edits go through ops and create history.
+    const first = await f.request(base + '/ops', jsonPost({ clientId: 'reviewer', baseRev: live.rev, batchId: '66666666-6666-4666-8666-666666666666', ops: [{ type: 'project.set', field: 'approval', baseRev: 0, value: 'Under review' }] }));
+    assert.equal(first.status, 200, 'reviewers keep editing through ops');
+    live = await (await f.request(base + '/data')).json() as any;
+    assert.equal(live.data.project.approval, 'Under review');
+
+    // Bypass attempts: putting back an older document (an unauthorised "history restore") or arbitrary data,
+    // with importJSON omitted or false, and via the html field, are all refused and change nothing.
+    for (const body of [
+      { clientId: 'reviewer', baseRev: live.rev, data: original },
+      { clientId: 'reviewer', baseRev: live.rev, data: original, importJSON: false },
+      { clientId: 'reviewer', baseRev: live.rev, data: { ...live.data, comments: [] } },
+      { clientId: 'reviewer', baseRev: live.rev, html: '<html></html>' },
+    ]) {
+      const denied = await f.request(base + '/document', put(body));
+      assert.equal(denied.status, 403);
+      assert.match(((await denied.json()) as any).error, /^Administrator permission required$/);
+    }
+    const unchanged = await (await f.request(base + '/data')).json() as any;
+    assert.equal(unchanged.rev, live.rev, 'a denied replacement changes nothing');
+    assert.equal(unchanged.data.project.approval, 'Under review');
+
+    // Reviewer ops still work after the denials.
+    const second = await f.request(base + '/ops', jsonPost({ clientId: 'reviewer', baseRev: unchanged.rev, batchId: '77777777-7777-4777-8777-777777777777', ops: [{ type: 'project.set', field: 'approval', baseRev: unchanged.rev, value: 'Approved' }] }));
+    assert.equal(second.status, 200);
+    live = await (await f.request(base + '/data')).json() as any;
+    assert.equal(live.data.project.approval, 'Approved');
+
+    // Administrators may replace the document with or without importJSON.
+    const { header } = await f.login();
+    const plain = await f.request(base + '/document', put({ clientId: 'admin', baseRev: live.rev, data: original }, header));
+    assert.equal(plain.status, 200);
+    live = await (await f.request(base + '/data')).json() as any;
+    assert.notEqual(live.data.project.approval, 'Approved', 'admin replacement applied');
+    const imported = await f.request(base + '/document', put({ clientId: 'admin', baseRev: live.rev, data: live.data, importJSON: true }, header));
+    assert.equal(imported.status, 200);
   } finally { await f.cleanup(); }
 });
 

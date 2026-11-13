@@ -55,7 +55,7 @@ test('409 conflict: conflicting field takes the server value, other edits stay d
     assert.ok(state._dirtyDrawingIds.has('d'));
     assert.deepEqual(state._dirtyDrawingBase.d.values, { discipline: 'Hull' });
     assert.ok(state.saveConflict);
-    assert.match(state.saveConflict!.message, /保存冲突：001（标题）/);
+    assert.match(state.saveConflict!.message, /Save conflict: 001 \(Title\)/);
     assert.deepEqual(state.saveConflict!.drawingIds, ['d']);
     assert.equal(state.isLoading, false);
     assert.equal(refreshed, 1, 'latest data reloaded after the conflict');

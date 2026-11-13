@@ -1,10 +1,10 @@
 <!DOCTYPE html>
-<html lang="zh-CN">
+<html lang="en">
 
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>PAPC D1 后台管理</title>
+  <title>PAPC D1 Admin Console</title>
   <style>
     :root {
       --bg: #1e1e2d;
@@ -266,9 +266,9 @@
 
   <div id="login-overlay">
     <div class="login-box">
-      <h2>D1 控制台</h2>
-      <input type="password" id="login-pwd" placeholder="输入 ADMIN_PASSWORD" onkeydown="if(event.key==='Enter') login()">
-      <button onclick="login()">登录</button>
+      <h2>D1 Console</h2>
+      <input type="password" id="login-pwd" placeholder="Enter ADMIN_PASSWORD" onkeydown="if(event.key==='Enter') login()">
+      <button onclick="login()">Sign In</button>
     </div>
   </div>
 
@@ -277,16 +277,16 @@
       <div style="margin-bottom:8px;">PAPC D1 DB</div>
       <select id="projectFilter" onchange="if(currentTable) { currentPage=1; renderTableData(); }"
         style="width:100%; font-size:0.8em; padding:4px; background:var(--bg); border:1px solid var(--border); color:var(--text);">
-        <option value="">-- 全平台 (不筛选) --</option>
+        <option value="">-- All projects (no filter) --</option>
       </select>
     </div>
     <ul id="table-list"></ul>
     <div style="padding: 20px; border-top: 1px solid var(--border);">
-      <button onclick="exportFullDb()" style="width:100%; margin-bottom:10px; background:#10b981; font-weight:bold;">📦 导出整库</button>
-      <button onclick="importFullDb()" style="width:100%; margin-bottom:10px; background:#3b82f6; font-weight:bold;">📥 导入整库</button>
+      <button onclick="exportFullDb()" style="width:100%; margin-bottom:10px; background:#10b981; font-weight:bold;">📦 Export Database</button>
+      <button onclick="importFullDb()" style="width:100%; margin-bottom:10px; background:#3b82f6; font-weight:bold;">📥 Import Database</button>
       <button onclick="showSqlConsole()" style="width:100%; margin-bottom:10px; background:var(--border)">SQL
-        控制台</button>
-      <button onclick="logout()" style="width:100%; background:var(--border)">退出</button>
+        Console</button>
+      <button onclick="logout()" style="width:100%; background:var(--border)">Sign Out</button>
     </div>
     <input type="file" id="importFileInput" accept=".json" style="display:none" onchange="handleImportFile(event)">
   </div>
@@ -302,11 +302,11 @@
   <!-- Edit Modal -->
   <div id="edit-modal" class="modal">
     <div class="modal-content">
-      <div class="modal-header" id="modal-title">编辑行</div>
+      <div class="modal-header" id="modal-title">Edit Row</div>
       <div id="modal-form"></div>
       <div class="modal-footer">
-        <button style="background:var(--border)" onclick="closeModal()">取消</button>
-        <button onclick="saveRow()">保存</button>
+        <button style="background:var(--border)" onclick="closeModal()">Cancel</button>
+        <button onclick="saveRow()">Save</button>
       </div>
     </div>
   </div>
@@ -350,10 +350,10 @@
           document.getElementById('login-overlay').style.display = 'none';
           init();
         } else {
-          alert('密码错误');
+          alert('Incorrect password');
         }
       } catch (e) {
-        alert('登录失败: ' + e.message);
+        alert('Sign-in failed: ' + e.message);
       }
     }
 
@@ -372,7 +372,7 @@
         try {
           const projData = await apiCall('/tables/projects?page=1');
           const select = document.getElementById('projectFilter');
-          select.innerHTML = '<option value="">-- 全平台 (不筛选) --</option>';
+          select.innerHTML = '<option value="">-- All projects (no filter) --</option>';
           if (projData && projData.rows) {
             projData.rows.forEach(p => {
               select.innerHTML += `<option value="${p.id}">${p.name}</option>`;
@@ -381,7 +381,7 @@
         } catch (err) { console.warn('Failed to load projects filter', err); }
 
         // Custom views
-        ul.innerHTML += `<li onclick="showAuditLog()" id="nav-audit_log">审核日志 (audit_log)<span class="badge">👀</span></li>`;
+        ul.innerHTML += `<li onclick="showAuditLog()" id="nav-audit_log">Audit Log (audit_log)<span class="badge">👀</span></li>`;
 
         data.tables.forEach(t => {
           if (t.name === 'audit_log') return; // Handled specially
@@ -426,14 +426,14 @@
       currentTable = name;
       currentPage = 1;
       setActiveNav(name);
-      document.getElementById('view-title').innerText = `表: ${name}`;
-      document.getElementById('content').innerHTML = '加载中...';
+      document.getElementById('view-title').innerText = `Table: ${name}`;
+      document.getElementById('content').innerHTML = 'Loading...';
 
       // Toolbar
       document.getElementById('toolbar').innerHTML = `
-    <input type="text" id="searchInput" placeholder="搜索... (如 id:C101)" onkeydown="if(event.key==='Enter') renderTableData()" style="width:200px">
-    <button onclick="renderTableData()">刷新</button>
-    <button onclick="openAddModal()">添加行</button>
+    <input type="text" id="searchInput" placeholder="Search... (e.g. id:C101)" onkeydown="if(event.key==='Enter') renderTableData()" style="width:200px">
+    <button onclick="renderTableData()">Refresh</button>
+    <button onclick="openAddModal()">Add Row</button>
   `;
 
       try {
@@ -441,7 +441,7 @@
         currentSchema = schemaData.schema;
         await renderTableData();
       } catch (e) {
-        document.getElementById('content').innerText = '加载失败: ' + e.message;
+        document.getElementById('content').innerText = 'Failed to load: ' + e.message;
       }
     }
 
@@ -454,7 +454,7 @@
       const data = await apiCall(url);
 
       if (data.rows.length === 0) {
-        document.getElementById('content').innerHTML = '<p>暂无数据</p>';
+        document.getElementById('content').innerHTML = '<p>No data</p>';
         return;
       }
 
@@ -472,7 +472,7 @@
       });
 
       cols.forEach(c => html += `<th>${escapeHtml(c)}</th>`);
-      html += `<th>操作</th></tr></thead><tbody>`;
+      html += `<th>Actions</th></tr></thead><tbody>`;
 
       data.rows.forEach(row => {
         html += `<tr>`;
@@ -485,31 +485,31 @@
         const escapedId = escapeHtml(idVal ?? '');
         html += `<td>
       <div class="actions">
-        <button class="btn-sm" onclick='openEditModal(${JSON.stringify(row).replace(/'/g, "&#39;")})'>编辑</button>
-        <button class="btn-sm danger" onclick="deleteRow('${escapedId}')">删(软)</button>
+        <button class="btn-sm" onclick='openEditModal(${JSON.stringify(row).replace(/'/g, "&#39;")})'>Edit</button>
+        <button class="btn-sm danger" onclick="deleteRow('${escapedId}')">Delete (soft)</button>
       </div>
     </td></tr>`;
       });
       html += `</tbody></table>`;
 
       html += `<div style="margin-top:16px; display:flex; gap:8px;">
-    <button onclick="currentPage--; renderTableData()" ${currentPage <= 1 ? 'disabled' : ''}>上一页</button>
-    <span style="align-self:center">第 ${currentPage} 页 (共 ${Math.ceil(data.total / 50)} 页)</span>
-    <button onclick="currentPage++; renderTableData()" ${currentPage * 50 >= data.total ? 'disabled' : ''}>下一页</button>
+    <button onclick="currentPage--; renderTableData()" ${currentPage <= 1 ? 'disabled' : ''}>Previous</button>
+    <span style="align-self:center">Page ${currentPage} of ${Math.ceil(data.total / 50)}</span>
+    <button onclick="currentPage++; renderTableData()" ${currentPage * 50 >= data.total ? 'disabled' : ''}>Next</button>
   </div>`;
 
       document.getElementById('content').innerHTML = html;
     }
 
     function openAddModal() {
-      document.getElementById('modal-title').innerText = `添加至 ${currentTable}`;
+      document.getElementById('modal-title').innerText = `Add to ${currentTable}`;
       renderForm({});
       document.getElementById('edit-modal').dataset.mode = 'add';
       document.getElementById('edit-modal').classList.add('show');
     }
 
     function openEditModal(row) {
-      document.getElementById('modal-title').innerText = `编辑行 (ID: ${row.id ?? row.project_id ?? 'N/A'})`;
+      document.getElementById('modal-title').innerText = `Edit Row (ID: ${row.id ?? row.project_id ?? 'N/A'})`;
       renderForm(row);
       document.getElementById('edit-modal').dataset.mode = 'edit';
       document.getElementById('edit-modal').dataset.id = row.id ?? row.project_id;
@@ -524,7 +524,7 @@
         const rawVal = hasValue ? row[col.name] : '';
         const inputVal = rawVal == null ? '' : String(rawVal);
         const wasNull = rawVal === null ? 'data-was-null="1"' : '';
-        const nullHint = rawVal === null ? '<div style="font-size:11px;color:#dc2626;margin-top:4px">当前数据库值为 NULL；留空保存将变为空字符串。</div>' : '';
+        const nullHint = rawVal === null ? '<div style="font-size:11px;color:#dc2626;margin-top:4px">The current database value is NULL; saving it empty stores an empty string.</div>' : '';
         const readOnly = (col.name === 'id' && col.type === 'INTEGER') ? 'readonly' : '';
         html += `
       <div class="form-group">
@@ -565,8 +565,8 @@
     }
 
     async function deleteRow(id) {
-      if (!id) return alert('缺少主键不支持直接删除，请使用 SQL');
-      if (!confirm(`确定要删除记录(标记 _deleted=1) ID: ${id} 吗？`)) return;
+      if (!id) return alert('Rows without a primary key cannot be deleted here. Use SQL instead.');
+      if (!confirm(`Delete record ID ${id}? (marks _deleted=1)`)) return;
       try {
         await apiCall(`/tables/${currentTable}/${id}`, { method: 'DELETE' });
         renderTableData();
@@ -577,13 +577,13 @@
 
     function showSqlConsole() {
       setActiveNav('sql');
-      document.getElementById('view-title').innerText = `SQL 控制台`;
+      document.getElementById('view-title').innerText = `SQL Console`;
       document.getElementById('toolbar').innerHTML = '';
 
       document.getElementById('content').innerHTML = `
     <div class="sql-box">
       <textarea id="sql-query" placeholder="SELECT * FROM projects LIMIT 10;"></textarea>
-      <button onclick="runSql()" style="margin-top:12px;">执行 SQL (禁 DDL)</button>
+      <button onclick="runSql()" style="margin-top:12px;">Run SQL (no DDL)</button>
     </div>
     <div id="sql-result" style="margin-top:24px;"></div>
   `;
@@ -593,7 +593,7 @@
       const query = document.getElementById('sql-query').value;
       if (!query) return;
       try {
-        document.getElementById('sql-result').innerHTML = '执行中...';
+        document.getElementById('sql-result').innerHTML = 'Running...';
         const data = await apiCall('/sql', { method: 'POST', body: JSON.stringify({ query }) });
 
         if (data.results && data.results.length > 0) {
@@ -609,10 +609,10 @@
           html += `</tbody></table>`;
           document.getElementById('sql-result').innerHTML = html;
         } else {
-          document.getElementById('sql-result').innerHTML = `<p>执行成功，影响/返回 0 行或无数据返回</p>`;
+          document.getElementById('sql-result').innerHTML = `<p>Done. 0 rows affected or returned.</p>`;
         }
       } catch (e) {
-        document.getElementById('sql-result').innerHTML = `<p style="color:var(--danger)">错误: ${e.message}</p>`;
+        document.getElementById('sql-result').innerHTML = `<p style="color:var(--danger)">Error: ${e.message}</p>`;
       }
     }
 
@@ -620,23 +620,23 @@
       currentTable = 'audit_log';
       currentPage = 1;
       setActiveNav('audit_log');
-      document.getElementById('view-title').innerText = `审核日志`;
+      document.getElementById('view-title').innerText = `Audit Log`;
 
       document.getElementById('toolbar').innerHTML = `
-    <button onclick="renderTableData()">刷新</button>
+    <button onclick="renderTableData()">Refresh</button>
   `;
       try {
         const schemaData = await apiCall(`/tables/audit_log/schema`);
         currentSchema = schemaData.schema;
         await renderTableData();
       } catch (e) {
-        document.getElementById('content').innerText = '加载失败: ' + e.message;
+        document.getElementById('content').innerText = 'Failed to load: ' + e.message;
       }
     }
 
     async function exportFullDb() {
       try {
-        document.getElementById('content').innerHTML = '<p>正在导出整库，请稍候...</p>';
+        document.getElementById('content').innerHTML = '<p>Exporting the database, please wait...</p>';
         const data = await apiCall('/export');
         const jsonStr = JSON.stringify(data, null, 2);
         const blob = new Blob([jsonStr], { type: 'application/json' });
@@ -647,14 +647,14 @@
         link.download = `papc_db_export_${date}.json`;
         link.click();
         URL.revokeObjectURL(url);
-        document.getElementById('content').innerHTML = `<p>✅ 导出成功！共 ${data.projectCount || 0} 个项目</p>`;
+        document.getElementById('content').innerHTML = `<p>✅ Export complete: ${data.projectCount || 0} project(s)</p>`;
       } catch (e) {
-        alert('导出失败: ' + e.message);
+        alert('Export failed: ' + e.message);
       }
     }
 
     function importFullDb() {
-      if (!confirm('导入将覆盖数据库中同 ID 的项目数据。是否继续？')) return;
+      if (!confirm('Importing overwrites projects with the same ID in the database. Continue?')) return;
       document.getElementById('importFileInput').click();
     }
 
@@ -662,7 +662,7 @@
       const file = event.target.files[0];
       if (!file) return;
       try {
-        document.getElementById('content').innerHTML = '<p>正在导入，请稍候...</p>';
+        document.getElementById('content').innerHTML = '<p>Importing, please wait...</p>';
         const text = await file.text();
         const payload = JSON.parse(text);
         const result = await apiCall('/import', {
@@ -670,11 +670,11 @@
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload)
         });
-        document.getElementById('content').innerHTML = `<p>✅ 导入成功！共导入 ${result.imported || 0} 个项目</p>`;
+        document.getElementById('content').innerHTML = `<p>✅ Import complete: ${result.imported || 0} project(s) imported</p>`;
         // 刷新侧边栏
         init();
       } catch (e) {
-        alert('导入失败: ' + e.message);
+        alert('Import failed: ' + e.message);
       } finally {
         event.target.value = '';
       }

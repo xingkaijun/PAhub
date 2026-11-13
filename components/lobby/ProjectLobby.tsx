@@ -57,15 +57,15 @@ function LaunchLayer({ logoSrc, projectName, challenge, onSubmit, onCancel }: {
         <b className="pl-l-sheet-name">{projectName}</b>
         {challenge ? (
           <form className="pl-password" onSubmit={e => { e.preventDefault(); if (password) { onSubmit(password); setPassword(''); } }}>
-            <label htmlFor="project-unlock-password">项目密码 / Project password</label>
-            <p>此项目受密码保护，请输入密码继续。</p>
+            <label htmlFor="project-unlock-password">Project password</label>
+            <p>This project is password protected. Enter the password to continue.</p>
             <input ref={inputRef} id="project-unlock-password" name="project-password" type="password"
               autoComplete="current-password" value={password} onChange={e => setPassword(e.target.value)}
               aria-invalid={!!challenge.error} aria-describedby={challenge.error ? 'project-password-error' : undefined} required />
             {challenge.error ? <p id="project-password-error" role="alert">{challenge.error}</p> : null}
             <div className="pl-password-actions">
-              <button type="button" onClick={onCancel}>取消 / Cancel</button>
-              <button type="submit" disabled={!password}>解锁项目 / Unlock</button>
+              <button type="button" onClick={onCancel}>Cancel</button>
+              <button type="submit" disabled={!password}>Unlock</button>
             </div>
           </form>
         ) : <span className="pl-l-progress"><i /></span>}

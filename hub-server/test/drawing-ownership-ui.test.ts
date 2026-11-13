@@ -7,8 +7,8 @@ import { build } from 'esbuild';
 import { JSDOM } from 'jsdom';
 import { ROOT_DIR } from '../src/config.ts';
 
-const PCF_MANAGED = '由 PCF 管理';
-const SERVER_ROUND = '由服务端状态流转管理';
+const PCF_MANAGED = 'Managed by the PCF';
+const SERVER_ROUND = 'managed by server status changes';
 
 // React's scheduler creates a MessageChannel in the browser bundle. Node keeps those
 // ports alive, so capture and close them or the test process never exits.
@@ -138,10 +138,10 @@ test('DrawingRow keeps PCF-managed values visible and read-only in edit mode', a
 
 test('CommandBar blocks PCF-owned comment and version commands, including mixed batches', async () => {
   const { manualFieldBlockMessage } = await loadUi();
-  assert.match(manualFieldBlockMessage([{ customId: '001', hasPcf: true }], 'comments'), new RegExp(PCF_MANAGED));
-  assert.match(manualFieldBlockMessage([{ customId: '001', hasPcf: true }], 'version'), new RegExp(PCF_MANAGED));
-  assert.match(manualFieldBlockMessage([{ customId: '001' }, { customId: '002', hasPcf: true }], 'version'), new RegExp(PCF_MANAGED));
-  assert.match(manualFieldBlockMessage([{ customId: '001' }, { customId: '002', hasPcf: true }], 'comments'), new RegExp(PCF_MANAGED));
+  assert.match(manualFieldBlockMessage([{ customId: '001', hasPcf: true }], 'comments'), new RegExp(PCF_MANAGED, 'i'));
+  assert.match(manualFieldBlockMessage([{ customId: '001', hasPcf: true }], 'version'), new RegExp(PCF_MANAGED, 'i'));
+  assert.match(manualFieldBlockMessage([{ customId: '001' }, { customId: '002', hasPcf: true }], 'version'), new RegExp(PCF_MANAGED, 'i'));
+  assert.match(manualFieldBlockMessage([{ customId: '001' }, { customId: '002', hasPcf: true }], 'comments'), new RegExp(PCF_MANAGED, 'i'));
   assert.equal(manualFieldBlockMessage([{ customId: '001', hasPcf: false }], 'comments'), null);
   assert.equal(manualFieldBlockMessage([{ customId: '001', hasPcf: false }], 'version'), null);
   const code = await readFile(path.join(ROOT_DIR, 'components/CommandBar.tsx'), 'utf8');
@@ -150,6 +150,6 @@ test('CommandBar blocks PCF-owned comment and version commands, including mixed 
 
 test('CommandBar always routes round changes to the PCF or server owner', async () => {
   const { manualFieldBlockMessage } = await loadUi();
-  assert.match(manualFieldBlockMessage([{ customId: '001', hasPcf: true }], 'round'), new RegExp(PCF_MANAGED));
+  assert.match(manualFieldBlockMessage([{ customId: '001', hasPcf: true }], 'round'), new RegExp(PCF_MANAGED, 'i'));
   assert.match(manualFieldBlockMessage([{ customId: '001', hasPcf: false }], 'round'), new RegExp(SERVER_ROUND));
 });

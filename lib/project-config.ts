@@ -53,9 +53,9 @@ export function applyConfigConflicts(conf: ProjectConfig, conflicts: ConfigConfl
 }
 
 const CONFIG_LABELS: Record<string, string> = {
-  displayName: '显示名称', password: '项目密码', holidays: '节假日', roundACycle: 'A 轮周期', otherRoundsCycle: '其他轮周期',
-  autoSyncInterval: '自动同步间隔', projectSummary: '项目概况', disciplineDefaults: '专业默认审图人', defaultAssignees: '专业默认分配',
+  displayName: 'Display Name', password: 'Project Password', holidays: 'Holidays', roundACycle: 'Round A Cycle', otherRoundsCycle: 'Other Rounds Cycle',
+  autoSyncInterval: 'Auto-Sync Interval', projectSummary: 'Project Summary', disciplineDefaults: 'Discipline Default Reviewers', defaultAssignees: 'Default Discipline Assignees',
 };
 
 export const describeConfigConflicts = (conflicts: ConfigConflict[]): string =>
-  '项目设置（' + [...new Set(conflicts.map(c => (CONFIG_LABELS[c.key] || c.key) + (c.entry ? ' · ' + c.entry : '')))].join('、') + '）';
+  'project settings (' + [...new Set(conflicts.map(c => (CONFIG_LABELS[c.key] || c.key) + (c.entry ? ' · ' + c.entry : '')))].join(', ') + ')';

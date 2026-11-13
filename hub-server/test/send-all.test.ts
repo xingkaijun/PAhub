@@ -108,9 +108,9 @@ test('Send All uses tracker APR only: PCF Approved without APR becomes Waiting R
     assert.ok(send);
     await act(async () => { send.click(); });
     assert.equal(indexCalls, 1);
-    assert.match(confirmation, /1 张 → Approved/);
-    assert.match(confirmation, /1 张 → Waiting Reply/);
-    assert.match(confirmation, /2 张图纸/);
+    assert.match(confirmation, /• 1 → Approved/);
+    assert.match(confirmation, /• 1 → Waiting Reply/);
+    assert.match(confirmation, /builder PCF archive for 2 drawing\(s\)/);
     assert.equal(packed, true);
     assert.ok(Array.from(dom.window.document.querySelectorAll('button')).some(button => button.textContent?.includes('Download Again')));
     const state = useStore.getState();

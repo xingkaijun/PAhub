@@ -46,14 +46,14 @@ export const Settings: React.FC = () => {
         confBase: { passwordVersion: project.conf.passwordVersion },
       }, controller.signal);
       controller.signal.throwIfAborted();
-      if (!saved.conf) throw new Error('服务器未返回密码设置状态');
+      if (!saved.conf) throw new Error('The server did not return the password status');
       const { passwordSet, passwordVersion } = saved.conf;
       // Only adopt credential status; other unsaved Config edits remain untouched.
       useStore.setState(state => ({ data: { ...state.data, projects: state.data.projects.map(p => p.id === projectId
         ? { ...p, passwordProtected: passwordSet, conf: { ...p.conf, passwordSet, passwordVersion } } : p) } }));
-      setPasswordDraft(''); setPasswordNotice(clear ? '项目密码已清除' : '项目密码已设置');
+      setPasswordDraft(''); setPasswordNotice(clear ? 'Project password cleared' : 'Project password set');
     } catch (error) {
-      if (!controller.signal.aborted) setPasswordNotice('保存失败：' + (error instanceof Error ? error.message : String(error)));
+      if (!controller.signal.aborted) setPasswordNotice('Save failed: ' + (error instanceof Error ? error.message : String(error)));
     } finally {
       if (!controller.signal.aborted) setPasswordBusy(false);
       if (passwordRequest.current === controller) passwordRequest.current = null;
@@ -168,8 +168,8 @@ export const Settings: React.FC = () => {
           });
         }
 
-        const trackerInfo = payload._backupVersion && payload._backupVersion >= 2 ? ' (含 Tracker)' : '';
-        alert(`Project "${payload.project.name}" has been restored locally.${trackerInfo}\n\n⚠️ 数据仅恢复到本地，请使用 "Save to Cloud" 同步到云端。`);
+        const trackerInfo = payload._backupVersion && payload._backupVersion >= 2 ? ' (including Tracker)' : '';
+        alert(`Project "${payload.project.name}" has been restored locally.${trackerInfo}\n\n⚠️ The data has only been restored locally. Use "Save to Cloud" to save it to the server.`);
       } catch (err) {
         alert("Restoration failed: " + (err instanceof Error ? err.message : "Malformed JSON file"));
       }
@@ -218,24 +218,24 @@ export const Settings: React.FC = () => {
                     disabled={isLoading || !project}
                     className="p-3 bg-[linear-gradient(135deg,#005c55_0%,#0f766e_100%)] text-white rounded-full text-[9px] font-black uppercase tracking-[0.18em] hover:brightness-105 disabled:opacity-50 flex items-center justify-center gap-2 transition-all active:scale-95 shadow-[0_12px_24px_-16px_rgba(13,148,136,0.45)] border border-transparent"
                   >
-                    <Send size={12} /> Save to Cloud 云端保存
+                    <Send size={12} /> Save to Cloud
                   </button>
                   <button
                     onClick={async () => {
                       if (!activeProjectId) return;
-                      const confirmed = window.confirm('⚠️ 警告：拉取云端数据会覆盖掉本地未同步的更改。\n\n确定要继续吗？');
+                      const confirmed = window.confirm('⚠️ Warning: fetching from the cloud will overwrite local changes that have not been saved.\n\nContinue?');
                       if (!confirmed) return;
                       try {
                         await loadProject(activeProjectId);
-                        alert('✅ 云端拉取成功');
+                        alert('✅ Cloud fetch complete');
                       } catch (e: any) {
-                        alert(`❌ 拉取失败: ${e.message}`);
+                        alert(`❌ Cloud fetch failed: ${e.message}`);
                       }
                     }}
                     disabled={isLoading || !project}
                     className="p-3 bg-white text-cyan-700 rounded-full text-[9px] font-black uppercase tracking-[0.18em] hover:bg-cyan-50 disabled:opacity-50 flex items-center justify-center gap-2 transition-all active:scale-95 shadow-sm border border-cyan-100"
                   >
-                    <Download size={12} /> Cloud Fetch 云端拉取
+                    <Download size={12} /> Cloud Fetch
                   </button>
                 </div>
 
@@ -284,11 +284,11 @@ export const Settings: React.FC = () => {
                   onClick={() => {
                     if (!project) return;
                     const confirmed = window.confirm(
-                      '🔧 修复 Deadline\n\n' +
-                      '这将为所有 Reviewing 状态的图纸重新计算 deadline，\n' +
-                      '基于最后一次进入 Reviewing 的时间。\n\n' +
-                      '⚠️ 注意：修复后需要点击 "Save to Cloud" 保存到云端。\n\n' +
-                      '确定继续吗？'
+                      '🔧 Fix Deadline\n\n' +
+                      'This recalculates the deadline of every drawing in Reviewing,\n' +
+                      'based on when it last entered Reviewing.\n\n' +
+                      '⚠️ Note: after the fix, click "Save to Cloud" to save it to the server.\n\n' +
+                      'Continue?'
                     );
                     if (!confirmed) return;
 
@@ -319,12 +319,12 @@ export const Settings: React.FC = () => {
                       }
                     });
 
-                    alert(`✅ 修复完成！\n\n共修复 ${fixedCount} 张图纸的 deadline。\n\n请点击 "Save to Cloud" 保存到云端。`);
+                    alert(`✅ Fix complete.\n\nFixed the deadline of ${fixedCount} drawing(s).\n\nClick "Save to Cloud" to save it to the server.`);
                   }}
                   disabled={!project}
                   className="w-full p-3 bg-amber-500 text-white rounded-full text-[9px] font-black uppercase tracking-[0.18em] hover:bg-amber-600 disabled:opacity-50 flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg"
                 >
-                  <RefreshCw size={12} /> Fix Deadline 修复期限
+                  <RefreshCw size={12} /> Fix Deadline
                 </button>
               </div>
             </div>
@@ -512,7 +512,7 @@ export const Settings: React.FC = () => {
                 <label htmlFor="config-project-password" className="text-[9px] font-black text-slate-400 uppercase tracking-wider ml-1">Project Password (Optional)</label>
                 <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
                   {project?.conf.passwordSet ? <Lock size={14} /> : <CheckCircle size={14} />}
-                  <span>{project?.conf.passwordSet ? '已设置' : '未设置'}</span>
+                  <span>{project?.conf.passwordSet ? 'Set' : 'Not set'}</span>
                 </div>
                 <input
                   id="config-project-password"
@@ -521,21 +521,21 @@ export const Settings: React.FC = () => {
                   value={passwordDraft}
                   onChange={event => setPasswordDraft(event.target.value)}
                   onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void savePassword(); } }}
-                  placeholder={project?.conf.passwordSet ? '输入新密码以修改' : '输入项目密码'}
+                  placeholder={project?.conf.passwordSet ? 'Enter a new password to change it' : 'Enter a project password'}
                   disabled={!project || !isAdmin || passwordBusy}
                   className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500 transition-all placeholder:text-slate-300"
                 />
                 <div className="flex gap-2">
                   <button type="button" onClick={() => void savePassword()} disabled={!project || !isAdmin || passwordBusy || !passwordDraft.trim()}
                     className="rounded-lg bg-teal-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-40">
-                    {passwordBusy ? '保存中…' : project?.conf.passwordSet ? '修改密码' : '设置密码'}
+                    {passwordBusy ? 'Saving…' : project?.conf.passwordSet ? 'Change Password' : 'Set Password'}
                   </button>
                   <button type="button" onClick={() => void savePassword(true)} disabled={!project?.conf.passwordSet || !isAdmin || passwordBusy}
-                    className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 disabled:opacity-40">清除密码</button>
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 disabled:opacity-40">Clear Password</button>
                 </div>
                 <p role="status" className="text-xs text-slate-600">{passwordNotice}</p>
                 <p className="text-[9px] font-bold text-slate-400 leading-relaxed pl-1 max-w-md">
-                  仅管理员可设置；立即保存。密码不回显、不进入本地备份。修改或清除后，已有项目解锁会话立即失效。
+                  Administrators only; saved immediately. The password is never shown again and is not included in local backups. Changing or clearing it ends existing unlock sessions right away.
                 </p>
               </div>
 
@@ -614,10 +614,10 @@ export const Settings: React.FC = () => {
                   <thead>
                     <tr className="border-b-2 border-slate-200">
                       <th className="px-3 py-2 text-left text-[8px] font-black text-slate-500 uppercase tracking-wider">Hull No.</th>
-                      <th className="px-3 py-2 text-center text-[8px] font-black text-slate-500 uppercase tracking-wider">Steel Cutting (开工)</th>
-                      <th className="px-3 py-2 text-center text-[8px] font-black text-slate-500 uppercase tracking-wider">Keel Laying (入坞)</th>
-                      <th className="px-3 py-2 text-center text-[8px] font-black text-slate-500 uppercase tracking-wider">Launching (下水)</th>
-                      <th className="px-3 py-2 text-center text-[8px] font-black text-slate-500 uppercase tracking-wider">Delivery (交船)</th>
+                      <th className="px-3 py-2 text-center text-[8px] font-black text-slate-500 uppercase tracking-wider">Steel Cutting</th>
+                      <th className="px-3 py-2 text-center text-[8px] font-black text-slate-500 uppercase tracking-wider">Keel Laying</th>
+                      <th className="px-3 py-2 text-center text-[8px] font-black text-slate-500 uppercase tracking-wider">Launching</th>
+                      <th className="px-3 py-2 text-center text-[8px] font-black text-slate-500 uppercase tracking-wider">Delivery</th>
                       <th className="px-3 py-2 text-center text-[8px] font-black text-slate-500 uppercase tracking-wider">Contract Delivery</th>
                       <th className="px-1 py-2 w-8"></th>
                     </tr>

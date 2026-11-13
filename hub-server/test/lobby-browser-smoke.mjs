@@ -129,7 +129,7 @@ try {
     const context = await browser.newContext({ viewport: { width: w, height: h } });
     const page = await context.newPage(); watch(page, 'password' + w);
     page.on('dialog', async dialog => { problems.push('unexpected native dialog: ' + dialog.type()); await dialog.dismiss(); });
-    const password = page.getByLabel('项目密码 / Project password', { exact: true });
+    const password = page.getByLabel('Project password', { exact: true });
     await page.goto(origin + '/'); await card(page, LOCKED).waitFor();
     assert.equal(await card(page, LOCKED).locator('.pl-lock').count(), 1, 'protected list item shows lock');
     await card(page, LOCKED).click();
@@ -140,9 +140,9 @@ try {
     assert.ok(bounds && bounds.x >= 0 && bounds.y > 0 && bounds.x + bounds.width <= w && bounds.y + bounds.height < h, 'form fits viewport');
     await page.screenshot({ path: path.join(shots, `lobby-password-${w}.png`) });
     await password.fill('fixture-wrong'); await password.press('Enter');
-    await page.getByRole('alert').filter({ hasText: '密码错误' }).waitFor();
+    await page.getByRole('alert').filter({ hasText: 'Incorrect password' }).waitFor();
     assert.equal(await password.inputValue(), '', 'wrong password cleared');
-    await page.getByRole('button', { name: '取消 / Cancel', exact: true }).click();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     await page.waitForFunction(() => document.querySelector('.pl-root')?.dataset.phase === 'idle');
     assert.equal(await card(page, LOCKED).isEnabled(), true);
     await page.waitForFunction(() => document.activeElement?.dataset.projectId === 'proj-lock-001');
@@ -161,7 +161,7 @@ try {
     await page.keyboard.press('Escape');
     await page.waitForFunction(() => document.querySelector('.pl-root')?.dataset.phase === 'idle');
     await page.goto(origin + '/?project=proj-lock-001'); await password.waitFor();
-    await page.getByRole('button', { name: '取消 / Cancel', exact: true }).click();
+    await page.getByRole('button', { name: 'Cancel', exact: true }).click();
     await page.waitForFunction(() => document.querySelector('.pl-root')?.dataset.phase === 'idle');
     assert.ok((await widths(page)).sw <= w);
     console.log(`password ${w}: focus/inline error/cancel/Esc/correct/refresh/deep link PASS; screenshot lobby-password-${w}.png`);

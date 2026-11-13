@@ -4,7 +4,7 @@ import React, { useState, useMemo, useRef, useCallback, useEffect } from 'react'
 import { useStore } from '../store';
 import { Drawing, DrawingStatus } from '../types';
 import { Search, FileUp, Layers, FilterX, Printer, ChevronLeft, ChevronRight as ChevronRightIcon,
-  Lock, Unlock, X, Cloud, Clock, MoreHorizontal, DownloadCloud } from 'lucide-react';
+  Lock, Unlock, X, Clock, MoreHorizontal, DownloadCloud } from 'lucide-react';
 import { isAfter, differenceInCalendarDays, differenceInDays } from 'date-fns';
 import { DrawingRow } from './DrawingRow';
 import { inventoryStyles } from './inventoryStyles';
@@ -13,7 +13,7 @@ import { AdminLoginDialog } from './AdminLoginDialog';
 import { ModalOverlay } from './ModalOverlay';
 import { parseBulkLoadText } from '../lib/bulk-load';
 
-const ADMIN_REQUIRED = '需要管理员权限 (Administrator permission required)';
+const ADMIN_REQUIRED = 'Administrator permission required';
 
 const getReviewDeadlineDays = (drawing: Drawing) => {
   if (!drawing.reviewDeadline) return Number.POSITIVE_INFINITY;
@@ -161,9 +161,8 @@ const PaginationControls = ({
 
 
 export const DrawingList: React.FC = () => {
-  const { activeProjectId, data, updateDrawing, bulkImportDrawings, deleteDrawing, toggleRemarkStatus, resetAllAssignees, filterQuery, setFilterQuery, isEditMode, logoutAdmin, saveProject, reviewTracker, batchUpdateDrawings, loadReviewTracker } = useStore();
+  const { activeProjectId, data, updateDrawing, bulkImportDrawings, deleteDrawing, toggleRemarkStatus, resetAllAssignees, filterQuery, setFilterQuery, isEditMode, logoutAdmin, reviewTracker, batchUpdateDrawings, loadReviewTracker } = useStore();
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
-  const [isSyncing, setIsSyncing] = useState(false);
   // Search state moved to store: filterQuery
   const [statusFilters, setStatusFilters] = useState<Set<string>>(new Set());
   const [showImportModal, setShowImportModal] = useState(false);
@@ -466,34 +465,6 @@ export const DrawingList: React.FC = () => {
               <div className="flex items-center gap-2">
                 {activeProjectId && <div className="hidden md:contents"><BuilderRepliesImport ref={builderRepliesImport} projectId={activeProjectId} /></div>}
                 <button
-                  onClick={async () => {
-                    if (!isEditMode) {
-                      alert(ADMIN_REQUIRED);
-                      return;
-                    }
-                    if (!activeProjectId || isSyncing) return;
-                    setIsSyncing(true);
-                    try {
-                      await saveProject(activeProjectId);
-                    } catch (e) {
-                      console.warn('Sync failed', e);
-                    } finally {
-                      setIsSyncing(false);
-                    }
-                  }}
-                  disabled={isSyncing || !isEditMode}
-                  className={`flex items-center gap-2 px-5 py-2.5 rounded-full text-[9px] font-black uppercase tracking-[0.18em] transition-all active:scale-95 shadow-sm ${!isEditMode
-                    ? 'bg-slate-100 text-slate-400 border border-slate-200 cursor-not-allowed opacity-60'
-                    : isSyncing
-                      ? 'bg-white text-teal-400 border border-teal-200 cursor-wait'
-                      : 'bg-[linear-gradient(135deg,#005c55_0%,#0f766e_100%)] text-white border border-transparent shadow-[0_12px_24px_-16px_rgba(13,148,136,0.45)] hover:brightness-105'}
-                    `}
-                  title={!isEditMode ? ADMIN_REQUIRED : "同步项目数据到服务器"}
-                >
-                  <Cloud size={14} className={isSyncing ? 'animate-pulse' : ''} />
-                  {isSyncing ? 'Syncing...' : 'Sync to Cloud'}
-                </button>
-                <button
                   onClick={() => window.print()}
                   className="hidden md:flex px-4 py-2.5 bg-white/85 border border-slate-200 text-slate-600 rounded-full text-[9px] font-black uppercase tracking-[0.18em] flex items-center gap-2 hover:bg-white hover:border-teal-200 hover:text-teal-700 active:scale-95 transition-all shadow-sm"
                 >
@@ -528,7 +499,7 @@ export const DrawingList: React.FC = () => {
                     <MoreHorizontal size={14} /> More
                   </button>
                   {showMoreMenu && (
-                    <div role="menu" className="absolute right-0 top-full mt-2 z-[60] w-56 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-xl">
+                    <div role="menu" className="absolute left-0 top-full mt-2 z-[60] w-56 rounded-2xl border border-slate-200 bg-white p-1.5 shadow-xl">
                       {[
                         { key: 'replies', label: 'Import Builder Replies', icon: <DownloadCloud size={14} />, disabled: !activeProjectId || !isEditMode, run: () => builderRepliesImport.current?.open() },
                         { key: 'print', label: 'Print List', icon: <Printer size={14} />, disabled: false, run: () => window.print() },
@@ -656,9 +627,9 @@ export const DrawingList: React.FC = () => {
                               }
                             });
                           }
-                          alert('Check 状态已同步');
+                          alert('Check statuses synced');
                         } else {
-                          alert('同步失败');
+                          alert('Sync failed');
                         }
                       }}
                       disabled={!isEditMode}

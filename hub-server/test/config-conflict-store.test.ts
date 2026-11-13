@@ -53,7 +53,7 @@ test('settings 409: conflicting key takes the server value, other changed keys s
     assert.deepEqual([...state._dirtyConfKeys], ['displayName']);
     assert.deepEqual(state._dirtyConfBase, { displayName: 'Ship' });
     assert.equal(state._dirtyConf, true);
-    assert.match(state.saveConflict!.message, /保存冲突：项目设置（A 轮周期）/);
+    assert.match(state.saveConflict!.message, /Save conflict: project settings \(Round A Cycle\)/);
     assert.equal(refreshed, 1);
   } finally { projectsApi.saveDelta = original; }
 });

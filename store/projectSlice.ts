@@ -527,9 +527,9 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
         const conflicts = err.data.conflicts as DrawingConflict[];
         const confConflicts = (Array.isArray(err.data.confConflicts) ? err.data.confConflicts : []) as ConfigConflict[];
         const message = conflicts.length && confConflicts.length
-          ? describeDrawingConflicts(conflicts) + ' 另外' + describeConfigConflicts(confConflicts) + '也已被其他人先修改，已换成最新值。'
+          ? describeDrawingConflicts(conflicts) + ' Also, ' + describeConfigConflicts(confConflicts) + ' changed by someone else first and now show the latest values.'
           : conflicts.length ? describeDrawingConflicts(conflicts)
-          : '保存冲突：' + describeConfigConflicts(confConflicts) + '已被其他人先修改，已换成最新值，你的其他修改会在下次自动保存时发送。';
+          : 'Save conflict: ' + describeConfigConflicts(confConflicts) + ' changed by someone else first and now show the latest values. Your other edits will be sent with the next auto-save.';
         console.warn(`[Save] ${message}`);
         set(state => {
           const byId = new Map(conflicts.map(c => [c.id, c]));

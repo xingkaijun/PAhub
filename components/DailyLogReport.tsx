@@ -531,8 +531,8 @@ export const DailyLogReport: React.FC = () => {
                             <Database size={14} className="text-slate-400 shrink-0" />
                             <span className="text-xs font-black text-slate-400 uppercase tracking-wider shrink-0">Source:</span>
                             {([
-                                { key: 'local' as const, label: 'Local', icon: HardDrive, title: '客户端记录的变更快照，含未保存的本地改动' },
-                                { key: 'server' as const, label: 'Server', icon: Database, title: '数据库实际写入记录：状态变更与意见增减' },
+                                { key: 'local' as const, label: 'Local', icon: HardDrive, title: 'Change snapshots recorded in this browser, including unsaved local edits' },
+                                { key: 'server' as const, label: 'Server', icon: Database, title: 'Changes actually written to the database: status changes and comment count changes' },
                             ]).map(({ key, label, icon: Icon, title }) => (
                                 <button
                                     key={key}
@@ -553,7 +553,7 @@ export const DailyLogReport: React.FC = () => {
                                 <>
                                     <button
                                         onClick={() => setExpandRaw(!expandRaw)}
-                                        title="展开后不再按天合并意见变化，逐条显示每次落库"
+                                        title="When expanded, comment changes are no longer merged per day; every database write is shown separately"
                                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ml-2 ${
                                             expandRaw
                                                 ? 'bg-slate-700 text-white border-slate-700 shadow-sm'

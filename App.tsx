@@ -180,8 +180,8 @@ const App: React.FC = () => {
               break;
             } catch (unlockError: any) {
               if (opts.signal.aborted) return false;
-              error = unlockError.message === 'INVALID_PASSWORD' ? '密码错误，请重试。' : unlockError.status === 429
-                ? '尝试次数过多，请在 10 分钟后重试。' : '解锁失败，请重试。';
+              error = unlockError.message === 'INVALID_PASSWORD' ? 'Incorrect password. Please try again.' : unlockError.status === 429
+                ? 'Too many attempts. Please try again in 10 minutes.' : 'Unlock failed. Please try again.';
             }
           }
           continue;
@@ -525,7 +525,7 @@ const App: React.FC = () => {
               onClick={() => isEditMode && setActiveTab('settings')}
               disabled={!isEditMode}
               className={`flex items-center gap-1.5 px-3 xl:px-5 py-2 rounded-full text-[10px] font-[1000] uppercase tracking-[0.15em] transition-all duration-300 shrink-0 ${activeTab === 'settings' ? 'bg-white text-teal-700 shadow-lg shadow-black/10' : !isEditMode ? 'text-white/35 cursor-not-allowed opacity-70' : 'text-teal-50/75 hover:text-white hover:bg-white/10'}`}
-              title={!isEditMode ? "需要管理员权限 (Administrator permission required)" : "Configuration"}
+              title={!isEditMode ? "Administrator permission required" : "Configuration"}
             >
               {!isEditMode ? <Lock size={14} className="text-white/40 shrink-0" /> : <SettingsIcon size={14} strokeWidth={2.5} className={`shrink-0 ${activeTab === 'settings' ? 'text-teal-600' : 'text-teal-50/75'}`} />}
               <span className="hidden xl:inline">Config</span>
@@ -543,7 +543,7 @@ const App: React.FC = () => {
         <div className="relative flex items-center gap-3 shrink-0 z-[1]">
           <button
             onClick={() => isEditMode ? void logoutAdmin() : setShowAdminLogin(true)}
-            title={isEditMode ? 'Sign out of the administrator session' : '需要管理员权限 (Administrator permission required)'}
+            title={isEditMode ? 'Sign out of the administrator session' : 'Administrator permission required'}
             aria-pressed={isEditMode}
             data-admin-session={isEditMode ? 'admin' : 'reviewer'}
             className={`flex items-center gap-2 px-3 xl:px-4 py-2 rounded-full border text-[10px] font-[1000] uppercase tracking-[0.15em] shadow-lg transition-all active:scale-[0.98] ${isEditMode ? 'bg-amber-100/95 text-amber-800 border-amber-200 hover:bg-amber-200' : 'bg-white/10 text-teal-50/85 border-white/15 hover:bg-white/15'}`}
@@ -556,8 +556,8 @@ const App: React.FC = () => {
             href="/manual/"
             target="_blank"
             rel="noopener"
-            title="操作手册 / Guide"
-            aria-label="操作手册 / Guide"
+            title="Guide"
+            aria-label="Guide"
             data-testid="mobile-manual-link"
             className="md:hidden inline-flex items-center justify-center p-2 rounded-full border border-white/15 bg-white/10 text-white/85 hover:bg-white hover:text-teal-700 transition-all shrink-0"
           >

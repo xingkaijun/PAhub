@@ -137,7 +137,7 @@ export const DrawingRow = memo(({
     const liveOpenRemarkCount = drawing.remarks?.filter(r => !r.resolved).length || 0;
     const reviewDeadline = toValidDate(drawing.reviewDeadline);
     const pcfManaged = drawing.hasPcf === true;
-    const pcfManagedTitle = pcfManaged ? '由 PCF 管理' : undefined;
+    const pcfManagedTitle = pcfManaged ? 'Managed by the PCF' : undefined;
 
     return (
         <React.Fragment>
@@ -208,7 +208,7 @@ export const DrawingRow = memo(({
                                 if (tab) { tab.opener = null; tab.location.href = href; } else window.location.href = href;
                             } catch (error) { tab?.close(); alert(String(error)); }
                         }}
-                    >{drawing.title || drawing.drawingNo}{pcfOnline > 0 && <span className="ml-1 rounded bg-teal-100 px-1 text-teal-700" title={pcfOnline + ' 人正在 PCF 在线编辑'}>● {pcfOnline}</span>}</a> : drawing.title}
+                    >{drawing.title || drawing.drawingNo}{pcfOnline > 0 && <span className="ml-1 rounded bg-teal-100 px-1 text-teal-700" title={pcfOnline + (pcfOnline === 1 ? ' person is' : ' people are') + ' editing this PCF online'}>● {pcfOnline}</span>}</a> : drawing.title}
                 </td>
                 <td className="px-2 py-2 text-[9px] text-slate-500 text-center" title={(() => {
                     const statusChanges = (drawing.statusHistory || []).filter(h => h.content.includes('Status:'));
@@ -242,7 +242,7 @@ export const DrawingRow = memo(({
                     {reviewDeadline ? (
                         <div 
                             className={`text-[9px] font-black flex items-center gap-1 ${isAfter(new Date(), reviewDeadline) ? 'text-red-600' : 'text-slate-500'} cursor-help`}
-                            title="点击查看 deadline 计算详情"
+                            title="Click to log the deadline calculation to the browser console"
                             onClick={() => {
                                 // 调试：输出 deadline 计算信息
                                 const statusHistory = drawing.statusHistory || [];
@@ -331,7 +331,7 @@ export const DrawingRow = memo(({
                                 : 'bg-blue-500 text-white shadow-lg shadow-blue-500/20')
                             : 'bg-slate-100 text-slate-300 hover:bg-slate-200'
                             }`}
-                        title={!isEditMode ? '需要管理员权限 (Administrator permission required)' : drawing.checked ? (drawing.checkedSynced ? 'Checked (Synced)' : 'Checked (Not Synced)') : 'Not Checked'}
+                        title={!isEditMode ? 'Administrator permission required' : drawing.checked ? (drawing.checkedSynced ? 'Checked (Synced)' : 'Checked (Not Synced)') : 'Not Checked'}
                     >
                         <Check size={12} strokeWidth={4} />
                     </button>

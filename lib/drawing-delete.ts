@@ -8,13 +8,13 @@ export function deleteDrawingPrompt(drawing: DrawingLabel): string {
   const title = (drawing.title || '').trim() || '(untitled)';
   const id = (drawing.customId || '').trim();
   return [
-    'Delete this drawing? 确定删除这张图纸？',
+    'Delete this drawing?',
     '',
     `Drawing No: ${no}`,
     `Title: ${title}`,
     ...(id && id !== no ? [`ID: ${id}`] : []),
     '',
-    'It is removed from the server on the next save. 下次保存时会从服务器上删除。',
+    'It is removed from the server on the next save.',
   ].join('\n');
 }
 

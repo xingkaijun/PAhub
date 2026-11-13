@@ -80,7 +80,7 @@ try {
   const notice = a.getByTestId('save-conflict');
   await notice.waitFor({ state: 'visible', timeout: 10_000 });
   const noticeText = await notice.innerText();
-  assert.match(noticeText, /保存冲突/); assert.match(noticeText, /001/); assert.match(noticeText, /版本|version/i);
+  assert.match(noticeText, /Save conflict/); assert.match(noticeText, /001/); assert.match(noticeText, /版本|version/i);
   await a.waitForFunction(() => [...document.querySelectorAll('tr')].some(tr => tr.textContent.includes('DW-A-001') && tr.querySelector('input[type=text]')?.value === 'B-edit'), null, { timeout: 10_000 });
   await a.screenshot({ path: path.join(artifacts, 'save-conflict-notice.png') });
   await notice.screenshot({ path: path.join(artifacts, 'save-conflict-notice-banner.png') });

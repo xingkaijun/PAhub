@@ -4,13 +4,13 @@ import { pcfApi } from '../services/api/pcfApi';
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useStore } from '../store';
 import type { SentDrawingExpectation } from '../store';
-import { RefreshCw, CheckCircle2, Circle, ClipboardCheck, Search, ChevronDown, ChevronRight, Cloud, Lock, Unlock, Send, Award, Flame, FileSpreadsheet, Download } from 'lucide-react';
+import { RefreshCw, CheckCircle2, Circle, ClipboardCheck, Search, ChevronDown, ChevronRight, Lock, Unlock, Send, Award, Flame, FileSpreadsheet, Download } from 'lucide-react';
 import { differenceInCalendarDays, format, isAfter } from 'date-fns';
 import type { Drawing } from '../types';
 import { AdminLoginDialog } from './AdminLoginDialog';
 import { buildReviewTrackerCsv } from '../lib/tracker-csv';
 
-const ADMIN_REQUIRED = '需要管理员权限 (Administrator permission required)';
+const ADMIN_REQUIRED = 'Administrator permission required';
 
 const REVIEW_TRACKER_LAYOUT_STORAGE_KEY = 'review-tracker-layout-single-column';
 
@@ -64,7 +64,6 @@ export const ReviewTracker: React.FC = () => {
     const [filterText, setFilterText] = useState('');
     const [showReady, setShowReady] = useState(true);
     const [showUrgeOnly, setShowUrgeOnly] = useState(false);
-    const [isSyncing, setIsSyncing] = useState(false);
     const [sendPhase, setSendPhase] = useState<'saving' | 'verifying' | 'packing' | null>(null);
     const [lastSendBatch, setLastSendBatch] = useState<{ projectId: string; drawingIds: string[]; batchId: string } | null>(null);
     const sendBusy = useRef(false);
@@ -169,18 +168,6 @@ export const ReviewTracker: React.FC = () => {
         if (activeProjectId) loadReviewTracker(activeProjectId, true);
     };
 
-    const handleSync = async () => {
-        if (!activeProjectId || isSyncing) return;
-        setIsSyncing(true);
-        try {
-            await saveProject(activeProjectId);
-        } catch (e) {
-            console.warn('Sync failed', e);
-        } finally {
-            setIsSyncing(false);
-        }
-    };
-
     // 导出当前筛选结果为 CSV（全英文，带 UTF-8 BOM，Excel/WPS 双击直接打开，无格式警告）
     const handleExportExcel = () => {
         const rows = [...readyDrawings, ...pendingDrawings];
@@ -228,7 +215,7 @@ export const ReviewTracker: React.FC = () => {
         try {
             await downloadBatch(lastSendBatch.projectId, lastSendBatch.drawingIds, lastSendBatch.batchId);
         } catch (error: any) {
-            setPackError('状态已发送，但打包下载失败：' + (error?.message || 'unknown error'));
+            setPackError('Statuses were sent, but the archive download failed: ' + (error?.message || 'unknown error'));
         } finally {
             setSendPhase(null);
             sendBusy.current = false;
@@ -259,15 +246,15 @@ export const ReviewTracker: React.FC = () => {
             pcfCount = expected.filter(d => pcfIds.has(d.id)).length;
         } catch (error: any) {
             sendBusy.current = false;
-            alert('无法读取 PCF 打包数量，请重试：' + (error?.message || 'unknown error'));
+            alert('Could not read the PCF archive count. Please try again: ' + (error?.message || 'unknown error'));
             return;
         }
 
-        const msg = `将 ${count} 张 Ready 图纸状态更新：\n` +
-            (approvedCount > 0 ? `• ${approvedCount} 张 → Approved\n` : '') +
-            (waitingCount > 0 ? `• ${waitingCount} 张 → Waiting Reply\n` : '') +
-            `发送后将自动下载 ${pcfCount} 张图纸的船厂版 PCF 压缩包（无 PCF 的 ${count - pcfCount} 张将跳过）\n` +
-            `确认继续？`;
+        const msg = `Update the status of ${count} Ready drawing(s):\n` +
+            (approvedCount > 0 ? `• ${approvedCount} → Approved\n` : '') +
+            (waitingCount > 0 ? `• ${waitingCount} → Waiting Reply\n` : '') +
+            `After sending, a builder PCF archive for ${pcfCount} drawing(s) downloads automatically (${count - pcfCount} without a PCF will be skipped).\n` +
+            `Continue?`;
 
         if (!window.confirm(msg)) {
             sendBusy.current = false;
@@ -286,7 +273,7 @@ export const ReviewTracker: React.FC = () => {
 
             const saved = await saveProject(activeProjectId);
             if (!saved) {
-                alert('状态已在本地更新，但保存到服务器失败。请点击 Sync to Cloud 重试。');
+                alert('Statuses were updated locally, but saving to the server failed. Click Save Now to retry.');
                 return;
             }
 
@@ -295,11 +282,11 @@ export const ReviewTracker: React.FC = () => {
             const result = await verifySentDrawings(activeProjectId, expected);
             if (!result.ok) {
                 const parts = [
-                    result.error ? `无法回读确认：${result.error}` : '',
-                    result.mismatchedDrawings.length > 0 ? `状态未更新：${result.mismatchedDrawings.join(', ')}` : '',
-                    result.mismatchedTracker.length > 0 ? `Check 未清空：${result.mismatchedTracker.join(', ')}` : '',
+                    result.error ? `Could not read back to verify: ${result.error}` : '',
+                    result.mismatchedDrawings.length > 0 ? `Status not updated: ${result.mismatchedDrawings.join(', ')}` : '',
+                    result.mismatchedTracker.length > 0 ? `Checks not cleared: ${result.mismatchedTracker.join(', ')}` : '',
                 ].filter(Boolean).join('\n');
-                alert(`已保存，但服务器写入校验未通过：\n${parts}\n\n请点击 Refresh 核对状态，必要时重新同步。`);
+                alert(`Saved, but the server write check failed:\n${parts}\n\nClick Refresh to check the statuses, and click Save Now if needed.`);
                 return;
             }
 
@@ -308,7 +295,7 @@ export const ReviewTracker: React.FC = () => {
             try {
                 await downloadBatch(batch.projectId, batch.drawingIds, batch.batchId);
             } catch (error: any) {
-                setPackError('状态已发送，但打包下载失败：' + (error?.message || 'unknown error'));
+                setPackError('Statuses were sent, but the archive download failed: ' + (error?.message || 'unknown error'));
             }
         } finally {
             setSendPhase(null);
@@ -428,7 +415,7 @@ export const ReviewTracker: React.FC = () => {
                                             ? 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100 shadow-red-500/10'
                                             : 'bg-white/85 text-slate-600 border-white/80 hover:bg-white hover:border-teal-200 hover:text-teal-700'
                                         }`}
-                                    title={isDone ? `${assignee}: 已完成 (点击取消)` : `${assignee}: 点击标记完成`}
+                                    title={isDone ? `${assignee}: Done (click to undo)` : `${assignee}: Click to mark done`}
                                 >
                                     {isDone ? (
                                         <CheckCircle2 size={12} className="text-emerald-500" />
@@ -459,7 +446,7 @@ export const ReviewTracker: React.FC = () => {
                             ? 'bg-violet-100/90 text-violet-700 border-violet-200'
                             : 'bg-white/85 text-slate-400 border-white/80 hover:border-violet-200 hover:text-violet-500'
                             } ${!isEditMode ? 'opacity-50 cursor-not-allowed' : 'active:scale-95'}`}
-                        title={isApproved ? '已标记 Approved（点击取消）' : '标记为 Approved（一键发送时生效）'}
+                        title={isApproved ? 'Marked Approved (click to undo)' : 'Mark as Approved (applied on Send All)'}
                     >
                         <Award size={11} />
                         APR
@@ -506,32 +493,11 @@ export const ReviewTracker: React.FC = () => {
                             {sendPhase === 'packing' ? 'Packing...' : 'Download Again'}
                         </button>
                     )}
-                    {/* 同步按钮 */}
-                    <button
-                        onClick={async () => {
-                            if (!isEditMode) {
-                                alert(ADMIN_REQUIRED);
-                                return;
-                            }
-                            await handleSync();
-                        }}
-                        disabled={isSyncing || !isEditMode}
-                        className={`${primaryActionClass} ${!isEditMode
-                            ? 'bg-slate-100 text-slate-400 border-slate-200 cursor-not-allowed opacity-60'
-                            : isSyncing
-                                ? 'bg-white text-teal-400 border-teal-200 cursor-wait'
-                                : 'bg-[linear-gradient(135deg,#005c55_0%,#0f766e_100%)] text-white border-transparent shadow-[0_12px_24px_-16px_rgba(13,148,136,0.45)] hover:brightness-105'
-                            }`}
-                        title={!isEditMode ? ADMIN_REQUIRED : "同步项目数据到服务器"}
-                    >
-                        <Cloud size={14} className={isSyncing ? 'animate-pulse' : ''} />
-                        {isSyncing ? 'Syncing...' : 'Sync to Cloud'}
-                    </button>
                     {/* 刷新按钮 */}
                     <button
                         onClick={handleRefresh}
                         className={`${softActionClass} bg-white/80 text-teal-700 border-white/80 hover:bg-white hover:border-teal-200 hover:text-teal-800`}
-                        title="从服务器刷新追踪数据"
+                        title="Refresh tracker data from the server"
                     >
                         <RefreshCw size={14} />
                         Refresh
@@ -569,7 +535,7 @@ export const ReviewTracker: React.FC = () => {
                             type="text"
                             value={filterText}
                             onChange={e => setFilterText(e.target.value)}
-                            placeholder="筛选 图号/图名/专业/负责人..."
+                            placeholder="Filter by drawing no., title, discipline, assignee..."
                             className="w-full pl-10 pr-4 py-2.5 text-xs font-bold text-slate-700 bg-white/85 border border-slate-200 rounded-full shadow-sm focus:outline-none focus:ring-2 focus:ring-teal-500/20 focus:border-teal-300 transition-all placeholder:text-slate-300 placeholder:font-bold placeholder:uppercase placeholder:tracking-wider"
                         />
                     </div>
@@ -589,7 +555,7 @@ export const ReviewTracker: React.FC = () => {
                             ? 'bg-[linear-gradient(135deg,#dc2626_0%,#f97316_100%)] text-white border-transparent shadow-[0_12px_24px_-18px_rgba(239,68,68,0.45)]'
                             : 'bg-white text-rose-600 border-rose-100 hover:bg-rose-50 hover:border-rose-200'
                             }`}
-                        title="仅显示超期且仍有责任人未完成审查的图纸"
+                        title="Show only overdue drawings that still have assignees who have not finished reviewing"
                     >
                         <Flame size={14} className={showUrgeOnly ? 'animate-pulse' : ''} />
                         {showUrgeOnly ? 'Urge Active' : 'Urge List'}
@@ -624,7 +590,7 @@ export const ReviewTracker: React.FC = () => {
                         <ClipboardCheck size={48} className="text-slate-200" />
                         <p className="text-sm font-bold uppercase tracking-widest">No drawings found</p>
                         <p className="text-xs text-slate-300">
-                            {filterText ? '尝试调整筛选条件' : '图纸进入 Reviewing 状态后会自动出现在这里'}
+                            {filterText ? 'Try adjusting the filter' : 'Drawings appear here automatically once they enter Reviewing'}
                         </p>
                     </div>
                 ) : (
@@ -646,7 +612,7 @@ export const ReviewTracker: React.FC = () => {
                                             onClick={handleSendReady}
                                             disabled={isSending}
                                             className="flex items-center gap-1.5 px-4 py-2 rounded-full bg-[linear-gradient(135deg,#059669_0%,#10b981_100%)] text-white text-[10px] font-[1000] uppercase tracking-[0.18em] border border-transparent hover:brightness-105 shadow-[0_12px_24px_-18px_rgba(16,185,129,0.45)] transition-all active:scale-95 disabled:opacity-60 disabled:cursor-not-allowed"
-                                            title="将 Ready 图纸状态更新为 Waiting Reply（或 Approved，如标记了 APR），并立即保存到服务器"
+                                            title="Set Ready drawings to Waiting Reply (or Approved if marked APR) and save to the server immediately"
                                         >
                                             <Send size={12} className={isSending ? 'animate-pulse' : ''} />
                                             {sendPhase === 'saving' ? 'Sending...' : sendPhase === 'verifying' ? 'Verifying...' : 'Send All'}

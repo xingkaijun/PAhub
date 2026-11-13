@@ -31,7 +31,7 @@ export function LogoPlaque({ src, className = '', dataRole }: { src: string; cla
 
 export function ManualLink({ href, className = 'pl-icon-btn' }: { href: string; className?: string }) {
   return (
-    <a href={href} target="_blank" rel="noopener" className={className} title="操作手册 / Guide" aria-label="操作手册 / Guide">
+    <a href={href} target="_blank" rel="noopener" className={className} title="Guide" aria-label="Guide">
       <BookOpen size={16} strokeWidth={2} />
     </a>
   );
