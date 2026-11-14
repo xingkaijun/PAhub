@@ -11,7 +11,7 @@ import { historyEntries, prepareHistory } from './pcf-history.ts';
 import { PcfImageStore, mayHaveInlineImages } from './pcf-images.ts';
 import * as modelV26 from './pcf-v26.ts';
 import { validateJSON } from './pcf-schema.ts';
-import { initData, reconcile, roundNumber, roundLabel, registerFields, fail, type PcfData, type Actor, type Op, applyOps } from './pcf-model.ts';
+import { initData, reconcile, roundNumber, roundLabel, registerFields, fail, type PcfData, type Actor, type RequestActor, type Op, applyOps } from './pcf-model.ts';
 
 export class PcfStorage {
   private queues = new Map<string, Promise<unknown>>();
@@ -119,12 +119,12 @@ export class PcfStorage {
     return { rev: nextRev, ...result, data: this.publicData(data) };
   }
   publicData(data: PcfData) { const copy = structuredClone(data); delete copy.hub.receipts; return copy; }
-  ops(p: string, d: string, body: any, actor: Actor) { return this.opsBatch(p, d, body, actor).result; }
-  opsBatch(p: string, d: string, body: any, actor: Actor) {
+  ops(p: string, d: string, body: any, actor: Actor, requestActor?: RequestActor) { return this.opsBatch(p, d, body, actor, requestActor).result; }
+  opsBatch(p: string, d: string, body: any, actor: Actor, requestActor?: RequestActor) {
     if (!Number.isSafeInteger(body.baseRev) || body.baseRev < 1 || !Array.isArray(body.ops) || body.ops.length > 10000) fail('Invalid ops request');
     if (body.batchId !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.batchId)) fail('batchId must be UUID');
     const { data, rev } = this.load(p, d);
-    const hash = createHash('sha256').update(JSON.stringify({ clientId: actor.clientId, baseRev: body.baseRev, ops: body.ops })).digest('hex');
+    const hash = createHash('sha256').update(JSON.stringify({ clientId: actor.clientId, baseRev: body.baseRev, ops: body.ops, ...(requestActor ? { requestActor } : {}) })).digest('hex');
     const receipts = (data.hub.receipts || []).filter((r: any) => Date.now() - r.at < 86400000);
     const prior = body.batchId && receipts.find((r: any) => r.id === body.batchId);
     if (prior) {
@@ -134,7 +134,7 @@ export class PcfStorage {
       return { replayed: true, result: { ...prior.result, data: this.publicData(historical) } };
     }
     if (body.baseRev > rev) fail('Future document revision', 409);
-    const result = applyOps(data, body.ops as Op[], actor, rev + 1);
+    const result = applyOps(data, body.ops as Op[], actor, rev + 1, requestActor);
     if (body.batchId) data.hub.receipts = [...receipts, { id: body.batchId, hash, at: Date.now(), result: { rev: result.applied.length ? rev + 1 : rev, ...result } }].slice(-1000);
     const nextRev = result.applied.length ? this.save(p, d, data, actor, result.applied.map(({ entity: _e, entityRev: _r, ...summary }: any) => summary)) : rev;
     // Receipt-only acknowledgement stays in the authoritative JSON, never in SQLite body columns.

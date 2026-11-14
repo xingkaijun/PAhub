@@ -140,6 +140,7 @@ export function initializeSchema(db: DatabaseSync): void {
   migrateLegacyProjectPath(db);
   migrate(db);
   db.exec('CREATE TABLE IF NOT EXISTS project_passwords (project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,password_hash TEXT NOT NULL,version TEXT NOT NULL)');
+  db.exec(migrationSql('003_kjx_users.sql'));
   // Retire legacy read views for either storage version (1=HTML, 2=JSON).
   // Do not advance user_version here; the PCF converter owns version 2.
   for (const view of ['api_settings', 'api_projects', 'api_project_details', 'api_review_trackers']) db.exec('DROP VIEW IF EXISTS ' + view);
