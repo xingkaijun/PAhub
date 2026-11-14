@@ -1,0 +1,367 @@
+{
+  "base": "78177f888123dc74e60b300863579df35255abdd",
+  "rows": [
+    {
+      "role": "environment",
+      "label": "production proxy refuses startup",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": ""
+    },
+    {
+      "role": "viewer",
+      "label": "list and PCF visible",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-01-viewer-list-and-PCF-visible.png"
+    },
+    {
+      "role": "viewer",
+      "label": "banner name and role",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-02-viewer-banner-name-and-role.png"
+    },
+    {
+      "role": "viewer",
+      "label": "Change password and Sign out destinations",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-03-viewer-Change-password-and-Sign-out-destinations.png"
+    },
+    {
+      "role": "viewer",
+      "label": "SSE presence uses verified name",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-04-viewer-SSE-presence-uses-verified-name.png"
+    },
+    {
+      "role": "reviewer",
+      "label": "list and PCF visible",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-05-reviewer-list-and-PCF-visible.png"
+    },
+    {
+      "role": "reviewer",
+      "label": "banner name and role",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-06-reviewer-banner-name-and-role.png"
+    },
+    {
+      "role": "reviewer",
+      "label": "Change password and Sign out destinations",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-07-reviewer-Change-password-and-Sign-out-destinations.png"
+    },
+    {
+      "role": "reviewer",
+      "label": "SSE presence uses verified name",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-08-reviewer-SSE-presence-uses-verified-name.png"
+    },
+    {
+      "role": "manager",
+      "label": "list and PCF visible",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-09-manager-list-and-PCF-visible.png"
+    },
+    {
+      "role": "manager",
+      "label": "banner name and role",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-10-manager-banner-name-and-role.png"
+    },
+    {
+      "role": "manager",
+      "label": "Change password and Sign out destinations",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-11-manager-Change-password-and-Sign-out-destinations.png"
+    },
+    {
+      "role": "manager",
+      "label": "SSE presence uses verified name",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-12-manager-SSE-presence-uses-verified-name.png"
+    },
+    {
+      "role": "admin",
+      "label": "list and PCF visible",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-13-admin-list-and-PCF-visible.png"
+    },
+    {
+      "role": "admin",
+      "label": "banner name and role",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-14-admin-banner-name-and-role.png"
+    },
+    {
+      "role": "admin",
+      "label": "Change password and Sign out destinations",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-15-admin-Change-password-and-Sign-out-destinations.png"
+    },
+    {
+      "role": "admin",
+      "label": "SSE presence uses verified name",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-16-admin-SSE-presence-uses-verified-name.png"
+    },
+    {
+      "role": "viewer",
+      "label": "all write controls hidden",
+      "result": "FAIL",
+      "detail": "Visible write controls: Team Setup, Bulk Load, Delete drawing, #add-btn, #save-btn, #pahub-export",
+      "image": "t5-17-viewer-all-write-controls-hidden.png"
+    },
+    {
+      "role": "viewer",
+      "label": "direct write rejected",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": ""
+    },
+    {
+      "role": "reviewer",
+      "label": "new opinion auto initiator and read-only",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-18-reviewer-new-opinion-auto-initiator-and-read-only.png"
+    },
+    {
+      "role": "reviewer",
+      "label": "edit own opinion",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-19-reviewer-edit-own-opinion.png"
+    },
+    {
+      "role": "reviewer",
+      "label": "edit other opinion rejected",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": ""
+    },
+    {
+      "role": "reviewer",
+      "label": "drawing status rejected",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": ""
+    },
+    {
+      "role": "manager",
+      "label": "update drawing status through UI",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-20-manager-update-drawing-status-through-UI.png"
+    },
+    {
+      "role": "manager",
+      "label": "update assignee through UI",
+      "result": "FAIL",
+      "detail": "PATCH 403 capability=admin.only keys=projectName,updatedDrawings,reviewTracker  403 !== 200 ",
+      "image": "t5-21-manager-update-assignee-through-UI.png"
+    },
+    {
+      "role": "manager",
+      "label": "update remark through command UI",
+      "result": "PASS",
+      "detail": "Fresh browser isolates the failed-assignee dirty tracker; remark persists",
+      "image": ""
+    },
+    {
+      "role": "manager",
+      "label": "edit other opinion through PCF",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-23-manager-edit-other-opinion-through-PCF.png"
+    },
+    {
+      "role": "manager",
+      "label": "designate another initiator",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-24-manager-designate-another-initiator.png"
+    },
+    {
+      "role": "manager",
+      "label": "single Export to Builder preserves status",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-25-manager-single-Export-to-Builder-preserves-status.png"
+    },
+    {
+      "role": "manager",
+      "label": "Team Setup rejected",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-26-manager-Team-Setup-rejected.png"
+    },
+    {
+      "role": "admin",
+      "label": "Team Setup selects directory reviewer",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-27-admin-Team-Setup-selects-directory-reviewer.png"
+    },
+    {
+      "role": "admin",
+      "label": "Settings available",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-28-admin-Settings-available.png"
+    },
+    {
+      "role": "admin",
+      "label": "create project via lobby",
+      "result": "FAIL",
+      "detail": "page.waitForResponse: Timeout 12000ms exceeded while waiting for event \"response\"",
+      "image": "t5-29-admin-create-project-via-lobby.png"
+    },
+    {
+      "role": "manager",
+      "label": "Builder import transition Pending",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": ""
+    },
+    {
+      "role": "manager",
+      "label": "Builder import transition Reviewing",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": ""
+    },
+    {
+      "role": "manager",
+      "label": "Builder import transition Waiting Reply",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": ""
+    },
+    {
+      "role": "manager",
+      "label": "Builder import transition Approved",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": ""
+    },
+    {
+      "role": "viewer",
+      "label": "Daily Log Actor column and filter",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-30-viewer-Daily-Log-Actor-column-and-filter.png"
+    },
+    {
+      "role": "reviewer",
+      "label": "Daily Log Actor column and filter",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-31-reviewer-Daily-Log-Actor-column-and-filter.png"
+    },
+    {
+      "role": "manager",
+      "label": "Daily Log Actor column and filter",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-32-manager-Daily-Log-Actor-column-and-filter.png"
+    },
+    {
+      "role": "admin",
+      "label": "Daily Log Actor column and filter",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-33-admin-Daily-Log-Actor-column-and-filter.png"
+    },
+    {
+      "role": "security",
+      "label": "forged expired wrong-audience direct backend rejected",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": ""
+    },
+    {
+      "role": "security",
+      "label": "cross-Origin write rejected",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": ""
+    },
+    {
+      "role": "security",
+      "label": "proxy overwrites supplied identity",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": ""
+    },
+    {
+      "role": "security",
+      "label": "uploaded HTML cannot execute for admin",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": ""
+    },
+    {
+      "role": "admin",
+      "label": "directory unavailable manual fallback",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-35-admin-directory-unavailable-manual-fallback.png"
+    },
+    {
+      "role": "legacy",
+      "label": "administrator password login and PCF",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": "t5-36-legacy-administrator-password-login-and-PCF.png"
+    },
+    {
+      "role": "legacy",
+      "label": "Builder reply file attachment",
+      "result": "PASS",
+      "detail": "Verified",
+      "image": ""
+    }
+  ],
+  "defects": [
+    {
+      "role": "viewer",
+      "label": "all write controls hidden",
+      "severity": "medium",
+      "source": "hub-server/src/pcf-kjx-adapter.ts:21-22; components/DrawingList.tsx:476-489; components/DrawingRow.tsx:341",
+      "steps": "Sign in via viewer proxy; open Inventory and PCF; inspect visible write controls.",
+      "detail": "Visible write controls: Team Setup, Bulk Load, Delete drawing, #add-btn, #save-btn, #pahub-export"
+    },
+    {
+      "role": "manager",
+      "label": "update assignee through UI",
+      "severity": "medium",
+      "source": "components/DrawingRow.tsx:70-74",
+      "steps": "update assignee through UI",
+      "detail": "PATCH 403 capability=admin.only keys=projectName,updatedDrawings,reviewTracker  403 !== 200 "
+    },
+    {
+      "role": "admin",
+      "label": "create project via lobby",
+      "severity": "medium",
+      "source": "App.tsx:378-392",
+      "steps": "create project via lobby",
+      "detail": "page.waitForResponse: Timeout 12000ms exceeded while waiting for event \"response\""
+    }
+  ]
+}
