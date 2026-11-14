@@ -10,7 +10,7 @@ export type Route = {
   pattern: RegExp; methods?: string[]; auth?: 'none'; admin?: boolean; policies?: RoutePolicy[];
   handle: (context: RouteContext) => Response | Promise<Response>;
 };
-export type RouterOptions = { API_TOKEN?: string; ALLOW_CORS_ORIGIN?: string; adminSession?: { isAdmin: (request: Request) => boolean }; projectSession?: ProjectSession; identity?: ReturnType<typeof identityConfig>; authenticate?: (request: Request) => Promise<Response | undefined> };
+export type RouterOptions = { API_TOKEN?: string; ALLOW_CORS_ORIGIN?: string; adminSession?: { isAdmin: (request: Request) => boolean }; projectSession?: ProjectSession; projectAccess?: (request: Request) => Response | undefined; identity?: ReturnType<typeof identityConfig>; authenticate?: (request: Request) => Promise<Response | undefined> };
 
 export function errorResponse(message: string, status = 500, headers?: HeadersInit): Response {
   return Response.json({ error: message }, { status, headers: { 'Cache-Control': 'no-store', ...Object.fromEntries(new Headers(headers)) } });
@@ -71,6 +71,8 @@ export class Router {
     if (originDenied) return this.finish(originDenied, url);
     let response: Response;
     try {
+      const membershipDenied = this.kjx ? this.options.projectAccess?.(request) : undefined;
+      if (membershipDenied) return this.finish(membershipDenied,url);
       if (request.method === 'OPTIONS' && url.pathname.startsWith('/api')) response = this.transportDenied(request) || new Response(null, { status: 204 });
       else {
         let matched: Route | undefined, params: string[] = [];

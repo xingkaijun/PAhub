@@ -17,6 +17,7 @@ try {
  hub=await createHub({host:'127.0.0.1',verifier:createKjxVerifier({jwksUrl:'http://kjx.test',issuer:'https://auth.kjxing.com',audience:'pahub',fetch:signer.fetch}),directory:{clientId:'test-client',clientSecret:randomBytes(24).toString('hex'),internalUrl:'http://directory.test',warn:()=>{},fetch:async(url)=>String(url).endsWith('/oauth/token')?Response.json({access_token:randomBytes(24).toString('hex'),expires_in:600}):Response.json([{id:'other',username:'other',name:'Other Reviewer',title:null,disciplines:['HULL'],role:'reviewer',active:true}])}});
  const P='proj-test-001',D='dwg-001',base='/api/pcf/'+P+'/'+D,origin='http://127.0.0.1:'+hub.port;hub.router.options.identity.publicOrigin=origin;
  hub.db.exec(await readFile('hub-server/test/fixtures/seed-test-data.sql','utf8'));hub.db.prepare('UPDATE drawings SET discipline=? WHERE id=?').run('Hull',D);
+ for(const id of ['reviewer','manager']){hub.db.prepare('INSERT INTO reviewers VALUES(?,?)').run(id,'Logged '+id);hub.db.prepare('INSERT INTO project_team_reviewers VALUES(?,?)').run(P,id);}
  browser=await chromium.launch({headless:true,channel:process.env.PAHUB_BROWSER_CHANNEL||'chromium'});
  const contexts={};for(const role of ['reviewer','manager','admin'])contexts[role]=await browser.newContext({acceptDownloads:true,permissions:['clipboard-read','clipboard-write'],extraHTTPHeaders:{'X-Auth-Token':signer.signUser('pahub',{sub:role,username:role,name:'Logged '+role,role})}});
  const errors=[];

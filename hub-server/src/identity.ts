@@ -7,7 +7,7 @@ export const PAHUB_ROLES = ['admin', 'manager', 'reviewer', 'viewer'] as const;
 export type RequestUser = KjxUser & { role: typeof PAHUB_ROLES[number]; sid: string };
 const users = new WeakMap<Request, RequestUser>();
 export const requestUser = (request: Request) => users.get(request);
-export const KJX_ENFORCE_PROJECT_PASSWORD = true;
+export const KJX_ENFORCE_PROJECT_PASSWORD = false;
 export function readAuthMode(env: NodeJS.ProcessEnv): AuthMode {
   const value = (env.AUTH_MODE ?? 'legacy').trim();
   if (value !== 'legacy' && value !== 'kjx') throw new Error('AUTH_MODE must be legacy or kjx');

@@ -9,6 +9,7 @@ import { exportCommentsExcel } from './comments-excel.ts';
 import { compressBody, negotiateEncoding, COMPRESS_MIN_BYTES, type Encoding } from './http.ts';
 import { PCF_POLICIES, BUILDER_POLICIES } from './capabilities.ts';
 import { requestUser } from './identity.ts';
+import {requireProjectAccess} from './project-membership.ts';
 
 export function registerPcfRoutes(router: Router, pcf: PcfApi, adminPassword?: string) {
   const replies = new PcfBuilderReplies(pcf.storage, pcf.exchange, pcf.realtime, adminPassword);
@@ -18,7 +19,7 @@ export function registerPcfRoutes(router: Router, pcf: PcfApi, adminPassword?: s
   const compressedComments = new WeakMap<object, Map<Encoding, Promise<Buffer>>>();
   router.add({ pattern: /^\/api\/projects\/([^/]+)\/drawings\/([^/]+)\/status$/, methods: ['POST'], policies: [{method:'POST',capability:'drawing.update'}], admin: true, handle: async ctx => {
     const [p,d] = ctx.params.map(safeId), input = await ctx.json();
-    const result = await pcf.storage.serial(p,d,() => transitionDrawingStatus(pcf.storage,pcf.realtime,p,d,input.status));
+    const result = await pcf.storage.serial(p,d,() => {if(router.kjx)requireProjectAccess(pcf.storage.db,p,requestUser(ctx.request));return transitionDrawingStatus(pcf.storage,pcf.realtime,p,d,input.status);});
     return Response.json(result, { headers: { 'Cache-Control': 'no-store' } });
   } });
   router.add({ pattern: /^\/api\/projects\/([^/]+)\/comments(\.xlsx)?$/, methods: ['GET'], policies: [{method:'GET',capability:'view'}], handle: async ctx => {
@@ -64,10 +65,10 @@ export function registerPcfRoutes(router: Router, pcf: PcfApi, adminPassword?: s
     }
     if (!authorized) return errorResponse('Unauthorized',401);
     let payload: unknown;
-    if (request.method === 'POST' && action === 'preview' && !setId) payload = await replies.preview(p,await request.formData());
+    if (request.method === 'POST' && action === 'preview' && !setId) payload = await replies.preview(p,await request.formData(),()=>{if(router.kjx)requireProjectAccess(pcf.storage.db,p,requestUser(request));});
     else if (request.method === 'GET' && action === 'pending' && !setId) payload = replies.pending(p);
-    else if (request.method === 'POST' && setId === 'skip' && !fileId) payload = replies.skip(p,action,(await ctx.json()).fileId);
-    else if (request.method === 'POST' && setId === 'apply' && !fileId) { const body = await ctx.json(); payload = await replies.apply(p,action,body.fileIds,body.batchId); }
+    else if (request.method === 'POST' && setId === 'skip' && !fileId) {const body=await ctx.json();if(router.kjx)requireProjectAccess(pcf.storage.db,p,requestUser(request));payload = replies.skip(p,action,body.fileId);}
+    else if (request.method === 'POST' && setId === 'apply' && !fileId) { const body = await ctx.json(); payload = await replies.apply(p,action,body.fileIds,body.batchId,()=>{if(router.kjx)requireProjectAccess(pcf.storage.db,p,requestUser(request));}); }
     else return errorResponse('Not found',404);
     return Response.json(payload, { headers: { 'Cache-Control': 'no-store' } });
   } });

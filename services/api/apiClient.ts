@@ -61,6 +61,11 @@ export function createApiClient(config: ApiClientConfig = {}) {
           login.searchParams.set('path', window.location.pathname + window.location.search);
           window.location.assign(login.toString());
         } else if (response.status === 403 && data?.denied) window.location.assign(data.denied);
+        else if (response.status === 403 && data?.capability === 'project.member') {
+          const message='You no longer have access to this workspace. Ask to be added to Team Setup.';
+          window.dispatchEvent(new CustomEvent('pahub:auth-notice',{detail:message}));
+          window.dispatchEvent(new CustomEvent('pahub:project-access-denied'));
+        }
         else if (response.status === 403 && data?.error === 'forbidden') window.dispatchEvent(new CustomEvent('pahub:auth-notice', { detail: "You don't have permission to do this." }));
         else if (response.status === 503 && data?.error === 'auth_unavailable') window.dispatchEvent(new CustomEvent('pahub:auth-notice', { detail: 'Sign-in service is temporarily unavailable. Try again in a minute.' }));
       }

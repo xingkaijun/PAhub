@@ -37,6 +37,7 @@ async function fixture(mode:'legacy'|'kjx'='kjx',directory?:DirectoryOptions) {
   const signer=createKjxTestSigner();
   const hub=await createHub({host:'127.0.0.1',verifier:createKjxVerifier({jwksUrl:'http://kjx.test',issuer:'https://auth.kjxing.com',audience:'pahub',fetch:signer.fetch}),directory:directory || {clientId:undefined,clientSecret:undefined}});
   hub.db.exec(await readFile('hub-server/test/fixtures/seed-test-data.sql','utf8'));
+  if(mode==='kjx')for(const id of ['owner','other','importer'])hub.db.prepare('INSERT OR IGNORE INTO project_team_reviewers VALUES(?,?)').run(P,id);
   hub.db.prepare('UPDATE drawings SET discipline=? WHERE id=?').run('Hull',D);
   const request=(url:string,role='admin',body?:unknown,claims:Record<string,unknown>={})=>fetch('http://127.0.0.1:'+hub.port+url,{method:body ? 'POST':'GET',headers:{'X-Auth-Token':signer.signUser('pahub',{sub:'owner',username:'owner',name:'Owner Name',role,...claims}),Origin:'https://pahub.kjxing.com','Content-Type':'application/json'},body:body?JSON.stringify(body):undefined});
   const ops=(role:string,ops:any[],claims={})=>request(base+'/ops',role,{clientId:'client',baseRev:hub.pcf.storage.load(P,D).rev,ops},claims);

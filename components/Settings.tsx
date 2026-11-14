@@ -120,7 +120,7 @@ export const Settings: React.FC = () => {
         // We'll compare against both just to be safe if 'value' is ambiguous
         return rId !== value && rName !== value;
       });
-      if (project) updateProjectConfig(project.id, { reviewers: newList });
+      if (project) updateProjectConfig(project.id, kjx ? {reviewers:newList,disciplineDefaults:Object.fromEntries(Object.entries(project.conf.disciplineDefaults).filter(([,id])=>id!==value)),defaultAssignees:Object.fromEntries(Object.entries(project.conf.defaultAssignees || {}).map(([discipline,ids])=>[discipline,ids.filter(id=>id!==value)]))} : { reviewers: newList });
       else updateSettings({ reviewers: newList });
     } else {
       const list = (activeSettings[type] || []) as string[];
@@ -389,7 +389,7 @@ export const Settings: React.FC = () => {
                       {(activeSettings.reviewers || []).map(r => {
                         const rName = typeof r === 'string' ? r : r.name;
                         const rId = typeof r === 'string' ? r : r.id;
-                        return <option key={rId} value={rName}>{rName}</option>;
+                        return <option key={rId} value={kjx ? rId : rName}>{rName}</option>;
                       })}
                     </select>
                   </div>
@@ -480,7 +480,7 @@ export const Settings: React.FC = () => {
               <div className="flex flex-col gap-3">
                 <HealthItem label="Team Roster" active={healthStats.roster} subText={`${activeSettings.reviewers.length} Reviewers Loaded`} />
                 <HealthItem label="Discipline Defaults" active={healthStats.coverage} subText={healthStats.coverage ? 'Full Assignment Coverage' : 'Missing Default Leads'} />
-                <HealthItem label="Project Protection" active={healthStats.security} subText={(healthStats as any).security ? 'Secure Access Enabled' : 'Public Access Mode'} />
+                <HealthItem label="Project Protection" active={kjx || healthStats.security} subText={kjx ? 'Team membership enforced' : (healthStats as any).security ? 'Secure Access Enabled' : 'Public Access Mode'} />
                 <HealthItem label="Holiday Policy" active={healthStats.holidays} subText={healthStats.holidays ? `${activeSettings.holidays.length} Dates Configured` : 'Using Standard Calendar'} />
               </div>
 
@@ -517,7 +517,7 @@ export const Settings: React.FC = () => {
               </div>
 
               {/* Password: write-only local draft, never part of persisted project configuration. */}
-              <div className="space-y-2">
+              {!kjx && <div className="space-y-2">
                 <label htmlFor="config-project-password" className="text-[9px] font-black text-slate-400 uppercase tracking-wider ml-1">Project Password (Optional)</label>
                 <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
                   {project?.conf.passwordSet ? <Lock size={14} /> : <CheckCircle size={14} />}
@@ -546,7 +546,7 @@ export const Settings: React.FC = () => {
                 <p className="text-[9px] font-bold text-slate-400 leading-relaxed pl-1 max-w-md">
                   Administrators only; saved immediately. The password is never shown again and is not included in local backups. Changing or clearing it ends existing unlock sessions right away.
                 </p>
-              </div>
+              </div>}
 
               {/* Auto Sync - Visual Divider */}
               <div className="h-px bg-indigo-50" />

@@ -22,6 +22,7 @@ const TESTS = [
   'builder-handoff-browser-smoke.mjs',
   'kjx-features-browser-smoke.mjs',
   'kjx-acceptance-fixes-browser-smoke.mjs',
+  'kjx-membership-browser-smoke.mjs',
 ];
 
 const run = (args, label) => new Promise(resolve => {

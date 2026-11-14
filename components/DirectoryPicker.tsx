@@ -1,15 +1,17 @@
 import React, { useEffect, useState } from 'react';
 import { teamDirectory, type DirectoryPerson, type DirectoryResult } from '../services/api/teamApi';
 import type { Reviewer } from '../types';
+import {useStore} from '../store';
 
 export function DirectoryPicker({ discipline = '', onSelect, label = 'Select reviewer' }: { discipline?: string; onSelect: (person: Reviewer) => void; label?: string }) {
+  const projectId = useStore(state=>state.activeProjectId);
   const [result, setResult] = useState<DirectoryResult>();
   const [name, setName] = useState('');
   useEffect(() => {
     const controller = new AbortController(); setResult(undefined);
-    teamDirectory(discipline, controller.signal).then(value => { if (!controller.signal.aborted) setResult(value); }).catch(() => { if (!controller.signal.aborted) setResult({ ok: false, fallback: true }); });
+    teamDirectory(discipline, controller.signal, projectId || undefined).then(value => { if (!controller.signal.aborted) setResult(value); }).catch(() => { if (!controller.signal.aborted) setResult({ ok: false, fallback: true }); });
     return () => controller.abort();
-  }, [discipline]);
+  }, [discipline,projectId]);
   if (!result) return <p role="status" className="text-xs text-slate-500">Loading directory…</p>;
   if (result.ok) return <select aria-label={label} defaultValue="" onChange={event => {
     const person: DirectoryPerson | undefined = result.users.find(user => user.id === event.target.value);

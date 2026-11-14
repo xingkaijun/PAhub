@@ -27,6 +27,7 @@ try {
       const origin='http://127.0.0.1:'+hub.port;
       hub.router.options.identity.publicOrigin=origin;
       hub.db.exec(await readFile(path.join(root,'hub-server/test/fixtures/seed-test-data.sql'),'utf8'));
+      if(mode==='kjx')hub.db.prepare('INSERT INTO project_team_reviewers VALUES(?,?)').run(P,'manager');
       hub.db.prepare('UPDATE drawings SET discipline=? WHERE id=?').run('Hull',D);
       const headers=role=>mode==='kjx' ? {'X-Auth-Token':signer.signUser('pahub',{sub:role,username:role,name:'Test '+role,role})} : {};
       manager=await browser.newContext({acceptDownloads:true,extraHTTPHeaders:headers('manager')});

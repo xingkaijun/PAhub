@@ -14,6 +14,7 @@ try{for(const mode of ['kjx','legacy']){
   const signer=createKjxTestSigner();hub=await createHub({host:'127.0.0.1',verifier:createKjxVerifier({jwksUrl:'http://kjx.test',issuer:'https://auth.kjxing.com',audience:'pahub',fetch:signer.fetch})});
   const P='proj-test-001',D='dwg-001',origin='http://127.0.0.1:'+hub.port;hub.router.options.identity.publicOrigin=origin;
   hub.db.exec(await readFile('hub-server/test/fixtures/seed-test-data.sql','utf8'));hub.db.prepare('UPDATE drawings SET discipline=? WHERE id=?').run('Hull',D);
+  if(mode==='kjx')for(const id of ['viewer','manager'])hub.db.prepare('INSERT INTO project_team_reviewers VALUES(?,?)').run(P,id);
   const context=role=>browser.newContext({viewport:{width:1440,height:1000},extraHTTPHeaders:mode==='kjx'?{'X-Auth-Token':signer.signUser('pahub',{sub:role,username:role,name:'T7 '+role,role})}:{}});
   const adminContext=await context('admin');const admin=await adminContext.newPage();const errors=[];admin.on('pageerror',error=>errors.push(error.message));
   await admin.goto(origin+'/?project='+P);await admin.getByRole('button',{name:'Team Setup',exact:true}).waitFor();

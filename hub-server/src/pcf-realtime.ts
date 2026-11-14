@@ -22,6 +22,8 @@ export class PcfRealtime {
   private projectConnections = new Map<string, Set<() => void>>();
   private presenceTimers = new Map<string, ReturnType<typeof setTimeout>>();
   private timer: ReturnType<typeof setInterval>;
+  private accessChecks = new Map<() => void, { project: string; authorized: () => boolean }>();
+  recheckProject(project: string) { for(const [stop,check] of [...this.accessChecks]) if(check.project===project && !check.authorized()) stop(); }
   constructor(readonly bus: DrawingBroadcast = new MemoryBroadcast(), private now = Date.now) {
     this.timer = setInterval(() => this.sweep(), 1000); this.timer.unref();
   }
@@ -61,12 +63,12 @@ export class PcfRealtime {
         const stops = this.projectConnections.get(projectId) || new Set<() => void>(); this.projectConnections.set(projectId, stops);
         const ping = setInterval(() => send({ type: 'ping', data: { at: this.now() } }), 25000); ping.unref();
         stop = () => {
-          if (closed) return; closed = true; clearInterval(ping); listeners.delete(send);
+          if (closed) return; closed = true; this.accessChecks.delete(stop); clearInterval(ping); listeners.delete(send);
           if (!listeners.size) this.projectListeners.delete(projectId);
           stops.delete(stop); if (!stops.size) this.projectConnections.delete(projectId);
           signal.removeEventListener('abort', stop); controller.close();
         };
-        stops.add(stop);
+        stops.add(stop);this.accessChecks.set(stop,{project:projectId,authorized});
         send({ type: 'presence', data: this.projectCounts(projectId) });
         signal.addEventListener('abort', stop, { once: true }); if (signal.aborted) stop();
       },
@@ -83,6 +85,8 @@ export class PcfRealtime {
     this.scheduleProjectPresence(key.slice(0, key.indexOf('/')));
   }
   sweep() {
+    // Remove the check before closing: stop() can publish presence recursively.
+    for(const [stop,check] of [...this.accessChecks])if(!check.authorized()){this.accessChecks.delete(stop);stop();}
     for (const [key, people] of this.people) {
       let changed = false;
       for (const [id, person] of people) if (this.now() - person.at >= 60000) { people.delete(id); changed = true; }
@@ -100,12 +104,12 @@ export class PcfRealtime {
         const ping = setInterval(() => { if (this.now() >= expires) stop(); else send({ type: 'ping', data: { at: this.now() } }); }, 25000); ping.unref();
         const drawing = this.connections.get(key) || new Map(), sockets = drawing.get(actor.clientId) || new Set<() => void>();
         stop = () => {
-          if (closed) return; closed = true; clearInterval(ping); unsubscribe(); signal.removeEventListener('abort', stop);
+          if (closed) return; closed = true; this.accessChecks.delete(stop); clearInterval(ping); unsubscribe(); signal.removeEventListener('abort', stop);
           sockets.delete(stop); if (!sockets.size) { drawing.delete(actor.clientId); this.update(key, actor, null, true); }
           if (!drawing.size) this.connections.delete(key);
           controller.close();
         };
-        sockets.add(stop); drawing.set(actor.clientId, sockets); this.connections.set(key, drawing);
+        sockets.add(stop);this.accessChecks.set(stop,{project:key.slice(0,key.indexOf('/')),authorized}); drawing.set(actor.clientId, sockets); this.connections.set(key, drawing);
         send({ type: 'hello', id: rev, data: { rev, online: this.list(key), resync: fromRev !== rev } });
         this.update(key, actor, null);
         signal.addEventListener('abort', stop, { once: true }); if (signal.aborted) stop();

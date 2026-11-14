@@ -33,6 +33,7 @@ async function fixture(mode: 'legacy' | 'kjx' = 'kjx') {
   const verifier = createKjxVerifier({ jwksUrl:'http://kjx.test/jwks',issuer:'https://auth.kjxing.com',audience:'pahub',fetch:signer.fetch });
   const hub = await createHub({verifier});
   hub.db.exec(await readFile(path.join(process.cwd(),'hub-server/test/fixtures/seed-test-data.sql'),'utf8'));
+  if(mode==='kjx')for(const id of ['owner','other','manager-id','importer','admin','manager','reviewer','viewer'])hub.db.prepare('INSERT OR IGNORE INTO project_team_reviewers VALUES(?,?)').run(PROJECT,id);
   if (mode==='kjx') hub.db.prepare('UPDATE drawings SET discipline=? WHERE id=?').run('Hull',DRAWING);
   const origin = 'http://127.0.0.1:' + hub.port;
   const request = (url: string, role: typeof roles[number] = 'admin', init: RequestInit = {}, claims: Record<string,unknown> = {}) => {
@@ -127,7 +128,7 @@ test('kjx: identity failure cases, health-only exemption, session and throttled 
 // null means the inventory's unsupported/fail-closed path, not an allowed role.
 type RouteExample = readonly [method: string, path: string, capability: Capability | 'route.unregistered', minimum: RequestUser['role'] | null];
 const ROUTE_EXAMPLES: readonly RouteExample[] = [
-  ['GET','/api/team/directory','team.setup','admin'],
+  ['GET','/api/team/directory?projectId=proj-test-001','team.setup','manager'],
   ['GET','/api/pcf/proj-test-001/dwg-001/initiators','pcf.comment.edit_any','manager'],
   ['GET','/api/session','view','viewer'],
   ['POST','/api/session','view','viewer'],
@@ -213,7 +214,7 @@ test('kjx: independent T1 method/path inventory and policies cover each other in
       for(const method of route.methods || []) assert.ok(route.policies.some(p=>p.method===method),route.pattern+' '+method);
       return route.policies.map(policy=>{
         assert.ok(Object.hasOwn(CAPABILITIES,policy.capability));
-        return {policy,matches:(method:string,url:string)=>policy.method===method && route.pattern.test(url) && (!policy.pattern || policy.pattern.test(url))};
+        return {policy,matches:(method:string,url:string)=>policy.method===method && route.pattern.test(url.split('?')[0]) && (!policy.pattern || policy.pattern.test(url.split('?')[0]))};
       });
     }).concat(TRANSPORT_POLICIES.map(policy=>({policy,matches:(method:string,url:string)=>policy.method===method && policy.pattern!.test(url)})));
     assert.equal(new Set(ROUTE_EXAMPLES.map(([method,url])=>method+' '+url)).size,ROUTE_EXAMPLES.length,'duplicate inventory instance');
@@ -293,8 +294,8 @@ test('kjx: PATCH authorization is per-entry and atomically rejects mixed/unknown
       assert.equal(response.status,403,JSON.stringify(body));
       assert.deepEqual(f.hub.db.prepare('SELECT * FROM drawings WHERE id=?').get(DRAWING),before);
     }
-    assert.equal((await f.request('/api/projects/implicit','manager',f.json({},'PATCH'))).status,403);
-    assert.equal(f.hub.db.prepare('SELECT 1 FROM projects WHERE id=?').get('implicit'),undefined);
+    assert.equal((await f.request('/api/projects/implicit','manager',f.json({},'PATCH'))).status,200);
+    assert.ok(f.hub.db.prepare('SELECT 1 FROM projects WHERE id=?').get('implicit'));
     assert.equal((await f.request('/api/projects/'+PROJECT,'manager',f.json({updatedDrawings:[{id:DRAWING,changes:{title:'Manager title'}}]},'PATCH'))).status,200);
     assert.equal(f.hub.db.prepare('SELECT title FROM drawings WHERE id=?').get(DRAWING)?.title,'Manager title');
   } finally {await f.cleanup();}
@@ -619,7 +620,7 @@ test('kjx: admin console ignores Bearer, works without legacy password and recor
   } finally {await f.cleanup();}
 });
 
-test('kjx: PCF grants bind users and never bypass identity; project passwords remain second gate', async () => {
+test('kjx: PCF grants bind users and project passwords no longer gate members', async () => {
   const f=await fixture();
   try {
     const page=await (await f.request('/pcf/'+PROJECT+'/'+DRAWING,'reviewer')).text();
@@ -631,11 +632,12 @@ test('kjx: PCF grants bind users and never bypass identity; project passwords re
     assert.equal((await f.request(pcf+'/data','reviewer',{headers:{'X-PCF-Token':context.credential}})).status,200);
     const password=randomBytes(32).toString('hex');
     assert.equal((await f.request('/api/projects/'+PROJECT,'admin',f.json({conf:{password}},'PATCH'))).status,200);
-    assert.equal((await f.request('/api/projects/'+PROJECT,'reviewer',f.json({}))).status,401);
+    assert.equal((await f.request('/api/projects/'+PROJECT,'reviewer',f.json({}))).status,200);
     assert.equal((await f.request('/api/projects/'+PROJECT,'admin',f.json({}))).status,200);
     const unlocked=await f.request('/api/projects/'+PROJECT+'/unlock','reviewer',f.json({password}));
     assert.equal(unlocked.status,200);
-    assert.equal((await f.request('/api/projects/'+PROJECT,'reviewer',{...f.json({}),headers:{Cookie:unlocked.headers.get('Set-Cookie')!.split(';')[0]}})).status,200);
+    assert.equal(unlocked.headers.get('Set-Cookie'),null);
+    assert.equal((await f.request('/api/projects/'+PROJECT,'reviewer',f.json({}))).status,200);
   } finally {await f.cleanup();}
 });
 
