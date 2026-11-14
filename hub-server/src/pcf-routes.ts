@@ -55,7 +55,12 @@ export function registerPcfRoutes(router: Router, pcf: PcfApi, adminPassword?: s
       const reply = replies.getFile(p,action,fileId);
       if (router.kjx && request.headers.has('X-PCF-Token') && !pcf.validScopedCredential(request.headers.get('X-PCF-Token'),p,reply.drawingId,requestUser(request)?.id)) return errorResponse('Unauthorized',401);
       if (!authorized && !pcf.validScopedCredential(request.headers.get('X-PCF-Token'),p,reply.drawingId)) return errorResponse('Unauthorized',401);
-      return new Response(reply.html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
+      // Uploaded HTML is untrusted evidence, never a same-origin executable page.
+      // The PCF handoff reads fetch/blob and supplies its own File MIME type.
+      return new Response(reply.html, { headers: {
+        'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename="builder-reply.html"',
+        'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': 'sandbox',
+      } });
     }
     if (!authorized) return errorResponse('Unauthorized',401);
     let payload: unknown;

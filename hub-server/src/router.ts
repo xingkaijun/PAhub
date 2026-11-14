@@ -2,7 +2,7 @@ import { createHash, timingSafeEqual } from 'node:crypto';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { projectFromPath, type ProjectSession } from './project-session.ts';
 import { requestUser, validOrigin, KJX_ENFORCE_PROJECT_PASSWORD, type identityConfig } from './identity.ts';
-import { forbidden, requirePermission, type RoutePolicy } from './capabilities.ts';
+import { forbidden, requirePermission, TRANSPORT_POLICIES, type RoutePolicy } from './capabilities.ts';
 import { auditContext } from './audit.ts';
 
 export type RouteContext = { request: Request; url: URL; params: string[]; json: () => Promise<Record<string, any>> };
@@ -57,6 +57,12 @@ export class Router {
   originDenied(request: Request): Response | undefined {
     if (this.kjx && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method) && !validOrigin(request, this.options.identity!.publicOrigin)) return Response.json({ ok: false, error: 'bad_origin' }, { status: 403 });
   }
+  transportDenied(request: Request): Response | undefined {
+    if (!this.kjx) return;
+    const path = new URL(request.url).pathname;
+    const policy = TRANSPORT_POLICIES.find(p => p.method === request.method && p.pattern!.test(path));
+    return policy ? requirePermission(requestUser(request),policy.capability) : forbidden('route.unregistered');
+  }
   async handle(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const identityDenied = await this.authenticate(request);
@@ -65,7 +71,7 @@ export class Router {
     if (originDenied) return this.finish(originDenied, url);
     let response: Response;
     try {
-      if (request.method === 'OPTIONS' && url.pathname.startsWith('/api')) response = new Response(null, { status: 204 });
+      if (request.method === 'OPTIONS' && url.pathname.startsWith('/api')) response = this.transportDenied(request) || new Response(null, { status: 204 });
       else {
         let matched: Route | undefined, params: string[] = [];
         for (const route of this.routes) {

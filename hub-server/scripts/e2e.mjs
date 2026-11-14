@@ -19,6 +19,7 @@ const TESTS = [
   'known-issues-browser-smoke.mjs',
   'manual-browser-smoke.mjs',
   'lobby-browser-smoke.mjs',
+  'builder-handoff-browser-smoke.mjs',
 ];
 
 const run = (args, label) => new Promise(resolve => {
