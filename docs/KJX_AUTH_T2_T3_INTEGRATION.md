@@ -63,3 +63,9 @@ seeding an ID. No pre-T2 legacy tests are changed, including the original
 `permissions.test.ts`; the two previously approved T2 session assertion changes
 remain untouched. No template/schema upgrade, dependency/lockfile changes,
 production-server operation, main push, or PR merge is included.
+
+Initial foreground verification of integration commit
+`adfaf225bdbbd4230a9e4597f68fd978e9d741a3`: `hub:build` passed,
+`hub:test` 303/303 (289 T2 + 6 T3 + 8 integration), and `hub:e2e` 12/12.
+Final verification must be repeated after merging the promised T2
+builder-reply response-header hardening commit.
