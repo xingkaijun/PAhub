@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { randomBytes } from 'node:crypto';
-import { mkdtemp, readFile, readdir, rm } from 'node:fs/promises';
+import { mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { createHub } from '../src/app.ts';
@@ -227,6 +227,34 @@ test('kjx: HTTP ops denial is atomic, old rounds are not own, audit is one row p
     assert.equal(noDiscipline.status,403);
     const unknown=await f.request(pcf+'/ops','admin',f.json({clientId:'client',baseRev:current.rev,ops:[{type:'unknown'}]}));
     assert.equal(unknown.status,403);
+  } finally {await f.cleanup();}
+});
+
+test('kjx: owned-round HTTP edits succeed only for owner-side and matching user', async () => {
+  const f=await fixture();
+  try {
+    await f.request('/pcf/'+PROJECT+'/'+DRAWING,'admin');
+    let current=f.hub.pcf.storage.load(PROJECT,DRAWING);
+    await f.request(pcf+'/ops','admin',f.json({clientId:'setup',baseRev:current.rev,ops:[{type:'comment.add',id:'owned-comment',roundIdNew:'owned-round'}]}));
+    // Seed the T3-owned field only in a fixture; production creation deliberately does not write it in T2.
+    current=f.hub.pcf.storage.load(PROJECT,DRAWING);
+    current.data.comments[0].rounds[0].initiatorId='owner';
+    await writeFile(f.hub.pcf.storage.file(PROJECT,DRAWING),JSON.stringify(current.data));
+    const submit=async(role:typeof roles[number],op:Record<string,unknown>,claims={})=>{
+      const latest=f.hub.pcf.storage.load(PROJECT,DRAWING);
+      return f.request(pcf+'/ops',role,f.json({clientId:'editor',baseRev:latest.rev,ops:[{...op,commentId:'owned-comment',roundId:'owned-round',baseRev:0}]}),claims);
+    };
+    const changed=await submit('reviewer',{type:'content.set',side:'owner',value:{text:'Own edit',html:'',images:[]}});
+    assert.equal(changed.status,200);assert.equal((await changed.json()).applied.length,1);
+    assert.equal((await submit('reviewer',{type:'content.set',side:'owner',value:{text:'Other edit'}},{sub:'other'})).status,403);
+    assert.equal((await submit('reviewer',{type:'content.set',side:'reply',value:{text:'Reply'}})).status,403);
+    assert.equal((await submit('reviewer',{type:'round.meta',field:'initiator',value:'Someone'})).status,403);
+    assert.equal((await submit('reviewer',{type:'round.meta',field:'minHeight',value:200})).status,200);
+    assert.equal((await submit('reviewer',{type:'comment.meta',value:{page:'7'}})).status,200);
+    assert.equal((await submit('reviewer',{type:'comment.status',value:'closed'})).status,200);
+    const presence=await f.request(pcf+'/presence','reviewer',f.json({clientId:'presence-client',clientName:'Forged name'}));
+    assert.equal(presence.status,200);
+    assert.equal((await presence.json()).online.find((entry:any)=>entry.clientId==='presence-client').clientName,'Test reviewer');
   } finally {await f.cleanup();}
 });
 

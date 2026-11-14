@@ -13,7 +13,9 @@ kjx_users (60-second write throttle), never trust display/user headers or legacy
 admin credentials. Project passwords remain a separate gate, with admin bypass.
 Unsafe methods require the configured public Origin (Referer fallback). No default
 ACAO in kjx mode. Session returns identity, capabilities and central auth links;
-legacy GET only appends fields. Legacy POST/DELETE and all existing tests stay intact.
+legacy GET only appends fields. Legacy POST/DELETE stay intact. The owner approved
+v1.1 R1.2's narrow exception: two GET-body assertions project the original fields;
+all other legacy authorization and Cookie assertions remain unchanged.
 
 ## Capability table
 
@@ -48,6 +50,8 @@ Project PATCH classifies every top-level/config/drawing/tracker entry; unknown
 fields and implicit project creation require admin. Authorize the entire body
 inside the existing locks/transaction, before the first write. Managers may update
 existing drawing business fields; destructive/team/settings fields need admin.
+The browser's unchanged projectName envelope is allowed; an attempted rename
+requires settings.write. Unmapped discipline text restricts PCF writes to manager+.
 `authorizeOps` checks all 13 op kinds against the latest document within serial,
 before applying anything. Unknown ops fail closed. Missing initiatorId is not own.
 Comment-wide status/meta requires ownership of every affected round. Reply edits,
@@ -62,8 +66,13 @@ writes have no actor and an explicit source. One audit row per op batch retains
 existing COMMENTS semantics and includes the op-kind list. A source grep test
 forbids direct audit INSERTs elsewhere.
 
-Keep all old tests unchanged. Add JWT failure/role matrices, all registered route
+Keep old tests unchanged except the explicitly approved R1.2 GET-body projections.
+Add JWT failure/role matrices, all registered route
 coverage (including side-effecting GET), 13-op own/other/anonymous matrix, atomic
 PATCH/op rejection, Origin, admin console, CORS, project-password isolation,
 user-bound grants, audit and legacy-header-ignore tests. Run hub:build, hub:test
 and hub:e2e before the draft PR; record exact totals and any deviations.
+
+Final foreground validation: hub:build passed; hub:test 289/289 (274 baseline +
+15 new tests); hub:e2e 12/12. No dependency/lockfile changes, no server deployment.
+T3 still owns participant-ID writes and Daily Log actor UI; T4 owns directory/manual.

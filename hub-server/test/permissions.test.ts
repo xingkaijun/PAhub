@@ -53,7 +53,7 @@ test('session status, sign-in and sign-out set an httpOnly SameSite=Strict cooki
   const f = await fixture({ password: PASSWORD });
   try {
     const anonymous = await (await f.request('/api/session')).json() as any;
-    assert.deepEqual(anonymous, { admin: false, requiresPassword: true });
+    assert.deepEqual({ admin: anonymous.admin, requiresPassword: anonymous.requiresPassword }, { admin: false, requiresPassword: true });
     const signedIn = await f.login();
     assert.equal(signedIn.status, 200);
     const cookie = signedIn.response.headers.get('set-cookie') || '';
@@ -61,7 +61,7 @@ test('session status, sign-in and sign-out set an httpOnly SameSite=Strict cooki
     assert.match(cookie, /HttpOnly/i);
     assert.match(cookie, /SameSite=Strict/i);
     assert.match(cookie, /Max-Age=43200/);
-    assert.deepEqual(await (await f.request('/api/session', { headers: { Cookie: signedIn.header } })).json(), { admin: true, requiresPassword: true });
+    assert.deepEqual(await (await f.request('/api/session', { headers: { Cookie: signedIn.header } })).json().then(body => ({ admin: body.admin, requiresPassword: body.requiresPassword })), { admin: true, requiresPassword: true });
     const out = await f.request('/api/session', { method: 'DELETE', headers: { Cookie: signedIn.header } });
     assert.equal(out.status, 200);
     assert.match(out.headers.get('set-cookie') || '', /Max-Age=0/);
