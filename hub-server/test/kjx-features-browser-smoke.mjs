@@ -29,6 +29,10 @@ try {
  assert.equal(hub.pcf.storage.load(P,D).data.comments[0].rounds[0].initiatorId,'reviewer');
  const manager=await contexts.manager.newPage();manager.on('pageerror',e=>errors.push(e.message));
  await manager.goto(origin+'/pcf/'+P+'/'+D);await manager.locator('[data-kjx-initiator] option[value="other"]').waitFor({state:'attached'});
+ // Opening another author's round must display that author, never the viewer.
+ assert.equal(await manager.locator('[data-kjx-initiator]').inputValue(),'reviewer');
+ assert.equal(await manager.locator('[data-kjx-initiator] option:checked').innerText(),'Logged reviewer');
+ assert.equal(hub.pcf.storage.load(P,D).data.comments[0].rounds[0].initiatorId,'reviewer');
  await manager.locator('[data-kjx-initiator]').selectOption('other');await manager.locator('#save-btn').click();await manager.waitForFunction(()=>document.querySelector('#save-state').textContent.includes('Saved'));
  assert.equal(hub.pcf.storage.load(P,D).data.comments[0].rounds[0].initiatorId,'other');
  assert.equal(hub.pcf.storage.load(P,D).data.comments[0].rounds[0].initiator,'Other Reviewer');
@@ -55,6 +59,9 @@ try {
  await manager.reload();await manager.waitForFunction(()=>document.querySelector('[data-kjx-initiator]')?.options.length===2);
  assert.equal(await manager.locator('[data-kjx-initiator] option:not(:disabled)').count(),1);
  assert.equal(await manager.locator('[data-kjx-initiator] option:not(:disabled)').getAttribute('value'),'manager');
+ assert.equal(await manager.locator('[data-kjx-initiator]').inputValue(),'');
+ assert.equal(await manager.locator('[data-kjx-initiator] option:checked').innerText(),'Other Reviewer');
+ assert.equal(hub.pcf.storage.load(P,D).data.comments[0].rounds[0].initiatorId,'other');
  await contexts.admin.route('**/api/team/directory*',route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({ok:false,fallback:true})}));
  await admin.getByRole('button',{name:'Team Setup',exact:true}).click();
  await admin.getByLabel('Select Hull reviewer manually').fill('Manual Person');
