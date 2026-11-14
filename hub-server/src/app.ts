@@ -19,8 +19,10 @@ import {createProjectSession} from './project-session.ts';
 import {createIdentity,createProductionVerifier,requestUser} from './identity.ts';
 import type {KjxVerifier} from './kjx-auth-client.ts';
 import {ADMIN_POLICIES} from './capabilities.ts';
+import {KjxDirectory, type DirectoryOptions} from './kjx-directory.ts';
+import {registerTeamDirectoryRoutes} from './team-directory-routes.ts';
 
-export async function createHub(options: {middleware?: Middleware;host?: '127.0.0.1';verifier?: KjxVerifier} = {}) {
+export async function createHub(options: {middleware?: Middleware;host?: '127.0.0.1';verifier?: KjxVerifier;directory?: DirectoryOptions} = {}) {
  const config=readConfig();
  // No listener or live SQLite connection exists while migration/backup runs.
  migratePcfJsonAtStartup(config.dataDir,config.dbPath);
@@ -29,7 +31,8 @@ export async function createHub(options: {middleware?: Middleware;host?: '127.0.
  const legacyAdmin=createAdminSession({password:config.env.ADMIN_PASSWORD,apiToken:config.env.API_TOKEN});
  const adminSession=config.identity.mode==='kjx' ? {...legacyAdmin,isAdmin:(request:Request)=>requestUser(request)?.role==='admin'} : legacyAdmin;
  const projectSession=createProjectSession(db,adminSession);
- const pcf=new PcfApi(new PcfStorage(db,config.dataDir),config.env.API_TOKEN,adminSession,projectSession,{mode:config.identity.mode,grantSecret:config.grantSecret});
+ const directory=config.identity.mode==='kjx' ? new KjxDirectory({internalUrl:process.env.KJX_INTERNAL_URL,clientId:process.env.KJX_CLIENT_ID,clientSecret:process.env.KJX_CLIENT_SECRET,...options.directory}) : undefined;
+ const pcf=new PcfApi(new PcfStorage(db,config.dataDir),config.env.API_TOKEN,adminSession,projectSession,{mode:config.identity.mode,grantSecret:config.grantSecret,directory});
  const authenticate=config.identity.mode==='kjx' ? createIdentity(options.verifier || createProductionVerifier(config.identity),db) : undefined;
  const router=new Router({...config.env,adminSession,projectSession,identity:config.identity,authenticate}),writer=new ProjectWriter(pcf.storage,pcf.realtime);
  registerAdminSessionRoutes(router,adminSession);
@@ -37,6 +40,7 @@ export async function createHub(options: {middleware?: Middleware;host?: '127.0.
  registerProjectRoutes(router,writer);
  registerTrackerRoutes(router,writer);
  registerActivityRoutes(router,db);
+ if(directory) registerTeamDirectoryRoutes(router,directory);
  registerSystemRoutes(router,db);
  const admin=new AdminApi(db,config.dbPath,config.env.ADMIN_PASSWORD,writer,config.identity.publicUrl);
  router.add({pattern:/^\/api\/admin(?:\/|$)/,auth:'none',policies:ADMIN_POLICIES,handle:ctx=>admin.handle(ctx.request)});

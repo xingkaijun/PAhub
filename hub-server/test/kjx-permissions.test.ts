@@ -127,6 +127,8 @@ test('kjx: identity failure cases, health-only exemption, session and throttled 
 // null means the inventory's unsupported/fail-closed path, not an allowed role.
 type RouteExample = readonly [method: string, path: string, capability: Capability | 'route.unregistered', minimum: RequestUser['role'] | null];
 const ROUTE_EXAMPLES: readonly RouteExample[] = [
+  ['GET','/api/team/directory','team.setup','admin'],
+  ['GET','/api/pcf/proj-test-001/dwg-001/initiators','pcf.comment.edit_any','manager'],
   ['GET','/api/session','view','viewer'],
   ['POST','/api/session','view','viewer'],
   ['DELETE','/api/session','view','viewer'],

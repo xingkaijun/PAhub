@@ -40,6 +40,7 @@ export const TRANSPORT_POLICIES: RoutePolicy[] = [
 ];
 // Subroutes are explicit: a broad PCF prefix must never imply view access to writes.
 export const PCF_POLICIES: RoutePolicy[] = [
+  { method: 'GET', pattern: /^\/api\/pcf\/[^/]+\/[^/]+\/initiators$/, capability: 'pcf.comment.edit_any', sample: '/api/pcf/P/D/initiators' },
   { method: 'GET', pattern: /^\/api\/pcf\/[^/]+\/(index|presence)$/, capability: 'view', sample: '/api/pcf/P/index' },
   { method: 'POST', pattern: /^\/api\/pcf\/[^/]+\/exports\/batch$/, capability: 'builder.export', sample: '/api/pcf/P/exports/batch' },
   ...['GET', 'HEAD'].flatMap(method => [

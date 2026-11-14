@@ -177,6 +177,8 @@ export interface SaveResult {
 
 // 服务端写入日志条目（audit_log 里 action 为 STATUS / COMMENTS 的行）
 export interface AuditEntry {
+  actorId?: string | null;
+  actorName?: string | null;
   id: string;
   drawingId: string;
   action: 'STATUS' | 'COMMENTS' | 'BUILDER_REPLY';
