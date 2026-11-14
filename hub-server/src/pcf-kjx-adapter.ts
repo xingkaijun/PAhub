@@ -60,7 +60,9 @@ export const KJX_PCF_ADAPTER = `<script id="pahub-kjx-permissions">
       const choices=new Map(candidates.map(person=>[person.id,person]));
       if(directoryAvailable&&round.initiatorId&&!choices.has(round.initiatorId))choices.set(round.initiatorId,{id:round.initiatorId,name:round.initiator||'Unknown user'});
       if(!round.initiatorId||!choices.has(round.initiatorId)){const old=document.createElement('option');old.value='';old.disabled=true;old.textContent=round.initiator||'Unassigned';select.append(old);}
-      for(const person of choices.values()){const option=document.createElement('option');option.value=person.id;option.textContent=person.name;select.append(option);}select.value=choices.has(round.initiatorId)?round.initiatorId:'';input.replaceWith(select);
+      // Serialized through innerHTML below, so selection must be an attribute (the .value property is lost).
+      const current=choices.has(round.initiatorId)?round.initiatorId:'';if(!current)select.firstElementChild?.setAttribute('selected','');
+      for(const person of choices.values()){const option=document.createElement('option');option.value=person.id;option.textContent=person.name;if(person.id===current)option.setAttribute('selected','');select.append(option);}input.replaceWith(select);
     }else{input.readOnly=true;input.setAttribute('aria-readonly','true');}
     return container.innerHTML;
   };
