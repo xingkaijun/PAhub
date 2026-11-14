@@ -2,6 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useStore } from '../store';
 import { describeAuditEntry } from '../lib/auditLogDescribe';
 import type { AuditEntry } from '../types';
+import { actorLabel, actorOptions, filterActor, actorExport } from '../lib/auditActors';
 import { Calendar, Download, Copy, FileText, Printer, Check, Table2, ClipboardCheck, Filter, Database, HardDrive, Layers } from 'lucide-react';
 import { format, isWithinInterval, startOfDay, endOfDay, parseISO, addDays } from 'date-fns';
 
@@ -16,6 +17,8 @@ const TRANSITION_FILTERS = [
 
 // 本地日志与服务端写入日志统一成同一行形状，表格 / CSV / Copy / PDF 全部复用
 interface ChangeRow {
+    actorId?: string | null;
+    actorName?: string | null;
     date: string;
     time: string;
     occurredAt: number;
@@ -40,7 +43,7 @@ const mergeCommentsByDay = (rows: ChangeRow[]): ChangeRow[] => {
             return;
         }
 
-        const key = `${row.date}|${row.drawingId}`;
+        const key = `${row.date}|${row.drawingId}|${row.actorId || ''}`;
         const existing = seen.get(key);
         if (!existing) {
             const copy = { ...row };
@@ -63,6 +66,9 @@ const mergeCommentsByDay = (rows: ChangeRow[]): ChangeRow[] => {
 
 export const DailyLogReport: React.FC = () => {
     const { data, activeProjectId, loadAuditLog } = useStore();
+    const kjx = useStore(state => state.session?.mode === 'kjx');
+    const [selectedActor, setSelectedActor] = useState('');
+    useEffect(() => { setSelectedActor(''); }, [activeProjectId, kjx]);
     const activeProject = data.projects.find(p => p.id === activeProjectId);
 
     const today = format(new Date(), 'yyyy-MM-dd');
@@ -75,7 +81,7 @@ export const DailyLogReport: React.FC = () => {
     const [selectedTransitions, setSelectedTransitions] = useState<Set<string>>(new Set());
 
     // 数据源：local = 客户端 statusHistory 快照，server = 真正落库的写入日志
-    const [logSource, setLogSource] = useState<'local' | 'server'>('local');
+    const [logSource, setLogSource] = useState<'local' | 'server'>(kjx ? 'server' : 'local');
     const [serverEntries, setServerEntries] = useState<AuditEntry[]>([]);
     const [serverLoading, setServerLoading] = useState(false);
     const [serverError, setServerError] = useState<string | null>(null);
@@ -104,7 +110,7 @@ export const DailyLogReport: React.FC = () => {
     }, [logSource, activeProjectId, startDate, endDate, loadAuditLog]);
 
     // 数据聚合引擎
-    const dailyChanges = useMemo(() => {
+    const unfilteredChanges = useMemo(() => {
         if (!activeProject) return [] as ChangeRow[];
 
         if (logSource === 'server') {
@@ -124,6 +130,7 @@ export const DailyLogReport: React.FC = () => {
                     eventType: entry.action === 'STATUS' ? 'Status' : entry.action === 'BUILDER_REPLY' ? 'Builder Reply' : 'Comments',
                     detail: describeAuditEntry(entry),
                     note: entry.source,
+                    ...(kjx ? { actorId: entry.actorId, actorName: entry.actorName } : {}),
                 };
             });
 
@@ -251,7 +258,9 @@ export const DailyLogReport: React.FC = () => {
                 selectedTransitions.has(f.key) && f.match(change.detail)
             );
         });
-    }, [activeProject, startDate, endDate, selectedTransitions, logSource, serverEntries, expandRaw]);
+    }, [activeProject, startDate, endDate, selectedTransitions, logSource, serverEntries, expandRaw, kjx]);
+    const actors = useMemo(() => actorOptions(serverEntries), [serverEntries]);
+    const dailyChanges = useMemo(() => kjx ? filterActor(unfilteredChanges, selectedActor) : unfilteredChanges, [unfilteredChanges, selectedActor, kjx]);
 
     // 筛选出当天状态变为 Waiting Reply 或 Approved 的图纸（用于打印流转单）
     const transmittalDrawings = useMemo(() => {
@@ -342,6 +351,12 @@ export const DailyLogReport: React.FC = () => {
             const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
 
             pdf.addImage(imgData, 'JPEG', 0, 0, pdfWidth, pdfHeight);
+            if (kjx) {
+                const pageHeight = pdf.internal.pageSize.getHeight();
+                for (let offset = pageHeight; offset < pdfHeight; offset += pageHeight) {
+                    pdf.addPage(); pdf.addImage(imgData, 'JPEG', 0, -offset, pdfWidth, pdfHeight);
+                }
+            }
             pdf.save(`Transmittal_Record_${startDate}_${endDate}.pdf`);
 
         } catch (error) {
@@ -371,10 +386,11 @@ export const DailyLogReport: React.FC = () => {
             `Filters: ${getFilterText()}`,
             `Total Events: ${dailyChanges.length}`,
             '',
+            ...(kjx ? [actorExport<ChangeRow>(['Date','Time','ID','Drawing No','Title','Type','Detail','Note'], dailyChanges, c => [c.date,c.time,c.customId,c.drawingNo,c.drawingTitle,c.eventType,c.detail,c.note], false)] : [
             'Date\t\tTime\t\tID\t\tDrawing No\t\tTitle\t\tType\t\tDetail\t\tNote',
             ...dailyChanges.map(c =>
                 `${c.date}\t\t${c.time}\t\t${c.customId}\t\t${c.drawingNo}\t\t${c.drawingTitle}\t\t${c.eventType}\t\t${c.detail}\t\t${c.note}`
-            )
+            )])
         ].join('\n');
 
         navigator.clipboard.writeText(text);
@@ -390,10 +406,11 @@ export const DailyLogReport: React.FC = () => {
             `"Filters:","${getFilterText()}"`,
             `"Total Events:","${dailyChanges.length}"`,
             '',
+            ...(kjx ? [actorExport<ChangeRow>(['Date','Time','ID','Drawing No','Title','Type','Detail','Note'], dailyChanges, c => [c.date,c.time,c.customId,c.drawingNo,c.drawingTitle,c.eventType,c.detail,c.note], true)] : [
             'Date,Time,ID,Drawing No,Title,Type,Detail,Note',
             ...dailyChanges.map(c =>
                 `"${c.date}",${c.time},"${c.customId}","${c.drawingNo}","${c.drawingTitle}","${c.eventType}","${c.detail}","${c.note}"`
-            )
+            )])
         ].join('\n');
 
         const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' });
@@ -519,6 +536,7 @@ export const DailyLogReport: React.FC = () => {
                         {/* 第二行：数据源切换 */}
                         <div className="flex items-center gap-2 border-t border-slate-100 pt-3 flex-wrap">
                             <Database size={14} className="text-slate-400 shrink-0" />
+                            {kjx && <label className="text-xs font-bold text-slate-500">Actor <select aria-label="Actor" value={selectedActor} onChange={event => setSelectedActor(event.target.value)} className="rounded-lg border border-slate-200 bg-white p-2"><option value="">All</option>{actors.map(person => <option key={person.id} value={person.id}>{person.name}</option>)}</select></label>}
                             <span className="text-xs font-black text-slate-400 uppercase tracking-wider shrink-0">Source:</span>
                             {([
                                 { key: 'local' as const, label: 'Local', icon: HardDrive, title: 'Change snapshots recorded in this browser, including unsaved local edits' },
@@ -640,13 +658,14 @@ export const DailyLogReport: React.FC = () => {
                                     <th className="px-4 py-3 text-left text-xs font-black uppercase text-slate-600 tracking-widest">Title</th>
                                     <th className="px-4 py-3 text-left text-xs font-black uppercase text-slate-600 tracking-widest">Type</th>
                                     <th className="px-4 py-3 text-left text-xs font-black uppercase text-slate-600 tracking-widest">Detail</th>
+                                    {kjx && <th className="px-4 py-3 text-left text-xs font-black uppercase text-slate-600">Actor</th>}
                                     <th className="px-4 py-3 text-left text-xs font-black uppercase text-slate-600 tracking-widest" title="Additional information like Due Date for Transmittals">Note</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-slate-100">
                                 {dailyChanges.length === 0 ? (
                                     <tr>
-                                        <td colSpan={8} className="px-4 py-12 text-center">
+                                        <td colSpan={kjx ? 9 : 8} className="px-4 py-12 text-center">
                                             <div className="text-slate-300">
                                                 <FileText size={48} className="mx-auto mb-3 opacity-20" />
                                                 <p className="text-sm font-bold">
@@ -683,6 +702,7 @@ export const DailyLogReport: React.FC = () => {
                                                 </span>
                                             </td>
                                             <td className="px-4 py-3 text-sm font-bold text-slate-700">{change.detail}</td>
+                                            {kjx && <td className="px-4 py-3 text-xs text-slate-600">{actorLabel(change)}</td>}
                                             <td className="px-4 py-3 text-xs text-slate-500">{change.note}</td>
                                         </tr>
                                     ))
@@ -814,6 +834,7 @@ export const DailyLogReport: React.FC = () => {
                     </div>
                 </div>
 
+                {kjx && <section id="print-actor-log" className="my-6"><h3 className="font-bold">Daily Log — Actor: {actors.find(person => person.id === selectedActor)?.name || 'All'}</h3><table className="w-full border-collapse text-[10px]"><thead><tr>{['Date','Time','Drawing No','Type','Detail','Actor'].map(header => <th key={header} className="border p-2 text-left">{header}</th>)}</tr></thead><tbody>{dailyChanges.map((row,index) => <tr key={index}>{[row.date,row.time,row.drawingNo,row.eventType,row.detail,actorLabel(row)].map((cell,i) => <td key={i} className="border p-2">{cell}</td>)}</tr>)}</tbody></table></section>}
                 {/* 打印表格主体 */}
                 <table className="w-full text-left border-collapse border border-slate-300">
                     <thead className="bg-slate-100">

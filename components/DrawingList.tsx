@@ -12,6 +12,7 @@ import { BuilderRepliesImport, type BuilderRepliesImportHandle } from './Builder
 import { AdminLoginDialog } from './AdminLoginDialog';
 import { ModalOverlay } from './ModalOverlay';
 import { parseBulkLoadText } from '../lib/bulk-load';
+import { DirectoryPicker } from './DirectoryPicker';
 
 const ADMIN_REQUIRED = 'Administrator permission required';
 
@@ -817,7 +818,7 @@ export const DrawingList: React.FC = () => {
               <div className="space-y-4">
                 {derivedDisciplines.map(discipline => {
                   const currentDefaults = project?.conf?.defaultAssignees?.[discipline] || [];
-                  const availableReviewers = reviewers.map(r => typeof r === 'string' ? r : r.name);
+                  const availableReviewers = reviewers.map(r => session?.mode === 'kjx' ? r.id : typeof r === 'string' ? r : r.name);
 
                   return (
                     <div key={discipline} className="bg-slate-50 rounded-xl p-4 border border-slate-200">
@@ -826,6 +827,12 @@ export const DrawingList: React.FC = () => {
                         <span className="text-[8px] font-black text-slate-400 uppercase">{currentDefaults.length} assigned</span>
                       </div>
 
+                      {session?.mode === 'kjx' && <DirectoryPicker discipline={discipline} label={'Select ' + discipline + ' reviewer'} onSelect={person => {
+                        if (!project) return;
+                        const roster = [...project.conf.reviewers.filter(r => r.id !== person.id), person];
+                        const assigned = project.conf.defaultAssignees?.[discipline] || [];
+                        useStore.getState().updateProjectConfig(project.id, { reviewers: roster, defaultAssignees: { ...project.conf.defaultAssignees, [discipline]: [...new Set([...assigned, person.id])] } });
+                      }} />}
                       <div className="space-y-2">
                         {availableReviewers.map(reviewer => {
                           const isSelected = currentDefaults.includes(reviewer);
@@ -852,7 +859,7 @@ export const DrawingList: React.FC = () => {
                                 : 'bg-white text-slate-600 hover:bg-indigo-50 border border-slate-200'
                                 }`}
                             >
-                              {reviewer}
+                              {session?.mode === 'kjx' ? reviewers.find(r => r.id === reviewer)?.name || reviewer : reviewer}
                             </button>
                           );
                         })}

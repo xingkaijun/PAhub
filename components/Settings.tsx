@@ -10,6 +10,8 @@ import { format } from 'date-fns';
 import { downloadProjectBackup, parseProjectBackup } from '../services/data/localProjectFile';
 import { calculateDeadline, reviewCycleDays } from '../lib/deadline';
 import { projectsApi } from '../services/api/projectsApi';
+import { DirectoryPicker } from './DirectoryPicker';
+import type { Reviewer } from '../types';
 
 export const Settings: React.FC = () => {
   const { data, updateSettings, updateProjectConfig, saveActiveProject, loadProject, fetchProjectList, isLoading, activeProjectId, error, clearError, restoreProject, reviewTracker } = useStore();
@@ -29,6 +31,12 @@ export const Settings: React.FC = () => {
   const [passwordBusy, setPasswordBusy] = useState(false);
   const [passwordNotice, setPasswordNotice] = useState('');
   const isAdmin = useStore(state => state.can('settings.write'));
+  const kjx = useStore(state => state.session?.mode === 'kjx');
+  const addDirectoryReviewer = (person: Reviewer, discipline?: string) => {
+    const reviewers = [...(activeSettings.reviewers || []).filter(r => r.id !== person.id), person];
+    const changes = { reviewers, ...(discipline ? { disciplineDefaults: { ...activeSettings.disciplineDefaults, [discipline]: person.id } } : {}) };
+    if (project) updateProjectConfig(project.id, changes); else updateSettings(changes);
+  };
   const passwordRequest = useRef<AbortController | null>(null);
   useEffect(() => {
     setPasswordDraft(''); setPasswordNotice(''); setPasswordBusy(false);
@@ -337,14 +345,14 @@ export const Settings: React.FC = () => {
               <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-800">Team Roster</h2>
             </div>
             <div className="p-3 flex-1 flex flex-col gap-2 min-h-0">
-              <div className="flex gap-1.5 shrink-0">
+              {kjx ? <DirectoryPicker onSelect={person => addDirectoryReviewer(person)} label="Add directory reviewer" /> : <div className="flex gap-1.5 shrink-0">
                 <input
                   type="text" value={newReviewer} onChange={(e) => setNewReviewer(e.target.value)}
                   placeholder="New Reviewer Name"
                   className="flex-1 p-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-black outline-none focus:bg-white transition-all uppercase"
                 />
                 <button onClick={() => addItem('reviewers', newReviewer, setNewReviewer)} className="p-2 bg-[linear-gradient(135deg,#005c55_0%,#0f766e_100%)] text-white rounded-full hover:brightness-105 active:scale-95 transition-all shadow-[0_10px_20px_-14px_rgba(13,148,136,0.45)]"><Plus size={14} /></button>
-              </div>
+              </div>}
               <div className="grid grid-cols-1 gap-1 overflow-y-auto pr-1 scrollbar-thin flex-1">
                 {(activeSettings.reviewers || []).map(r => {
                   const rName = typeof r === 'string' ? r : r.name;
@@ -371,6 +379,7 @@ export const Settings: React.FC = () => {
                 {activeDisciplines.map(d => (
                   <div key={d} className="flex items-center justify-between p-1 px-2 rounded-lg bg-slate-50/50 border border-slate-100 hover:border-indigo-200 transition-colors shrink-0">
                     <span className="text-[9px] font-black uppercase text-slate-500 tracking-widest flex-1 truncate py-1" title={d}>{d}</span>
+                    {kjx && <DirectoryPicker discipline={d} label={'Select ' + d + ' lead'} onSelect={person => addDirectoryReviewer(person, d)} />}
                     <select
                       value={(activeSettings.disciplineDefaults || {})[d] || ''}
                       onChange={(e) => updateDisciplineDefault(d, e.target.value)}

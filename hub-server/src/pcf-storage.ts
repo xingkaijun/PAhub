@@ -125,7 +125,7 @@ export class PcfStorage {
     if (!Number.isSafeInteger(body.baseRev) || body.baseRev < 1 || !Array.isArray(body.ops) || body.ops.length > 10000) fail('Invalid ops request');
     if (body.batchId !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.batchId)) fail('batchId must be UUID');
     const { data, rev } = this.load(p, d);
-    const hash = createHash('sha256').update(JSON.stringify({ clientId: actor.clientId, baseRev: body.baseRev, ops: body.ops, ...(requestActor ? { requestActor } : {}) })).digest('hex');
+    const hash = createHash('sha256').update(JSON.stringify({ clientId: actor.clientId, baseRev: body.baseRev, ops: body.ops, ...(requestActor ? { requestActor: { sub: requestActor.sub, name: requestActor.name } } : {}) })).digest('hex');
     const receipts = (data.hub.receipts || []).filter((r: any) => Date.now() - r.at < 86400000);
     const prior = body.batchId && receipts.find((r: any) => r.id === body.batchId);
     if (prior) {

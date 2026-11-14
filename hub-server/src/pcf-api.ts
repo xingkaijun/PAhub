@@ -15,12 +15,14 @@ import { authorizeOps } from './pcf-op-auth.ts';
 import { auditContext } from './audit.ts';
 import { KJX_PCF_ADAPTER } from './pcf-kjx-adapter.ts';
 import { kjxDiscipline } from './discipline-map.ts';
+import type { KjxDirectory } from './kjx-directory.ts';
+import { resolveInitiatorOps } from './pcf-initiator.ts';
 
 export class PcfApi {
   readonly realtime = new PcfRealtime();
   private secret: string;
   readonly exchange: PcfExchange;
-  constructor(readonly storage: PcfStorage, private token?: string, private admin?: AdminSession, private projectSession?: ProjectSession, private auth: { mode: AuthMode; grantSecret?: string } = { mode: 'legacy' }) { this.secret = auth.grantSecret ?? (token || randomBytes(32).toString('hex')); this.exchange = new PcfExchange(storage); }
+  constructor(readonly storage: PcfStorage, private token?: string, private admin?: AdminSession, private projectSession?: ProjectSession, private auth: { mode: AuthMode; grantSecret?: string; directory?: KjxDirectory } = { mode: 'legacy' }) { this.secret = auth.grantSecret ?? (token || randomBytes(32).toString('hex')); this.exchange = new PcfExchange(storage); }
   private get kjx() { return this.auth.mode === 'kjx'; }
   private requiresAdmin(request: Request) { return Boolean(this.admin && !this.admin.isAdmin(request)); }
   private grant(p: string, d: string, userId?: string) {
@@ -148,8 +150,13 @@ export class PcfApi {
       if (!body || typeof body !== 'object' || Array.isArray(body)) fail('Invalid JSON body');
       if (tail === 'ops') safeId(body.clientId);
     }
-    return this.storage.serial(p, d, () => {
+    return this.storage.serial(p, d, async () => {
       switch (request.method + ' ' + tail) {
+        case 'GET initiators': {
+          if (!this.kjx) fail('Not found', 404);
+          this.storage.load(p, d);
+          return json(await this.auth.directory?.list() || { ok: false, fallback: true });
+        }
         case 'GET meta': return json(this.storage.meta(p, d));
         case 'POST create': return json(this.storage.create(p, d, this.actor(body, ip)));
         case 'GET data': { const { rev, data } = this.storage.load(p, d); return json({ rev, data: this.storage.publicData(data) }); }
@@ -168,7 +175,8 @@ export class PcfApi {
             if (authorized.ok === false) return forbidden(authorized.capability,authorized.opIndex);
           }
           const user = this.kjx ? requestUser(request) : undefined;
-          const requestActor = user ? { sub: user.id, name: user.name } : undefined;
+          const initiators = user && Array.isArray(body.ops) ? await resolveInitiatorOps(this.storage.db, this.auth.directory, p, user, body.ops) : undefined;
+          const requestActor = user ? { sub: user.id, name: user.name, ...(initiators ? { initiators } : {}) } : undefined;
           const actor = this.actor(body, ip), outcome = this.storage.opsBatch(p, d, body, actor, requestActor);
           if (!outcome.replayed && outcome.result.applied.length) this.realtime.changed(p + '/' + d, outcome.result, actor);
           return json(outcome.result);

@@ -5,7 +5,7 @@ export { countOpen, reconcileApproval, roundCleanupPlan, pruneRounds, cleanupLeg
 export type PcfData = Record<string, any>;
 export type Op = { type: string; baseRev?: number; [key: string]: any };
 export type Actor = { clientId: string; clientName: string; ip: string };
-export type RequestActor = { sub: string; name: string };
+export type RequestActor = { sub: string; name: string; initiators?: Record<string, { id: string; name: string }> };
 export const projectFields = ['name', 'planNo', 'planTitle', 'revision', 'folder', 'approval', 'currentRound'];
 export const registerFields = ['revision', 'ownerRef', 'ownerDate', 'replyRef', 'replyDate'];
 export function fail(message: string, status = 400): never { throw Object.assign(new Error(message), { status }); }
@@ -201,8 +201,13 @@ export function applyOps(d: PcfData, ops: Op[], actor: Actor, rev: number, reque
         if (op.value.page !== undefined) c.page = String(op.value.page);
         if (op.value.tags !== undefined) { if (!Array.isArray(op.value.tags) || op.value.tags.some((x: any) => typeof x !== 'string')) fail('Invalid tags'); c.tags = op.value.tags; }
         c.metaRev = rev; break;
-      case 'round.meta':
-        if (!['initiator', 'responder', 'minHeight'].includes(op.field)) fail('Invalid round field'); r[op.field] = op.field === 'minHeight' ? Math.max(0, Math.min(3000, Number(op.value) || 0)) : String(op.value); break;
+      case 'round.meta': {
+        if (!['initiator', 'responder', 'minHeight'].includes(op.field)) fail('Invalid round field');
+        const person = op.field === 'initiator' ? requestActor?.initiators?.[op.initiatorId] : undefined;
+        if (person) { r.initiatorId = person.id; r.initiator = person.name; }
+        else r[op.field] = op.field === 'minHeight' ? Math.max(0, Math.min(3000, Number(op.value) || 0)) : String(op.value);
+        break;
+      }
       case 'project.set':
         if (!projectFields.includes(op.field)) fail('Invalid project field');
         if (op.field === 'currentRound' && (!Number.isSafeInteger(op.value) || op.value < 1 || op.value > 9999)) fail('Invalid round');
