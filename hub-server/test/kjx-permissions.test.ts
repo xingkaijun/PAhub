@@ -7,7 +7,7 @@ import path from 'node:path';
 import { createHub } from '../src/app.ts';
 import { createKjxTestSigner, createKjxVerifier } from '../src/kjx-auth-client.ts';
 import { authorizeOps, OP_CAPABILITIES } from '../src/pcf-op-auth.ts';
-import { CAPABILITIES, hasPermission, type Capability } from '../src/capabilities.ts';
+import { CAPABILITIES, TRANSPORT_POLICIES, type Capability } from '../src/capabilities.ts';
 import { identityConfig, type RequestUser } from '../src/identity.ts';
 import { readConfig } from '../src/config.ts';
 import { PcfApi } from '../src/pcf-api.ts';
@@ -15,6 +15,8 @@ import { initializeIdentitySchema, writeAudit } from '../src/audit.ts';
 import { kjxDiscipline } from '../src/discipline-map.ts';
 import { JSDOM } from 'jsdom';
 import { createApiClient } from '../../services/api/apiClient';
+import { parseHTML, replaceData } from '../src/pcf-storage.ts';
+import { blankContent } from '../src/pcf-model.ts';
 
 const PUBLIC = 'https://pahub.kjxing.com';
 const PROJECT = 'proj-test-001', DRAWING = 'dwg-001';
@@ -120,54 +122,159 @@ test('kjx: identity failure cases, health-only exemption, session and throttled 
   } finally {await f.cleanup();}
 });
 
-test('kjx: every registered route declares capabilities and role matrix is enforced', async () => {
+// Independent, literal method/path expectations transcribed from T1 §1/B, with
+// approved T2 decision overrides. Never generate these from policies or their samples.
+// null means the inventory's unsupported/fail-closed path, not an allowed role.
+type RouteExample = readonly [method: string, path: string, capability: Capability | 'route.unregistered', minimum: RequestUser['role'] | null];
+const ROUTE_EXAMPLES: readonly RouteExample[] = [
+  ['GET','/api/session','view','viewer'],
+  ['POST','/api/session','view','viewer'],
+  ['DELETE','/api/session','view','viewer'],
+  ['GET','/api','view','viewer'],
+  ['GET','/api/','view','viewer'],
+  ['GET','/api/settings','view','viewer'],
+  ['GET','/api/health','view','viewer'],
+  ['GET','/api/projects','view','viewer'],
+  ['POST','/api/projects/proj-test-001/unlock','view','viewer'],
+  ['POST','/api/projects/proj-test-001','view','viewer'],
+  ['PATCH','/api/projects/proj-test-001','drawing.update','manager'],
+  ['GET','/api/projects/proj-test-001/drawings','view','viewer'],
+  ['POST','/api/projects/proj-test-001/drawings/dwg-001/status','drawing.update','manager'],
+  ['GET','/api/projects/proj-test-001/comments','view','viewer'],
+  ['GET','/api/projects/proj-test-001/comments.xlsx','view','viewer'],
+  ['GET','/api/projects/proj-test-001/events','view','viewer'],
+  ['GET','/api/projects/proj-test-001/review-tracker','view','viewer'],
+  ['PUT','/api/projects/proj-test-001/review-tracker','admin.only','admin'],
+  ['GET','/api/projects/proj-test-001/audit','view','viewer'],
+  ['GET','/api/projects/proj-test-001/heartbeat','view','viewer'],
+  ['PUT','/api/projects/proj-test-001/heartbeat','admin.only','admin'],
+  ['GET','/api/projects/proj-test-001/builder-replies/pending','builder.import_reply','manager'],
+  ['POST','/api/projects/proj-test-001/builder-replies/preview','builder.import_reply','manager'],
+  ['POST','/api/projects/proj-test-001/builder-replies/11111111-1111-4111-8111-111111111111/apply','builder.import_reply','manager'],
+  ['POST','/api/projects/proj-test-001/builder-replies/11111111-1111-4111-8111-111111111111/skip','builder.import_reply','manager'],
+  ['GET','/api/projects/proj-test-001/builder-replies/11111111-1111-4111-8111-111111111111/file/22222222-2222-4222-8222-222222222222','builder.import_reply','manager'],
+  ['DELETE','/api/projects/proj-test-001/builder-replies/pending','route.unregistered',null],
+  ['GET','/api/pcf/proj-test-001/index','view','viewer'],
+  ['GET','/api/pcf/proj-test-001/presence','view','viewer'],
+  ['POST','/api/pcf/proj-test-001/exports/batch','builder.export','manager'],
+  ['GET','/pcf/proj-test-001/dwg-001','view','viewer'],
+  ['HEAD','/pcf/proj-test-001/dwg-001','view','viewer'],
+  ['GET','/pcf/proj-test-001/dwg-001/images/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','view','viewer'],
+  ['HEAD','/pcf/proj-test-001/dwg-001/images/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa','view','viewer'],
+  ['POST','/api/pcf/proj-test-001/dwg-001/session','view','viewer'],
+  ['GET','/api/pcf/proj-test-001/dwg-001/events','view','viewer'],
+  ['GET','/api/pcf/proj-test-001/dwg-001/meta','view','viewer'],
+  ['GET','/api/pcf/proj-test-001/dwg-001/data','view','viewer'],
+  ['GET','/api/pcf/proj-test-001/dwg-001/presence','view','viewer'],
+  ['GET','/api/pcf/proj-test-001/dwg-001/exports','view','viewer'],
+  ['GET','/api/pcf/proj-test-001/dwg-001/history','view','viewer'],
+  ['POST','/api/pcf/proj-test-001/dwg-001/create','admin.only','admin'],
+  ['POST','/api/pcf/proj-test-001/dwg-001/presence','pcf.presence','viewer'],
+  ['POST','/api/pcf/proj-test-001/dwg-001/ops','pcf.comment.create','reviewer'],
+  ['PUT','/api/pcf/proj-test-001/dwg-001/document','pcf.replace','manager'],
+  ['POST','/api/pcf/proj-test-001/dwg-001/exports','builder.export','manager'],
+  ['POST','/api/pcf/proj-test-001/dwg-001/imports','builder.import_reply','manager'],
+  ['GET','/api/pcf/proj-test-001/dwg-001/download','builder.export','manager'],
+  ['GET','/api/pcf/proj-test-001/dwg-001/exports/11111111-1111-4111-8111-111111111111/download','builder.export','manager'],
+  ['POST','/api/pcf/proj-test-001/dwg-001/exports/11111111-1111-4111-8111-111111111111/void','drawing.void','admin'],
+  ['POST','/api/pcf/proj-test-001/dwg-001/history/1/restore','history.restore','admin'],
+  ['POST','/api/pcf/proj-test-001/dwg-001/unknown','route.unregistered',null],
+  ['GET','/api/admin','admin.console','admin'],
+  ['POST','/api/admin/auth','admin.console','admin'],
+  ['GET','/api/admin/api/tables','admin.console','admin'],
+  ['GET','/api/admin/api/tables/reviewers/schema','admin.console','admin'],
+  ['GET','/api/admin/api/tables/reviewers','admin.console','admin'],
+  ['POST','/api/admin/api/tables/reviewers','admin.console','admin'],
+  ['PUT','/api/admin/api/tables/reviewers/engineer_a','admin.console','admin'],
+  ['DELETE','/api/admin/api/tables/reviewers/engineer_a','admin.console','admin'],
+  ['POST','/api/admin/api/sql','admin.console','admin'],
+  ['GET','/api/admin/api/export','admin.console','admin'],
+  ['POST','/api/admin/api/import','admin.console','admin'],
+  ['GET','/api/admin/unknown','route.unregistered',null],
+  ['GET','/','view','viewer'],
+  ['HEAD','/','view','viewer'],
+  ['GET','/manual/','view','viewer'],
+  ['HEAD','/manual/','view','viewer'],
+  ['GET','/pg-logo.jpg','view','viewer'],
+  ['HEAD','/pg-logo.jpg','view','viewer'],
+  ['OPTIONS','/api/projects','view','viewer'],
+  ['OPTIONS','/api/admin/api/sql','view','viewer'],
+  ['OPTIONS','/api/health','view','viewer'],
+];
+
+test('kjx: independent T1 method/path inventory and policies cover each other in both directions', async () => {
   const f=await fixture();
   try {
-    for (const route of f.hub.router.registeredRoutes()) {
+    const routes=f.hub.router.registeredRoutes();
+    const policies=routes.flatMap(route=>{
       assert.ok(route.policies?.length,route.pattern.toString());
-      for (const method of route.methods || []) assert.ok(route.policies.some(p=>p.method===method),route.pattern+' '+method);
-      for (const policy of route.policies) {
+      for(const method of route.methods || []) assert.ok(route.policies.some(p=>p.method===method),route.pattern+' '+method);
+      return route.policies.map(policy=>{
         assert.ok(Object.hasOwn(CAPABILITIES,policy.capability));
-        const url = (policy.sample || sampleFor(route.pattern.toString())).replaceAll('/P','/'+PROJECT).replaceAll('/D','/'+DRAWING);
-        assert.ok(route.pattern.test(url),url+' must match registered route');
-        for (const role of roles) {
-          // Aborting closes SSE immediately; never wait for its unbounded body.
-          const abort=new AbortController();
-          const init: RequestInit = {method:policy.method,signal:abort.signal};
-          if (['POST','PUT','PATCH'].includes(policy.method)) {init.body='{}';init.headers={'Content-Type':'application/json'};}
-          const response=await f.request(url,role,init);
-          const expected = role ? hasPermission(user(role),policy.capability) : false;
-          if (!role) assert.equal(response.status,policy.method==='GET' && url==='/api/health' ? 200 : url.startsWith('/pcf/') ? 302 : 401,policy.method+' '+url);
-          else if (!expected) {
-            assert.equal(response.status,403,`${role} ${policy.method} ${url}`);
-            assert.equal((await response.json()).capability,policy.capability);
-          } else if (response.status===403) assert.fail(`${role} ${policy.method} ${url} unexpectedly forbidden: ${await response.text()}`);
-          abort.abort();
-        }
+        return {policy,matches:(method:string,url:string)=>policy.method===method && route.pattern.test(url) && (!policy.pattern || policy.pattern.test(url))};
+      });
+    }).concat(TRANSPORT_POLICIES.map(policy=>({policy,matches:(method:string,url:string)=>policy.method===method && policy.pattern!.test(url)})));
+    assert.equal(new Set(ROUTE_EXAMPLES.map(([method,url])=>method+' '+url)).size,ROUTE_EXAMPLES.length,'duplicate inventory instance');
+    const checkCoverage=(examples:readonly RouteExample[],entries:typeof policies)=>{
+      for(const [method,url,capability,minimum]of examples){
+        const matched=entries.filter(entry=>entry.matches(method,url));
+        assert.equal(matched.length,minimum===null ? 0 : 1,'inventory → policy: '+method+' '+url);
+        if(minimum!==null) assert.equal(matched[0].policy.capability,capability,method+' '+url);
       }
+      for(const entry of entries) assert.ok(examples.some(([method,url,,minimum])=>minimum!==null && entry.matches(method,url)),'policy → inventory: '+entry.policy.method+' '+entry.policy.pattern);
+    };
+    checkCoverage(ROUTE_EXAMPLES,policies);
+    // Prove both guards detect omissions instead of deriving their expectations from policy samples.
+    assert.throws(()=>checkCoverage(ROUTE_EXAMPLES.filter(([method,url])=>!(method==='GET'&&url==='/api/session')),policies),/policy → inventory/);
+    assert.throws(()=>checkCoverage(ROUTE_EXAMPLES,policies.filter(entry=>!entry.matches('GET','/api/session'))),/inventory → policy/);
+    const rank={viewer:0,reviewer:1,manager:2,admin:3};
+    for(const [method,url,capability,minimum]of ROUTE_EXAMPLES) for(const role of roles){
+      const abort=new AbortController();
+      try{
+        const init:RequestInit={method,signal:abort.signal};
+        if(['POST','PUT','PATCH'].includes(method)){init.body='{}';init.headers={'Content-Type':'application/json'};}
+        const response=await f.request(url,role,init);
+        if(!role) assert.equal(response.status,method==='GET'&&url==='/api/health' ? 200 : url==='/api'||url.startsWith('/api/') ? 401 : 302,method+' '+url);
+        else if(minimum===null || rank[role]<rank[minimum]){
+          assert.equal(response.status,403,role+' '+method+' '+url);
+          if(method!=='HEAD') assert.equal((await response.json()).capability,capability);
+        }else assert.notEqual(response.status,403,role+' '+method+' '+url);
+      }finally{abort.abort();}
     }
     f.hub.router.add({pattern:/^\/api\/unregistered$/,methods:['POST'],handle:()=>Response.json({ok:true})});
     const denied=await f.request('/api/unregistered','admin',{method:'POST'});
     assert.equal(denied.status,403);assert.equal((await denied.json()).capability,'route.unregistered');
-    assert.equal((await f.request(pcf+'/unknown','admin',{method:'POST'})).status,403);
   } finally {await f.cleanup();}
 });
-function sampleFor(pattern: string) {
-  if (pattern.includes('session')) return '/api/session';
-  if (pattern.includes('unlock')) return '/api/projects/P/unlock';
-  if (pattern.includes('review-tracker')) return '/api/projects/P/review-tracker';
-  if (pattern.includes('heartbeat')) return '/api/projects/P/heartbeat';
-  if (pattern.includes('audit')) return '/api/projects/P/audit';
-  if (pattern.includes('status')) return '/api/projects/P/drawings/D/status';
-  if (pattern.includes('comments')) return '/api/projects/P/comments';
-  if (pattern.includes('events')) return '/api/projects/P/events';
-  if (pattern.includes('drawings')) return '/api/projects/P/drawings';
-  if (pattern.includes('projects') && pattern.includes('([^/]+)')) return '/api/projects/P';
-  if (pattern.includes('projects')) return '/api/projects';
-  if (pattern.includes('settings')) return '/api/settings';
-  if (pattern.includes('health')) return '/api/health';
-  return '/api';
-}
+
+for (const mode of ['legacy','kjx'] as const) test(`${mode}: uploaded Builder HTML is a sandboxed attachment and fetch/blob stays byte-identical`, async () => {
+  const f=await fixture(mode);
+  try {
+    await f.request('/pcf/'+PROJECT+'/'+DRAWING,'admin');
+    const current=f.hub.pcf.storage.load(PROJECT,DRAWING);
+    await f.request(pcf+'/ops','admin',f.json({clientId:'setup',baseRev:current.rev,ops:[{type:'comment.add',id:'attachment-comment',roundIdNew:'attachment-round'}]}));
+    const exported=await (await f.request(pcf+'/exports','manager',f.json({}))).json();
+    const html=await (await f.request(pcf+'/exports/'+exported.exportId+'/download','manager')).text();
+    const data=parseHTML(html);
+    data.comments[0].rounds[0].reply={...blankContent(),text:'Builder attachment reply'};
+    const uploaded=replaceData(html,data).replace('</head>','<script>window.uploadedBuilderScriptExecuted=true;</script></head>');
+    const form=new FormData();form.append('files',new Blob([uploaded]),'untrusted-builder.html');
+    const preview=await f.request('/api/projects/'+PROJECT+'/builder-replies/preview','manager',{method:'POST',body:form});
+    assert.equal(preview.status,200);
+    const set=await preview.json();assert.equal(set.files[0].category,'clean');
+    const response=await f.request('/api/projects/'+PROJECT+'/builder-replies/'+set.importSetId+'/file/'+set.files[0].id,'admin');
+    assert.equal(response.status,200);
+    assert.equal(response.headers.get('Content-Type'),'application/octet-stream');
+    assert.equal(response.headers.get('Content-Disposition'),'attachment; filename="builder-reply.html"');
+    assert.equal(response.headers.get('X-Content-Type-Options'),'nosniff');
+    assert.equal(response.headers.get('Content-Security-Policy'),'sandbox');
+    const blob=await response.blob();assert.equal(await blob.text(),uploaded);
+    const file=new File([blob],'builder-reply.html',{type:'text/html'});
+    assert.equal(file.type,'text/html');assert.deepEqual(parseHTML(await file.text()),data);
+    const handoff=await (await f.request('/pcf/'+PROJECT+'/'+DRAWING+'?builderReplySet='+set.importSetId+'&builderReplyFile='+set.files[0].id,'admin')).text();
+    assert.match(handoff,/const blob=await response\.blob\(\),file=new File\(\[blob\],"builder-reply\.html",\{type:"text\/html"\}\)/);
+  } finally {await f.cleanup();}
+});
 
 test('kjx: PATCH authorization is per-entry and atomically rejects mixed/unknown/implicit creation', async () => {
   const f=await fixture();

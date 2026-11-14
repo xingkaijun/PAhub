@@ -67,5 +67,16 @@ production-server operation, main push, or PR merge is included.
 Initial foreground verification of integration commit
 `adfaf225bdbbd4230a9e4597f68fd978e9d741a3`: `hub:build` passed,
 `hub:test` 303/303 (289 T2 + 6 T3 + 8 integration), and `hub:e2e` 12/12.
-Final verification must be repeated after merging the promised T2
-builder-reply response-header hardening commit.
+Final foreground verification after merging T2 security commit
+`1a231723606c97950c4dc49ee06bd60c62d50519`: `hub:build` passed,
+`hub:test` 305/305 (291 T2 + 6 T3 + 8 integration), and `hub:e2e` 13/13,
+with zero failures or skips. All three commands used 600-second foreground
+limits; no E2E build or test selection was skipped.
+
+The T2 follow-up auto-merged without textual conflicts, including
+`kjx-permissions.test.ts`. Preserve its independent literal T1 route inventory,
+policy-to-case and case-to-policy coverage, attachment tests, and all integration
+ownership regressions. Integration adds no routes; the independent inventory
+passes against the merged application. Retain T2's attachment/sandbox response
+headers in both modes and its two-mode browser handoff regression unchanged.
+The upstream follow-up is complete; there are no outstanding validation items.

@@ -73,6 +73,15 @@ PATCH/op rejection, Origin, admin console, CORS, project-password isolation,
 user-bound grants, audit and legacy-header-ignore tests. Run hub:build, hub:test
 and hub:e2e before the draft PR; record exact totals and any deviations.
 
-Final foreground validation: hub:build passed; hub:test 289/289 (274 baseline +
-15 new tests); hub:e2e 12/12. No dependency/lockfile changes, no server deployment.
+Latest foreground validation after PR #5 security review fixes: hub:build passed;
+hub:test 291/291 (274 baseline + 17 new tests); hub:e2e 13/13 (12 baseline scripts +
+one two-mode Builder handoff regression). No dependency/lockfile changes or deployment.
+
+H1: stored uploaded Builder HTML is a sandboxed octet-stream attachment in both
+legacy and kjx. Confirmed handoff uses fetch/blob/File, not direct online rendering;
+Chromium verifies navigation downloads without executing uploaded scripts and the
+controlled PCF handoff still previews/applies replies in both modes.
+L2: independent literal T1 §1/B method/path cases cover APIs, comments.xlsx,
+Builder/admin subroutes, PCF pages/images, manual/static and OPTIONS; policy ↔ case
+coverage is checked both ways. Static/preflight view policies are explicit.
 T3 still owns participant-ID writes and Daily Log actor UI; T4 owns directory/manual.

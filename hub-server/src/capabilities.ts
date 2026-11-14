@@ -32,6 +32,12 @@ export function requirePermission(user: RequestUser | null | undefined, capabili
   if (!hasPermission(user, capability)) return forbidden(capability);
 }
 export type RoutePolicy = { method: string; pattern?: RegExp; capability: Capability; sample?: string };
+// Listener/static and preflight contracts participate in the independent route inventory too.
+export const TRANSPORT_POLICIES: RoutePolicy[] = [
+  { method: 'OPTIONS', pattern: /^\/api(?:\/|$)/, capability: 'view' },
+  { method: 'GET', pattern: /^(?!\/api(?:\/|$)|\/pcf\/)/, capability: 'view' },
+  { method: 'HEAD', pattern: /^(?!\/api(?:\/|$)|\/pcf\/)/, capability: 'view' },
+];
 // Subroutes are explicit: a broad PCF prefix must never imply view access to writes.
 export const PCF_POLICIES: RoutePolicy[] = [
   { method: 'GET', pattern: /^\/api\/pcf\/[^/]+\/(index|presence)$/, capability: 'view', sample: '/api/pcf/P/index' },
