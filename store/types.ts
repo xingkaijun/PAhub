@@ -53,7 +53,7 @@ export interface ProjectSlice {
   saveConflict: { message: string; drawingIds: string[]; at: number } | null;
   clearSaveConflict: () => void;
   /** Shown when the server answers 404 for a project (deleted, or never saved). */
-  projectNotice: { message: string; projectId: string; at: number } | null;
+  projectNotice: { message: string; projectId: string; at: number; requiresReload?: boolean } | null;
   clearProjectNotice: () => void;
   _deletedDrawingIds: Set<string>;
   _dirtyConf: boolean;

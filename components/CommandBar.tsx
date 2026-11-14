@@ -250,7 +250,8 @@ export const CommandBar: React.FC = () => {
     }
   };
 
-  return (
+  const kjxCanCommand = useStore(state => state.session?.mode !== 'kjx' || state.can('bulk.command'));
+  return !kjxCanCommand ? null : (
     <div className="w-full max-w-5xl mx-auto mb-6 sticky top-4 z-40 no-print">
       <form
         onSubmit={handleSubmit}

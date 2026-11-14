@@ -12,6 +12,7 @@ import { BuilderRepliesImport, type BuilderRepliesImportHandle } from './Builder
 import { AdminLoginDialog } from './AdminLoginDialog';
 import { ModalOverlay } from './ModalOverlay';
 import { parseBulkLoadText } from '../lib/bulk-load';
+import { DirectoryPicker } from './DirectoryPicker';
 
 const ADMIN_REQUIRED = 'Administrator permission required';
 
@@ -465,29 +466,29 @@ export const DrawingList: React.FC = () => {
                 />
               </div>
               <div className="flex items-center gap-2">
-                {activeProjectId && <div className="hidden md:contents"><BuilderRepliesImport ref={builderRepliesImport} projectId={activeProjectId} /></div>}
+                {activeProjectId && (session?.mode !== 'kjx' || can('builder.import_reply')) && <div className="hidden md:contents"><BuilderRepliesImport ref={builderRepliesImport} projectId={activeProjectId} /></div>}
                 <button
                   onClick={() => window.print()}
                   className="hidden md:flex px-4 py-2.5 bg-white/85 border border-slate-200 text-slate-600 rounded-full text-[9px] font-black uppercase tracking-[0.18em] flex items-center gap-2 hover:bg-white hover:border-teal-200 hover:text-teal-700 active:scale-95 transition-all shadow-sm"
                 >
                   <Printer size={14} /> Print List
                 </button>
-                <button
+                {(session?.mode !== 'kjx' || can('team.setup')) && <button
                   onClick={() => can('team.setup') && setShowTeamSetupModal(true)}
                   title={!can('team.setup') ? ADMIN_REQUIRED : undefined}
                   disabled={!can('team.setup')}
                   className={`hidden md:flex px-4 py-2.5 bg-white/85 border border-slate-200 rounded-full text-[9px] font-black uppercase tracking-[0.18em] items-center gap-2 transition-all shadow-sm ${!isEditMode ? 'opacity-50 cursor-not-allowed text-slate-400' : 'text-slate-500 hover:bg-white hover:border-teal-200 hover:text-teal-700 active:scale-95'}`}
                 >
                   <Layers size={14} /> Team Setup
-                </button>
-                <button
+                </button>}
+                {(session?.mode !== 'kjx' || can('bulk.import')) && <button
                   onClick={() => can('bulk.import') && setShowImportModal(true)}
                   title={!can('bulk.import') ? ADMIN_REQUIRED : undefined}
                   disabled={!can('bulk.import')}
                   className={`hidden md:flex px-4 py-2.5 rounded-full text-[9px] font-black uppercase tracking-[0.18em] items-center gap-2 transition-all ${!isEditMode ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-[linear-gradient(135deg,#005c55_0%,#0f766e_100%)] text-white border border-transparent shadow-[0_12px_24px_-16px_rgba(13,148,136,0.45)] hover:brightness-105 active:scale-95'}`}
                 >
                   <FileUp size={14} /> Bulk Load
-                </button>
+                </button>}
                 <div ref={moreMenuRef} className="relative md:hidden">
                   <button
                     type="button"
@@ -507,7 +508,7 @@ export const DrawingList: React.FC = () => {
                         { key: 'print', label: 'Print List', icon: <Printer size={14} />, disabled: false, run: () => window.print() },
                         { key: 'team', label: 'Team Setup', icon: <Layers size={14} />, disabled: !can('team.setup'), run: () => setShowTeamSetupModal(true) },
                         { key: 'bulk', label: 'Bulk Load', icon: <FileUp size={14} />, disabled: !can('bulk.import'), run: () => setShowImportModal(true) },
-                      ].map(item => (
+                      ].filter(item => session?.mode !== 'kjx' || item.key === 'print' || can(item.key === 'team' ? 'team.setup' : item.key === 'bulk' ? 'bulk.import' : 'builder.import_reply')).map(item => (
                         <button
                           key={item.key}
                           type="button"
@@ -611,7 +612,7 @@ export const DrawingList: React.FC = () => {
                 <th className="px-2 py-3 bg-slate-50/50" style={{ width: columnWidths.ok || 70 }}>
                   <div className="flex flex-col items-center gap-1">
                     <span className="text-[8px] font-black uppercase tracking-[0.1em]">Check</span>
-                    <button
+                    {(session?.mode !== 'kjx' || can('drawing.update')) && <button
                       onClick={async () => {
                         if (!isEditMode) {
                           alert(ADMIN_REQUIRED);
@@ -639,7 +640,7 @@ export const DrawingList: React.FC = () => {
                       title={isEditMode ? "Sync all check statuses" : ADMIN_REQUIRED}
                     >
                       Sync
-                    </button>
+                    </button>}
                   </div>
                 </th>
                 <th className="px-3 py-3 w-10 bg-slate-50/50"></th>
@@ -817,7 +818,7 @@ export const DrawingList: React.FC = () => {
               <div className="space-y-4">
                 {derivedDisciplines.map(discipline => {
                   const currentDefaults = project?.conf?.defaultAssignees?.[discipline] || [];
-                  const availableReviewers = reviewers.map(r => typeof r === 'string' ? r : r.name);
+                  const availableReviewers = reviewers.map(r => session?.mode === 'kjx' ? r.id : typeof r === 'string' ? r : r.name);
 
                   return (
                     <div key={discipline} className="bg-slate-50 rounded-xl p-4 border border-slate-200">
@@ -826,6 +827,12 @@ export const DrawingList: React.FC = () => {
                         <span className="text-[8px] font-black text-slate-400 uppercase">{currentDefaults.length} assigned</span>
                       </div>
 
+                      {session?.mode === 'kjx' && <DirectoryPicker discipline={discipline} label={'Select ' + discipline + ' reviewer'} onSelect={person => {
+                        if (!project) return;
+                        const roster = [...project.conf.reviewers.filter(r => r.id !== person.id), person];
+                        const assigned = project.conf.defaultAssignees?.[discipline] || [];
+                        useStore.getState().updateProjectConfig(project.id, { reviewers: roster, defaultAssignees: { ...project.conf.defaultAssignees, [discipline]: [...new Set([...assigned, person.id])] } });
+                      }} />}
                       <div className="space-y-2">
                         {availableReviewers.map(reviewer => {
                           const isSelected = currentDefaults.includes(reviewer);
@@ -852,7 +859,7 @@ export const DrawingList: React.FC = () => {
                                 : 'bg-white text-slate-600 hover:bg-indigo-50 border border-slate-200'
                                 }`}
                             >
-                              {reviewer}
+                              {session?.mode === 'kjx' ? reviewers.find(r => r.id === reviewer)?.name || reviewer : reviewer}
                             </button>
                           );
                         })}

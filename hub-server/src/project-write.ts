@@ -8,6 +8,7 @@ import { mergeConfiguration } from './project-config-merge.ts';
 import { getProjectConfiguration } from './project-read.ts';
 import { setProjectPassword } from './project-password.ts';
 import { authorizeProjectPatch } from './project-patch-auth.ts';
+import { changedProjectPatch } from './project-patch-changes.ts';
 import type { RequestUser } from './identity.ts';
 
 export type RecordValue = Record<string, any>;
@@ -160,14 +161,18 @@ export class ProjectWriter {
     if (body.updatedDrawings !== undefined && !Array.isArray(body.updatedDrawings)) fail('Invalid updatedDrawings');
     if (body.deletedDrawingIds !== undefined && !Array.isArray(body.deletedDrawingIds)) fail('Invalid deletedDrawingIds');
     const deleted: string[] = (body.deletedDrawingIds || []).map((id: unknown) => safeId(String(id)));
-    const updates: RecordValue[] = (body.updatedDrawings || []).map((drawing: RecordValue) => {
+    let updates: RecordValue[] = (body.updatedDrawings || []).map((drawing: RecordValue) => {
       if (!drawing || typeof drawing !== 'object' || Array.isArray(drawing)) fail('Invalid drawing');
       return { ...drawing, id: safeId(drawing.id ? String(drawing.id) : randomUUID()) };
     });
     // Lock every touched drawing, then check revisions and write everything in
     // one SQLite transaction: a conflict on any drawing rolls back the batch.
     return this.storage.serialMany(projectId, [...deleted, ...updates.map(d => String(d.id))], () => transaction(db, 'project_patch', () => {
-      if (user) authorizeProjectPatch(db,projectId,body,user);
+      if (user) {
+        body = changedProjectPatch(db,projectId,{...body,updatedDrawings:updates});
+        updates = body.updatedDrawings || [];
+        authorizeProjectPatch(db,projectId,body,user);
+      }
       db.prepare('INSERT INTO projects(id,name,last_updated) VALUES(?,?,?) ON CONFLICT(id) DO NOTHING').run(projectId,String(body.projectName || projectId),new Date().toISOString());
       const conflicts = updates.map(drawing => drawingConflict(db,projectId,drawing)).filter(Boolean);
       // Settings travel key by key with the values they had when editing started (confBase).

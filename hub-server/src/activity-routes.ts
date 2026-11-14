@@ -7,10 +7,11 @@ export function registerActivityRoutes(router: Router, db: DatabaseSync) {
   router.add({pattern:/^\/api\/projects\/([^/]+)\/audit$/,methods:['GET'],policies:[{method:'GET',capability:'view'}],handle:ctx => {
     const p=safeId(ctx.params[0]),from=ctx.url.searchParams.get('from') || '',to=ctx.url.searchParams.get('to') || '';
     if (!from || !to) return errorResponse('Both `from` and `to` (ISO timestamps) are required.',400);
-    const rows=db.prepare("SELECT id,row_id,action,detail,created_at FROM audit_log WHERE project_id=? AND action IN ('STATUS','COMMENTS','BUILDER_REPLY') AND created_at>=? AND created_at<? ORDER BY created_at DESC,id DESC LIMIT 2000").all(p,from,to);
+    const actorColumns=router.kjx ? ',actor_id,actor_name' : '';
+    const rows=db.prepare("SELECT id,row_id,action,detail,created_at"+actorColumns+" FROM audit_log WHERE project_id=? AND action IN ('STATUS','COMMENTS','BUILDER_REPLY') AND created_at>=? AND created_at<? ORDER BY created_at DESC,id DESC LIMIT 2000").all(p,from,to);
     const entries=rows.map(row => {
       let detail: Record<string,unknown> = {}; try {detail=JSON.parse(String(row.detail || '{}'));} catch {}
-      return {id:String(row.id || ''),drawingId:String(row.row_id || ''),action:String(row.action || ''),createdAt:String(row.created_at || ''),customId:String(detail.customId || ''),drawingNo:String(detail.drawingNo || ''),source:String(detail.source || 'app'),detail};
+      return {id:String(row.id || ''),drawingId:String(row.row_id || ''),action:String(row.action || ''),createdAt:String(row.created_at || ''),customId:String(detail.customId || ''),drawingNo:String(detail.drawingNo || ''),source:String(detail.source || 'app'),...(router.kjx ? {actorId:row.actor_id ?? null,actorName:row.actor_name ?? null} : {}),detail};
     });
     return Response.json({entries,truncated:rows.length>=2000});
   }});

@@ -22,6 +22,7 @@ export interface ProjectLobbyProps {
    * requestPassword renders the challenge directly on the full-screen loading sheet.
    */
   onSelect: (id: string, motionSettled: Promise<void>, requestPassword: RequestProjectPassword, signal: AbortSignal) => Promise<boolean | void> | void;
+  canCreate?: boolean;
   onCreate: () => void;
   onRefresh: () => void;
   onOffline: () => void;
@@ -239,6 +240,7 @@ export function ProjectLobby(props: ProjectLobbyProps) {
         manualHref={props.manualHref}
         showNoProjectsNote={props.showNoProjectsNote}
         onCardClick={handleCardClick}
+        canCreate={props.canCreate}
         onCreate={props.onCreate}
         onRefresh={props.onRefresh}
         onOffline={props.onOffline}

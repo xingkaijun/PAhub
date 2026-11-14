@@ -72,7 +72,7 @@ export function LobbyBlueprint(p: LobbyViewProps) {
             </span>
           </button>
         ))}
-        {!p.loading || p.cards.length > 0 ? (
+        {p.canCreate !== false && (!p.loading || p.cards.length > 0) ? (
           <CreateCard onCreate={p.onCreate} className="pl-card pl-create">
             <span className="pl-create-sub">New project register</span>
           </CreateCard>
