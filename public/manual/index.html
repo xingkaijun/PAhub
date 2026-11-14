@@ -71,7 +71,37 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 <li>界面上的按钮和提示文字大多是英文，本文照原样写出英文，方便你对着界面找。</li>
 </ul>
 
-<nav class="jump"><a href="#flow">整体流程</a><a href="#perm">权限</a><a href="#shell">项目选择与顶栏</a><a href="#inv">主表 Inventory</a><a href="#cmd">命令栏</a><a href="#tracker">Tracker</a><a href="#comments">Comments</a><a href="#activity">Activity</a><a href="#log">Log</a><a href="#config">Config</a><a href="#guide">Guide 手册页</a><a href="#pcf">在线 PCF</a><a href="#builder">船厂往来</a><a href="#io">导入导出总表</a><a href="#banner">提示条与冲突</a><a href="#ops">部署运维</a><a href="#admin">后台管理页</a><a href="#faq">小技巧与常见问题</a><a href="#known">已知问题</a></nav>
+<nav class="jump"><a href="#kjx">统一登录（kjx）</a><a href="#flow">整体流程</a><a href="#perm">权限</a><a href="#shell">项目选择与顶栏</a><a href="#inv">主表 Inventory</a><a href="#cmd">命令栏</a><a href="#tracker">Tracker</a><a href="#comments">Comments</a><a href="#activity">Activity</a><a href="#log">Log</a><a href="#config">Config</a><a href="#guide">Guide 手册页</a><a href="#pcf">在线 PCF</a><a href="#builder">船厂往来</a><a href="#io">导入导出总表</a><a href="#banner">提示条与冲突</a><a href="#ops">部署运维</a><a href="#admin">后台管理页</a><a href="#faq">小技巧与常见问题</a><a href="#known">已知问题</a></nav>
+
+<h2 id="kjx">统一登录（kjx）</h2>
+<p>本章适用于切换到统一登录后的平台；下文原有的访客／管理员操作说明和截图适用于尚未切换的 legacy 模式。统一登录的界面与权限按以下说明为准。<span class="tag">【待 T2 合并后核对】</span></p>
+<h3>登录和退出</h3>
+<ol class="steps">
+<li><div><h3>登录</h3><p>打开 PAhub，按提示使用管理员分配的统一账号登录；登录后回到原来的页面。同一个账号可用于已开通的 PAhub 和 nbins，不代表自动开通两个系统。</p></div></li>
+<li><div><h3>修改密码</h3><p>首次登录或管理员重置密码后，按提示先修改密码；平时可在用户菜单点 Change password。忘记密码请联系管理员重置。</p></div></li>
+<li><div><h3>退出</h3><p>在用户菜单点 Sign out。统一会话会在所有接入该登录的系统同时退出；空闲 12 小时或会话最长 7 天后需要重新登录。</p></div></li>
+</ol>
+<h3>四种角色能做什么 <span class="tag">【待 T2 合并后核对】</span></h3>
+<div class="tablewrap"><table>
+<thead><tr><th>角色</th><th>可以做什么</th><th>主要限制</th></tr></thead>
+<tbody>
+<tr><td>viewer（查看者）</td><td>查看项目、列表、报表、Daily Log 和 PCF。</td><td>不能写入或修改意见。</td></tr>
+<tr><td>reviewer（审图人）</td><td>新增意见和单条新轮；修改自己轮次的船东意见、意见状态、标签等属性及行高。</td><td>不能改他人意见、船厂回复或提出人，也不能删除或恢复记录；不能批量给所有意见开新轮。</td></tr>
+<tr><td>manager（主管）</td><td>包括审图人的工作；可改他人意见和船厂回复，修改图纸状态、负责人和备注，执行批量导入、批量命令及船厂文件导出和回复导回；可修改 PCF 文档及显示设置。</td><td>Team Setup、项目 Settings、创建项目、作废、历史恢复及管理控制台等仅 admin 可操作。</td></tr>
+<tr><td>admin（管理员）</td><td>具有上述全部能力，还可管理 Team Setup、项目设置和项目、作废、历史恢复及管理控制台。</td><td>进行替换、删除等操作前请先确认影响并备份。</td></tr>
+</tbody></table></div>
+<h3>“只能改自己的意见”是什么意思？ <span class="tag">【待 T2 合并后核对】</span></h3>
+<p>按<b>每个轮次</b>判断：系统记录该轮次的提出人账号 ID，而不是只看显示的名字。新建意见或轮次时提出人自动填写为登录人；admin 或 manager 可以指定其他团队成员。reviewer 只能编辑属于自己的轮次的 Owner 内容，并修改自己意见的状态、属性和行高，不能编辑 Reply 或更改提出人。旧轮次如果没有记录账号 ID，即使显示名字相同也不能认作自己的；请找 manager 或 admin 处理。</p>
+<h3>为什么登录后还要输入项目密码？</h3>
+<p>统一账号证明你是谁；项目密码是受保护项目的第二道访问门槛。除 admin 可直接进入外，其他角色仍须输入该项目的密码解锁；解锁不会提高账号角色权限。没有项目密码请联系项目管理员。</p>
+<h3>日常使用与常见问题 <span class="tag">【待 T2 合并后核对】</span></h3>
+<ul>
+<li><b>没有 PAhub 访问权限：</b>请管理员检查账号是否启用、是否已开通 PAhub 角色；登录成功不等于有所有应用的权限。</li>
+<li><b>按钮不可用或操作被拒绝：</b>先确认当前角色、项目是否解锁，以及意见轮次是否属于自己；仍需操作时联系 manager 或 admin。</li>
+<li><b>查看谁做了修改：</b>Daily Log 的 Actor 列显示操作人，可按人筛选；旧记录和无登录人的后台操作可能显示空白。</li>
+<li><b>分配审图人：</b>admin 在 Team Setup 从目录选择人员；目录不可用时可手填，稍后联系管理员检查目录。</li>
+<li><b>登录服务暂不可用或图片显示异常：</b>稍后重试；会话过期时重新登录并刷新页面。持续失败请联系管理员。</li>
+</ul>
 
 <h2 id="flow">平台概览和整体工作流</h2>
 <p>一张图纸从进平台到批准，会经过四个状态：<b>Pending</b>（待审）、<b>Reviewing</b>（审图中）、<b>Waiting Reply</b>（等船厂回复）、<b>Approved</b>（已批准）。每张图纸有一份在线 PCF，意见、回复、轮次都记在里面，平台数据库是唯一的数据来源。</p>
@@ -95,6 +125,7 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 </tbody></table></div>
 
 <h2 id="perm">权限</h2>
+<p>本节仅适用于 legacy 模式；统一登录后的四种角色及项目密码规则见<a href="#kjx">统一登录（kjx）</a>。</p>
 <p>平台只有两种身份：<b>访客</b>（界面上叫 Reviewer）和<b>管理员</b>（Administrator），另外船厂拿到的是离线 HTML，不进平台。</p>
 <div class="tablewrap"><table>
 <thead><tr><th>能做什么</th><th>访客</th><th>管理员</th><th>船厂（离线文件）</th></tr></thead>
@@ -351,7 +382,7 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 </ul>
 
 <h2 id="guide">Guide 手册页</h2>
-<p>顶栏的 <b>Guide</b> 就是这份中文手册，所有人都能看，不用登录。</p>
+<p>顶栏的 <b>Guide</b> 就是这份中文手册。legacy 模式无需管理员登录；统一登录模式下须先登录，见<a href="#kjx">统一登录（kjx）</a>。<span class="tag">【待 T2 合并后核对】</span></p>
 <ul>
 <li><b>中文手册：</b>点 Guide 默认显示。右上角的 <b>新标签页打开</b> 会单独打开 <code>/manual/</code>，方便打印或发链接给同事。</li>
 <li><b>English Guide：</b>点 Guide 页上方的 <b>English</b> 切换到英文简明说明，内容是原来 Guide 页的英文部分，给不看中文的同事用。原来 Guide 页的中文部分已经由这份手册代替。</li>
