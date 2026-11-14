@@ -1,6 +1,7 @@
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { PROJECT_TIME_ZONE } from '../../lib/deadline.ts';
+import { identityConfig } from './identity.ts';
 
 // Project calendar time zone, shared with the browser through lib/deadline.ts.
 export { PROJECT_TIME_ZONE };
@@ -28,7 +29,12 @@ export function readConfig() {
   // Optional gate for public exposure (e.g. frp tcp proxy). Unset means no authentication.
   const basicAuth = process.env.PAHUB_BASIC_AUTH || '';
   if (basicAuth && !basicAuth.includes(':')) throw new Error('PAHUB_BASIC_AUTH must be <username>:<password>');
+  const identity = identityConfig(process.env);
+  const grantSecret = process.env.PCF_GRANT_SECRET;
+  if (grantSecret !== undefined && Buffer.byteLength(grantSecret, 'utf8') < 32) throw new Error('PCF_GRANT_SECRET must contain at least 32 bytes');
   return {
+    identity,
+    grantSecret,
     port,
     basicAuth,
     dbPath: path.resolve(ROOT_DIR, process.env.PAPC_DB_PATH || path.join(dataDir, 'papc.db')),

@@ -1,3 +1,4 @@
+import { writeAudit } from './audit.ts';
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
 import { fail, safeId } from './pcf-model.ts';
@@ -146,7 +147,7 @@ export function writeDrawingLocked(storage: PcfStorage, realtime: PcfRealtime, p
       }
       if (owner && !hasPcf && (changes.manualCommentsCount !== undefined || changes.manualOpenCommentsCount !== undefined)) {
         const after: any = db.prepare('SELECT manual_comments_count,manual_open_comments_count FROM drawings WHERE id=?').get(id);
-        if (owner.manual_comments_count !== after.manual_comments_count || owner.manual_open_comments_count !== after.manual_open_comments_count) db.prepare("INSERT INTO audit_log(table_name,row_id,project_id,action,detail,created_at) VALUES('drawings',?,?,'COMMENTS',?,?)").run(id, projectId, JSON.stringify({ customId: changes.customId ?? owner.custom_id, drawingNo: changes.drawingNo ?? owner.drawing_no, from: { total: owner.manual_comments_count, open: owner.manual_open_comments_count }, to: { total: after.manual_comments_count, open: after.manual_open_comments_count }, source }), new Date().toISOString());
+        if (owner.manual_comments_count !== after.manual_comments_count || owner.manual_open_comments_count !== after.manual_open_comments_count) writeAudit(db,{table:'drawings',rowId:id,projectId,action:'COMMENTS',detail:{ customId: changes.customId ?? owner.custom_id, drawingNo: changes.drawingNo ?? owner.drawing_no, from: { total: owner.manual_comments_count, open: owner.manual_open_comments_count }, to: { total: after.manual_comments_count, open: after.manual_open_comments_count }, source },createdAt:new Date().toISOString()});
       }
       db.prepare('UPDATE projects SET last_updated=? WHERE id=?').run(new Date().toISOString(), projectId);
       if (changes.status !== undefined) {

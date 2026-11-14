@@ -55,6 +55,15 @@ export function createApiClient(config: ApiClientConfig = {}) {
         data = JSON.parse(raw);
         message = typeof data.error === 'string' ? data.error : typeof data.message === 'string' ? data.message : '';
       } catch { /* Legacy APIs return text and reverse proxies may return HTML. */ }
+      if (typeof window !== 'undefined') {
+        if (response.status === 401 && data?.login) {
+          const login = new URL(data.login); login.searchParams.set('app', 'pahub');
+          login.searchParams.set('path', window.location.pathname + window.location.search);
+          window.location.assign(login.toString());
+        } else if (response.status === 403 && data?.denied) window.location.assign(data.denied);
+        else if (response.status === 403 && data?.error === 'forbidden') window.dispatchEvent(new CustomEvent('pahub:auth-notice', { detail: "You don't have permission to do this." }));
+        else if (response.status === 503 && data?.error === 'auth_unavailable') window.dispatchEvent(new CustomEvent('pahub:auth-notice', { detail: 'Sign-in service is temporarily unavailable. Try again in a minute.' }));
+      }
       if (response.status === 401 && message === 'PASSWORD_REQUIRED' && typeof window !== 'undefined') {
         const pathname = new URL(url(resource)).pathname;
         const scope = pathname.match(/\/api\/(?:projects|pcf)\/([^/]+)(?:\/|$)/);

@@ -6,11 +6,11 @@ import { getSettings } from './project-read.ts';
 export const HUB_SERVICE = 'pahub-api', HUB_PHASE = 'native-sqlite';
 
 export function registerSystemRoutes(router: Router, db: DatabaseSync) {
-  router.add({pattern:/^\/api\/?$/,methods:['GET'],handle:() => Response.json({service:HUB_SERVICE,phase:HUB_PHASE,endpoints:['GET /health','GET /settings','GET /projects','POST /projects/:projectId','PATCH /projects/:projectId','GET /projects/:projectId/drawings?ids=','GET|PUT /projects/:projectId/review-tracker','GET /projects/:projectId/audit?from=&to=']})});
-  router.add({pattern:/^\/api\/settings$/,methods:['GET'],handle:() => Response.json(getSettings(db))});
+  router.add({pattern:/^\/api\/?$/,methods:['GET'],policies:[{method:'GET',capability:'view'}],handle:() => Response.json({service:HUB_SERVICE,phase:HUB_PHASE,endpoints:['GET /health','GET /settings','GET /projects','POST /projects/:projectId','PATCH /projects/:projectId','GET /projects/:projectId/drawings?ids=','GET|PUT /projects/:projectId/review-tracker','GET /projects/:projectId/audit?from=&to=']})});
+  router.add({pattern:/^\/api\/settings$/,methods:['GET'],policies:[{method:'GET',capability:'view'}],handle:() => Response.json(getSettings(db))});
   // Preserve the public diagnostic contract; settingsSource is a historical
   // API label, not a dependency on a SQL view. A global settings object always exists.
-  router.add({pattern:/^\/api\/health$/,methods:['GET'],handle:() => {
+  router.add({pattern:/^\/api\/health$/,methods:['GET'],policies:[{method:'GET',capability:'view'}],handle:() => {
     db.prepare('SELECT 1 FROM projects LIMIT 1').get();
     return Response.json({ok:true,service:HUB_SERVICE,database:'connected',settingsSource:'api_settings',appSettingsRows:1});
   }});

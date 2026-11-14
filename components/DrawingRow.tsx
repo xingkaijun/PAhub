@@ -132,6 +132,7 @@ export const DrawingRow = memo(({
     derivedDisciplines
 }: DrawingRowProps) => {
     const { isEditMode } = useStore();
+    const canDelete = useStore(state => state.can('drawing.void'));
     const pcfOnline = useStore(s => s.pcfPresence[drawing.id] || 0);
     const liveRemarkCount = drawing.remarks?.length || 0;
     const liveOpenRemarkCount = drawing.remarks?.filter(r => !r.resolved).length || 0;
@@ -337,7 +338,7 @@ export const DrawingRow = memo(({
                     </button>
                 </td>
                 <td className="px-3 py-2 text-right">
-                    <button disabled={!isEditMode} onClick={() => confirmAndDeleteDrawing(drawing, deleteDrawing)} title={isEditMode ? `Delete ${drawing.drawingNo || drawing.customId}` : undefined} aria-label="Delete drawing" className={`p-1.5 transition-colors ${!isEditMode ? 'text-slate-100 cursor-not-allowed' : 'text-slate-200 hover:text-red-500'}`}>
+                    <button disabled={!canDelete} onClick={() => canDelete && confirmAndDeleteDrawing(drawing, deleteDrawing)} title={isEditMode ? `Delete ${drawing.drawingNo || drawing.customId}` : undefined} aria-label="Delete drawing" className={`p-1.5 transition-colors ${!isEditMode ? 'text-slate-100 cursor-not-allowed' : 'text-slate-200 hover:text-red-500'}`}>
                         <Trash2 size={12} />
                     </button>
                 </td>

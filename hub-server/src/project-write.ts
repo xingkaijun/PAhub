@@ -7,6 +7,8 @@ import { fail, safeId } from './pcf-model.ts';
 import { mergeConfiguration } from './project-config-merge.ts';
 import { getProjectConfiguration } from './project-read.ts';
 import { setProjectPassword } from './project-password.ts';
+import { authorizeProjectPatch } from './project-patch-auth.ts';
+import type { RequestUser } from './identity.ts';
 
 export type RecordValue = Record<string, any>;
 export type Verification = { ok: boolean; checked: number; mismatched: { id: string; customId?: string; fields: string[] }[]; error?: string };
@@ -152,7 +154,7 @@ export class ProjectWriter {
     writeTracker(db,projectId,fullTracker,true,this.realtime);
     return verifyProjectWrite(db,projectId,written,sanitized);
   }
-  async patch(projectId: string, body: RecordValue) {
+  async patch(projectId: string, body: RecordValue, user?: RequestUser) {
     safeId(projectId);
     const db = this.storage.db;
     if (body.updatedDrawings !== undefined && !Array.isArray(body.updatedDrawings)) fail('Invalid updatedDrawings');
@@ -165,6 +167,7 @@ export class ProjectWriter {
     // Lock every touched drawing, then check revisions and write everything in
     // one SQLite transaction: a conflict on any drawing rolls back the batch.
     return this.storage.serialMany(projectId, [...deleted, ...updates.map(d => String(d.id))], () => transaction(db, 'project_patch', () => {
+      if (user) authorizeProjectPatch(db,projectId,body,user);
       db.prepare('INSERT INTO projects(id,name,last_updated) VALUES(?,?,?) ON CONFLICT(id) DO NOTHING').run(projectId,String(body.projectName || projectId),new Date().toISOString());
       const conflicts = updates.map(drawing => drawingConflict(db,projectId,drawing)).filter(Boolean);
       // Settings travel key by key with the values they had when editing started (confBase).

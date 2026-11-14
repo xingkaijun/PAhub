@@ -1,6 +1,8 @@
 import { sessionApi } from '../services/api/sessionApi';
 import type { UiSlice, SliceCreator } from './types';
 export const createUiSlice: SliceCreator<UiSlice> = (set, get) => ({
+  session: null,
+  can: capability => get().session?.mode === 'kjx' ? Boolean(get().session?.permissions?.includes(capability)) : get().isEditMode,
   viewMode: 'list',
   setViewMode: (mode) => set({ viewMode: mode }),
   filterQuery: '',
@@ -10,9 +12,11 @@ export const createUiSlice: SliceCreator<UiSlice> = (set, get) => ({
   refreshSession: async () => {
     try {
       const status = await sessionApi.status();
-      get().applySession(status.admin);
+      set({ session: status });
+      get().applySession(status.mode === 'kjx' ? Boolean(status.permissions?.includes('drawing.update')) : status.admin);
     } catch {
-      // Offline: the server cannot vouch for the session, so treat the visitor as a reviewer.
+      // Offline: the server cannot vouch for the session, so clear cached kjx capabilities.
+      if (get().session?.mode === 'kjx') set({ session: { ...get().session!, admin: false, permissions: [] } });
       get().applySession(false);
     }
   },
@@ -35,7 +39,7 @@ export const createUiSlice: SliceCreator<UiSlice> = (set, get) => ({
     if (admin === state.isEditMode) return;
     if (admin) {
       set({ isEditMode: true });
-      get().startEditingPresence();
+      if (get().session?.mode !== 'kjx' || get().session?.admin) get().startEditingPresence();
     } else {
       get().stopEditingPresence();
       set({ isEditMode: false });

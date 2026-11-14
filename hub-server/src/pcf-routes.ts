@@ -7,6 +7,8 @@ import { PcfBuilderReplies } from './pcf-builder-replies.ts';
 import { ProjectComments } from './comments-register.ts';
 import { exportCommentsExcel } from './comments-excel.ts';
 import { compressBody, negotiateEncoding, COMPRESS_MIN_BYTES, type Encoding } from './http.ts';
+import { PCF_POLICIES, BUILDER_POLICIES } from './capabilities.ts';
+import { requestUser } from './identity.ts';
 
 export function registerPcfRoutes(router: Router, pcf: PcfApi, adminPassword?: string) {
   const replies = new PcfBuilderReplies(pcf.storage, pcf.exchange, pcf.realtime, adminPassword);
@@ -14,12 +16,12 @@ export function registerPcfRoutes(router: Router, pcf: PcfApi, adminPassword?: s
   // Aggregate result identities already invalidate with PCF metadata/content and ageing.
   // Reuse their compressed JSON too; repeated warm reads must not recompress 15,000 rows.
   const compressedComments = new WeakMap<object, Map<Encoding, Promise<Buffer>>>();
-  router.add({ pattern: /^\/api\/projects\/([^/]+)\/drawings\/([^/]+)\/status$/, methods: ['POST'], admin: true, handle: async ctx => {
+  router.add({ pattern: /^\/api\/projects\/([^/]+)\/drawings\/([^/]+)\/status$/, methods: ['POST'], policies: [{method:'POST',capability:'drawing.update'}], admin: true, handle: async ctx => {
     const [p,d] = ctx.params.map(safeId), input = await ctx.json();
     const result = await pcf.storage.serial(p,d,() => transitionDrawingStatus(pcf.storage,pcf.realtime,p,d,input.status));
     return Response.json(result, { headers: { 'Cache-Control': 'no-store' } });
   } });
-  router.add({ pattern: /^\/api\/projects\/([^/]+)\/comments(\.xlsx)?$/, methods: ['GET'], handle: async ctx => {
+  router.add({ pattern: /^\/api\/projects\/([^/]+)\/comments(\.xlsx)?$/, methods: ['GET'], policies: [{method:'GET',capability:'view'}], handle: async ctx => {
     const p = safeId(ctx.params[0]), result = comments.query(p,ctx.url.searchParams);
     if (ctx.params[1]) return new Response(await exportCommentsExcel(result), { headers: {
       'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'Content-Disposition': 'attachment; filename="Comments-' + p + '.xlsx"', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff',
@@ -42,17 +44,23 @@ export function registerPcfRoutes(router: Router, pcf: PcfApi, adminPassword?: s
     }
     return new Response(body, { headers });
   } });
-  router.add({ pattern: /^\/api\/projects\/([^/]+)\/events$/, methods: ['GET'], handle: ctx => pcf.realtime.projectStream(safeId(ctx.params[0]),ctx.request.signal,() => !router.options.projectSession || router.options.projectSession.allowed(ctx.request,safeId(ctx.params[0]))) });
-  router.add({ pattern: /^\/api\/projects\/([^/]+)\/builder-replies(?:\/([^/]+))?(?:\/([^/]+))?(?:\/([^/]+))?$/, auth: 'none', handle: async ctx => {
+  router.add({ pattern: /^\/api\/projects\/([^/]+)\/events$/, methods: ['GET'], policies: [{method:'GET',capability:'view'}], handle: ctx => pcf.realtime.projectStream(safeId(ctx.params[0]),ctx.request.signal,() => !router.options.projectSession || router.options.projectSession.allowed(ctx.request,safeId(ctx.params[0]))) });
+  router.add({ pattern: /^\/api\/projects\/([^/]+)\/builder-replies(?:\/([^/]+))?(?:\/([^/]+))?(?:\/([^/]+))?$/, auth: 'none', policies: BUILDER_POLICIES, handle: async ctx => {
     const [rawP,action,setId,fileId] = ctx.params, p = safeId(rawP), request = ctx.request;
     // The API token remains the machine credential; every builder-reply operation is administrative
     // (upload, preview, apply, skip) and requires the administrator session as well.
-    if (router.options.adminSession && !router.options.adminSession.isAdmin(request)) return errorResponse('Administrator permission required', 403);
-    const authorized = !router.options.API_TOKEN || request.headers.get('Authorization') === 'Bearer ' + router.options.API_TOKEN;
+    if (!router.kjx && router.options.adminSession && !router.options.adminSession.isAdmin(request)) return errorResponse('Administrator permission required', 403);
+    const authorized = router.kjx || !router.options.API_TOKEN || request.headers.get('Authorization') === 'Bearer ' + router.options.API_TOKEN;
     if (request.method === 'GET' && setId === 'file' && action && fileId) {
       const reply = replies.getFile(p,action,fileId);
+      if (router.kjx && request.headers.has('X-PCF-Token') && !pcf.validScopedCredential(request.headers.get('X-PCF-Token'),p,reply.drawingId,requestUser(request)?.id)) return errorResponse('Unauthorized',401);
       if (!authorized && !pcf.validScopedCredential(request.headers.get('X-PCF-Token'),p,reply.drawingId)) return errorResponse('Unauthorized',401);
-      return new Response(reply.html, { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff' } });
+      // Uploaded HTML is untrusted evidence, never a same-origin executable page.
+      // The PCF handoff reads fetch/blob and supplies its own File MIME type.
+      return new Response(reply.html, { headers: {
+        'Content-Type': 'application/octet-stream', 'Content-Disposition': 'attachment; filename="builder-reply.html"',
+        'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Content-Security-Policy': 'sandbox',
+      } });
     }
     if (!authorized) return errorResponse('Unauthorized',401);
     let payload: unknown;
@@ -63,5 +71,5 @@ export function registerPcfRoutes(router: Router, pcf: PcfApi, adminPassword?: s
     else return errorResponse('Not found',404);
     return Response.json(payload, { headers: { 'Cache-Control': 'no-store' } });
   } });
-  router.add({ pattern: /^(?:\/api\/pcf\/|\/pcf\/)/, auth: 'none', handle: ctx => pcf.handle(ctx.request,ctx.request.headers.get('X-Hub-Remote-Address') || '') });
+  router.add({ pattern: /^(?:\/api\/pcf\/|\/pcf\/)/, auth: 'none', policies: PCF_POLICIES, handle: ctx => pcf.handle(ctx.request,ctx.request.headers.get('X-Hub-Remote-Address') || '') });
 }

@@ -1,3 +1,4 @@
+import { writeAudit } from './audit.ts';
 import { randomUUID } from 'node:crypto';
 import { transitionReviewState, type ReviewStatus } from '../../lib/drawing-status.ts';
 import { lettersToRound } from '../../lib/rounds.ts';
@@ -24,7 +25,7 @@ export function transitionDrawingStatus(storage: PcfStorage, realtime: PcfRealti
     else db.prepare('UPDATE drawings SET status=?,current_round=?,review_deadline=? WHERE project_id=? AND id=?').run(status, state.currentRound, state.reviewDeadline, projectId, drawingId);
     const roundChange = row.current_round !== state.currentRound ? ` | Round: ${row.current_round} -> ${state.currentRound}` : '';
     db.prepare('INSERT INTO drawing_status_history(id,drawing_id,content,created_at) VALUES(?,?,?,?)').run(randomUUID(), drawingId, `Status: ${row.status} -> ${status}${roundChange}`, at.toISOString());
-    db.prepare("INSERT INTO audit_log(table_name,row_id,project_id,action,detail,created_at) VALUES('drawings',?,?,'STATUS',?,?)").run(drawingId, projectId, JSON.stringify({ customId: row.custom_id, drawingNo: row.drawing_no, from: row.status, to: status, round: { from: row.current_round, to: state.currentRound }, source }), at.toISOString());
+    writeAudit(db,{table:'drawings',rowId:drawingId,projectId,action:'STATUS',detail:{ customId: row.custom_id, drawingNo: row.drawing_no, from: row.status, to: status, round: { from: row.current_round, to: state.currentRound }, source },createdAt:at.toISOString()});
     db.prepare('UPDATE projects SET last_updated=? WHERE id=?').run(at.toISOString(), projectId);
   };
   if (hasPcf && row.current_round !== state.currentRound) {

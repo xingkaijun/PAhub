@@ -41,6 +41,8 @@ const matchFilter = (drawing: Drawing, filterText: string): boolean => {
 };
 
 export const ReviewTracker: React.FC = () => {
+    const session = useStore(state => state.session);
+    const can = useStore(state => state.can);
     const {
         data,
         activeProjectId,
@@ -503,7 +505,7 @@ export const ReviewTracker: React.FC = () => {
                         Refresh
                     </button>
                     {/* 编辑锁定按钮 */}
-                    <button
+                    {session?.mode !== 'kjx' && <button
                         onClick={() => isEditMode ? void logoutAdmin() : setShowAdminLogin(true)}
                         title={isEditMode ? 'Sign out of the administrator session' : ADMIN_REQUIRED}
                         aria-pressed={isEditMode}
@@ -515,7 +517,7 @@ export const ReviewTracker: React.FC = () => {
                     >
                         {isEditMode ? <Unlock size={14} /> : <Lock size={14} />}
                         {isEditMode ? 'Administrator' : 'Admin Sign-in'}
-                    </button>
+                    </button>}
                 </div>
             </div>
 
@@ -643,7 +645,7 @@ export const ReviewTracker: React.FC = () => {
                     </div>
                 )}
             </div>
-            <AdminLoginDialog open={showAdminLogin} onClose={() => setShowAdminLogin(false)} />
+            {session?.mode !== 'kjx' && <AdminLoginDialog open={showAdminLogin} onClose={() => setShowAdminLogin(false)} />}
         </div>
     );
 };
