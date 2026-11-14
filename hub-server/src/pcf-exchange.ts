@@ -24,7 +24,7 @@ export function externalData(source: PcfData): PcfData {
     schemaVersion: source.schemaVersion, appVersion: '2.6', documentId: source.documentId, updatedAt: source.updatedAt,
     project: { ...pick(source.project, ['name','planTitle','planNo','revision','approval','currentRound']), folder: '' },
     comments: source.comments.map((c: any) => ({ ...pick(c, ['id','number','page','tags','status','createdAt','updatedAt']),
-      rounds: c.rounds.map((r: any) => ({ ...pick(r, ['id','number','initiator','responder','minHeight','createdAt','updatedAt']), owner: cleanContent(r.owner), reply: cleanContent(r.reply) })) })),
+      rounds: c.rounds.map((r: any) => ({ ...pick(r, ['id','number','initiator','responder','minHeight','createdAt','updatedAt']), ...Object.fromEntries(['initiatorId','responderId'].filter(k => r[k] !== undefined).map(k => [k, structuredClone(r[k])])), owner: cleanContent(r.owner), reply: cleanContent(r.reply) })) })),
     nextCommentNumber: source.nextCommentNumber, deleted: [], circulation: [], approvalHistory: [],
     roundRegister: source.roundRegister.map((r: any) => pick(r, ['id','round','revision','ownerRef','ownerDate','replyRef','replyDate'])),
     approvalControl: pick(source.approvalControl, ['lastOpen','source','reason']), settings: pick(source.settings, ['fontSize','autoSaveSeconds']),
