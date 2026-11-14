@@ -167,7 +167,9 @@ export class PcfApi {
             const authorized = authorizeOps(requestUser(request),body.ops,this.storage.load(p,d).data);
             if (authorized.ok === false) return forbidden(authorized.capability,authorized.opIndex);
           }
-          const actor = this.actor(body, ip), outcome = this.storage.opsBatch(p, d, body, actor);
+          const user = this.kjx ? requestUser(request) : undefined;
+          const requestActor = user ? { sub: user.id, name: user.name } : undefined;
+          const actor = this.actor(body, ip), outcome = this.storage.opsBatch(p, d, body, actor, requestActor);
           if (!outcome.replayed && outcome.result.applied.length) this.realtime.changed(p + '/' + d, outcome.result, actor);
           return json(outcome.result);
         }

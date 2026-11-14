@@ -208,6 +208,10 @@ test('kjx: HTTP ops denial is atomic, old rounds are not own, audit is one row p
     const audit=f.hub.db.prepare('SELECT * FROM audit_log ORDER BY id DESC LIMIT 1').get()!;
     assert.equal(audit.actor_id,'owner');assert.equal(audit.actor_name,'Test reviewer');
     assert.deepEqual(JSON.parse(String(audit.op_types)),['comment.add','comment.add']);
+    // Exercise an actual pre-identity round, not a newly attributed kjx round.
+    const old=f.hub.pcf.storage.load(PROJECT,DRAWING);
+    for (const comment of old.data.comments) for (const round of comment.rounds) delete round.initiatorId;
+    await writeFile(f.hub.pcf.storage.file(PROJECT,DRAWING),JSON.stringify(old.data));
     const current=f.hub.pcf.storage.load(PROJECT,DRAWING);
     const edit=await f.request(pcf+'/ops','reviewer',f.json({clientId:'client',baseRev:current.rev,ops:[{type:'content.set',commentId:'C',roundId:'R',side:'owner',value:{text:'Denied'},baseRev:0}]}));
     assert.equal(edit.status,403);assert.equal(f.hub.pcf.storage.load(PROJECT,DRAWING).rev,current.rev);
@@ -235,11 +239,12 @@ test('kjx: owned-round HTTP edits succeed only for owner-side and matching user'
   try {
     await f.request('/pcf/'+PROJECT+'/'+DRAWING,'admin');
     let current=f.hub.pcf.storage.load(PROJECT,DRAWING);
-    await f.request(pcf+'/ops','admin',f.json({clientId:'setup',baseRev:current.rev,ops:[{type:'comment.add',id:'owned-comment',roundIdNew:'owned-round'}]}));
-    // Seed the T3-owned field only in a fixture; production creation deliberately does not write it in T2.
+    const added=await f.request(pcf+'/ops','reviewer',f.json({clientId:'setup',baseRev:current.rev,ops:[{type:'comment.add',id:'owned-comment',roundIdNew:'owned-round',initiator:'Forged',initiatorId:'other',responderId:'other'}]}));
+    assert.equal(added.status,200);
     current=f.hub.pcf.storage.load(PROJECT,DRAWING);
-    current.data.comments[0].rounds[0].initiatorId='owner';
-    await writeFile(f.hub.pcf.storage.file(PROJECT,DRAWING),JSON.stringify(current.data));
+    assert.equal(current.data.comments[0].rounds[0].initiatorId,'owner');
+    assert.equal(current.data.comments[0].rounds[0].initiator,'Test reviewer');
+    assert.equal(current.data.comments[0].rounds[0].responderId,undefined);
     const submit=async(role:typeof roles[number],op:Record<string,unknown>,claims={})=>{
       const latest=f.hub.pcf.storage.load(PROJECT,DRAWING);
       return f.request(pcf+'/ops',role,f.json({clientId:'editor',baseRev:latest.rev,ops:[{...op,commentId:'owned-comment',roundId:'owned-round',baseRev:0}]}),claims);
@@ -256,6 +261,224 @@ test('kjx: owned-round HTTP edits succeed only for owner-side and matching user'
     assert.equal(presence.status,200);
     assert.equal((await presence.json()).online.find((entry:any)=>entry.clientId==='presence-client').clientName,'Test reviewer');
   } finally {await f.cleanup();}
+});
+
+test('kjx integration: create and edit in one batch uses only verified ownership', async () => {
+  const f=await fixture();
+  try {
+    await f.request('/pcf/'+PROJECT+'/'+DRAWING,'reviewer');
+    const current=f.hub.pcf.storage.load(PROJECT,DRAWING);
+    const response=await f.request(pcf+'/ops','reviewer',f.json({clientId:'client',baseRev:current.rev,requestActor:{sub:'forged',name:'Forged'},ops:[
+      {type:'comment.add',id:'C',roundIdNew:'R',initiatorId:'forged',initiator:'Forged'},
+      {type:'content.set',commentId:'C',roundId:'R',side:'owner',baseRev:0,value:{text:'Own content',html:'',images:[]}},
+      {type:'round.meta',commentId:'C',roundId:'R',field:'minHeight',baseRev:0,value:80},
+      {type:'comment.meta',commentId:'C',baseRev:0,value:{page:'5'}},
+    ]}));
+    assert.equal(response.status,200);
+    const result=await response.json();assert.equal(result.applied.length,4);
+    const round=result.data.comments[0].rounds[0];
+    assert.equal(round.initiatorId,'owner');assert.equal(round.initiator,'Test reviewer');
+    assert.equal(round.owner.text,'Own content');assert.equal(round.minHeight,80);
+    const latest=f.hub.pcf.storage.load(PROJECT,DRAWING);
+    const next=await f.request(pcf+'/ops','reviewer',f.json({clientId:'client',baseRev:latest.rev,ops:[
+      {type:'round.add',commentId:'C',id:'R2',baseRev:latest.data.hub.entities['comment:C:record'].rev,initiatorId:'forged'},
+      {type:'content.set',commentId:'C',roundId:'R2',side:'owner',baseRev:0,value:{text:'Second round',html:'',images:[]}},
+    ]}));
+    assert.equal(next.status,200);assert.equal((await next.json()).applied.length,2);
+    const saved=f.hub.pcf.storage.load(PROJECT,DRAWING).data.comments[0].rounds[1];
+    assert.equal(saved.initiatorId,'owner');assert.equal(saved.responderId,undefined);
+  } finally {await f.cleanup();}
+});
+
+test('kjx integration: all-round ownership gates status/meta and foreign/old edits are atomic', async () => {
+  const f=await fixture();
+  try {
+    await f.request('/pcf/'+PROJECT+'/'+DRAWING,'reviewer');
+    const submit=async(role:typeof roles[number],ops:any[],claims={})=>{
+      const latest=f.hub.pcf.storage.load(PROJECT,DRAWING);
+      return f.request(pcf+'/ops',role,f.json({clientId:'client',baseRev:latest.rev,ops}),claims);
+    };
+    assert.equal((await submit('reviewer',[{type:'comment.add',id:'C',roundIdNew:'R'}])).status,200);
+    assert.equal((await submit('reviewer',[{type:'round.add',commentId:'C',id:'R2'}])).status,200);
+    for (const op of [{type:'comment.meta',value:{page:'2'}},{type:'comment.status',value:'closed'}]) {
+      const response=await submit('reviewer',[{...op,commentId:'C',baseRev:0}]);
+      assert.equal(response.status,200);assert.equal((await response.json()).applied.length,1);
+    }
+    const closed=f.hub.pcf.storage.load(PROJECT,DRAWING);
+    assert.equal((await submit('reviewer',[{type:'comment.status',commentId:'C',value:'open',baseRev:closed.data.hub.entities['comment:C:status'].rev}])).status,200);
+    assert.equal((await submit('reviewer',[{type:'round.add',commentId:'C',id:'foreign',initiatorId:'owner'}],{sub:'other'})).status,200);
+    let current=f.hub.pcf.storage.load(PROJECT,DRAWING);
+    assert.equal(current.data.comments[0].rounds[2].initiatorId,'other');
+    for (const roundId of ['foreign','legacy']) {
+      if (roundId==='legacy') {
+        // The default storage API models offline/legacy creation with no request actor.
+        f.hub.pcf.storage.ops(PROJECT,DRAWING,{baseRev:current.rev,ops:[{type:'round.add',commentId:'C',id:'legacy'}]},{clientId:'offline',clientName:'',ip:''});
+        current=f.hub.pcf.storage.load(PROJECT,DRAWING);
+        assert.equal(current.data.comments[0].rounds.at(-1).initiatorId,undefined);
+      }
+      for (const op of [
+        {type:'content.set',roundId,side:'owner',value:{text:'Forbidden',html:'',images:[]}},
+        {type:'round.meta',roundId,field:'minHeight',value:400},
+        {type:'comment.status',value:'closed'}, {type:'comment.meta',value:{page:'Forbidden'}},
+      ]) {
+        const before=f.hub.pcf.storage.load(PROJECT,DRAWING);
+        const response=await submit('reviewer',[
+          {type:'content.set',commentId:'C',roundId:'R',side:'owner',baseRev:0,value:{text:'Must not land',html:'',images:[]}},
+          {...op,commentId:'C',baseRev:0},
+        ]);
+        assert.equal(response.status,403);assert.equal((await response.json()).op,1);
+        assert.deepEqual(f.hub.pcf.storage.load(PROJECT,DRAWING),before);
+      }
+    }
+    const manager=await submit('manager',[{type:'content.set',commentId:'C',roundId:'legacy',side:'owner',baseRev:0,value:{text:'Manager edit',html:'',images:[]}}]);
+    assert.equal(manager.status,200);assert.equal((await manager.json()).applied.length,1);
+  } finally {await f.cleanup();}
+});
+
+test('kjx integration: round.add plus comment.status projects ownership atomically', async () => {
+  const f=await fixture();
+  try {
+    await f.request('/pcf/'+PROJECT+'/'+DRAWING,'reviewer');
+    let current=f.hub.pcf.storage.load(PROJECT,DRAWING);
+    const submit=(ops:any[],claims={})=>f.request(pcf+'/ops','reviewer',f.json({clientId:'client',baseRev:current.rev,ops}),claims);
+    const created=await submit([{type:'comment.add',id:'C',roundIdNew:'R'}]);assert.equal(created.status,200);
+    current=f.hub.pcf.storage.load(PROJECT,DRAWING);
+    const changed=await submit([
+      {type:'round.add',commentId:'C',id:'R2',baseRev:current.data.hub.entities['comment:C:record'].rev,initiatorId:'other'},
+      {type:'comment.status',commentId:'C',baseRev:0,value:'closed'},
+    ]);
+    assert.equal(changed.status,200);assert.equal((await changed.json()).applied.length,2);
+    current=f.hub.pcf.storage.load(PROJECT,DRAWING);
+    assert.equal(current.data.comments[0].status,'closed');
+    assert.equal(current.data.comments[0].rounds[1].initiatorId,'owner');
+    assert.equal((await submit([{type:'comment.status',commentId:'C',baseRev:current.data.hub.entities['comment:C:status'].rev,value:'open'}])).status,200);
+    current=f.hub.pcf.storage.load(PROJECT,DRAWING);
+    assert.equal((await submit([{type:'round.add',commentId:'C',id:'foreign'}],{sub:'other'})).status,200);
+    for (const [type,value] of [['comment.status','closed'],['comment.meta',{page:'Forbidden'}]] as const) {
+      current=f.hub.pcf.storage.load(PROJECT,DRAWING);
+      const before=current;
+      const auditCount=f.hub.db.prepare('SELECT COUNT(*) AS n FROM audit_log').get()!.n;
+      const denied=await submit([
+        {type:'round.add',commentId:'C',id:'must-not-exist',baseRev:current.data.hub.entities['comment:C:record'].rev},
+        {type,commentId:'C',baseRev:current.data.hub.entities['comment:C:'+(type==='comment.status'?'status':'meta')]?.rev || 0,value},
+      ]);
+      assert.equal(denied.status,403);assert.equal((await denied.json()).op,1);
+      assert.deepEqual(f.hub.pcf.storage.load(PROJECT,DRAWING),before);
+      assert.equal(f.hub.db.prepare('SELECT COUNT(*) AS n FROM audit_log').get()!.n,auditCount);
+    }
+  } finally {await f.cleanup();}
+});
+
+test('kjx integration: bulk rounds use manager identity and ignore submitted participants', async () => {
+  const f=await fixture();
+  try {
+    await f.request('/pcf/'+PROJECT+'/'+DRAWING,'reviewer');
+    let current=f.hub.pcf.storage.load(PROJECT,DRAWING);
+    assert.equal((await f.request(pcf+'/ops','reviewer',f.json({clientId:'client',baseRev:current.rev,ops:[{type:'comment.add',id:'C',roundIdNew:'R'}]}))).status,200);
+    current=f.hub.pcf.storage.load(PROJECT,DRAWING);
+    const body={clientId:'client',baseRev:current.rev,ops:[{type:'rounds.addAll',number:2,baseRev:0,initiatorId:'forged',rounds:[{commentId:'C',id:'R2',recordRev:current.data.hub.entities['comment:C:record'].rev,initiatorId:'forged',responderId:'forged'}]}]};
+    assert.equal((await f.request(pcf+'/ops','reviewer',f.json(body))).status,403);
+    assert.deepEqual(f.hub.pcf.storage.load(PROJECT,DRAWING),current);
+    const response=await f.request(pcf+'/ops','manager',f.json(body),{sub:'manager-id',name:'Manager Name'});
+    assert.equal(response.status,200);assert.equal((await response.json()).applied.length,1);
+    const round=f.hub.pcf.storage.load(PROJECT,DRAWING).data.comments[0].rounds[1];
+    assert.equal(round.initiatorId,'manager-id');assert.equal(round.initiator,'Manager Name');assert.equal(round.responderId,undefined);
+  } finally {await f.cleanup();}
+});
+
+test('kjx integration: duplicate/tombstoned IDs never grant ownership in a batch', () => {
+  const doc={comments:[{id:'C',rounds:[{id:'R',initiatorId:'other'}]}],hub:{tombstones:[{id:'dead'}]}};
+  for (const op of [
+    {type:'comment.add',id:'C',roundIdNew:'R'},
+    {type:'round.add',commentId:'C',id:'R'},
+  ]) {
+    const result=authorizeOps(user('reviewer'),[op,{type:'content.set',commentId:'C',roundId:'R',side:'owner'}],doc);
+    assert.equal(result.ok,false);if (!result.ok) assert.equal(result.opIndex,1);
+  }
+  assert.equal(authorizeOps(user('reviewer'),[
+    {type:'round.add',commentId:'C',id:'dead'},
+    {type:'content.set',commentId:'C',roundId:'dead',side:'owner'},
+  ],doc).ok,false);
+  assert.equal(doc.comments[0].rounds.length,1);
+});
+
+test('kjx integration: round metadata cannot rewrite identity for any role', async () => {
+  const f=await fixture();
+  try {
+    await f.request('/pcf/'+PROJECT+'/'+DRAWING,'reviewer');
+    let current=f.hub.pcf.storage.load(PROJECT,DRAWING);
+    await f.request(pcf+'/ops','reviewer',f.json({clientId:'client',baseRev:current.rev,ops:[{type:'comment.add',id:'C',roundIdNew:'R'}]}));
+    for (const role of ['reviewer','manager','admin'] as const) for (const field of ['initiatorId','responderId','initiator']) {
+      current=f.hub.pcf.storage.load(PROJECT,DRAWING);
+      const response=await f.request(pcf+'/ops',role,f.json({clientId:'client',baseRev:current.rev,ops:[{type:'round.meta',commentId:'C',roundId:'R',field,value:'forged',baseRev:current.data.hub.entities['round:R:'+field]?.rev || 0}]}));
+      if (role==='reviewer') assert.equal(response.status,403);
+      else {assert.equal(response.status,200);assert.equal((await response.json()).applied.length,field==='initiator'?1:0);}
+      const round=f.hub.pcf.storage.load(PROJECT,DRAWING).data.comments[0].rounds[0];
+      assert.equal(round.initiatorId,'owner');assert.equal(round.responderId,undefined);
+      if (field!=='initiator') assert.equal(f.hub.pcf.storage.load(PROJECT,DRAWING).rev,current.rev);
+    }
+  } finally {await f.cleanup();}
+});
+
+test('kjx integration: builder and complete export/import preserve IDs without assigning a responder', async () => {
+  const f=await fixture();
+  try {
+    await f.request('/pcf/'+PROJECT+'/'+DRAWING,'reviewer');
+    const start=f.hub.pcf.storage.load(PROJECT,DRAWING);
+    await f.request(pcf+'/ops','reviewer',f.json({clientId:'client',baseRev:start.rev,ops:[{type:'comment.add',id:'C',roundIdNew:'R'}]}));
+    const {parseHTML}=await import('../src/pcf-html.ts');
+    const {standaloneHTML}=await import('../src/pcf-exchange.ts');
+    const {randomUUID}=await import('node:crypto');
+    const exported=await (await f.request(pcf+'/exports','manager',f.json({mode:'builder'}))).json();
+    const returned=parseHTML(await (await f.request(pcf+'/exports/'+exported.exportId+'/download','manager')).text());
+    const round=returned.comments[0].rounds[0];
+    assert.equal(round.initiatorId,'owner');assert.equal(round.responderId,undefined);
+    round.reply={text:'Builder reply',html:'',fill:'',images:[]};
+    const html=standaloneHTML(returned);
+    const preview=await (await f.request(pcf+'/imports','manager',f.json({step:'preview',html}))).json();
+    assert.equal(preview.ownerTampered,false);
+    const applied=await f.request(pcf+'/imports','manager',f.json({step:'apply',html,previewToken:preview.previewToken,batchId:randomUUID()}));
+    assert.equal(applied.status,200);
+    const saved=f.hub.pcf.storage.load(PROJECT,DRAWING).data.comments[0].rounds[0];
+    assert.equal(saved.reply.text,'Builder reply');assert.equal(saved.initiatorId,'owner');assert.equal(saved.responderId,undefined);
+    // Complete copies retain both optional IDs when an existing responder is known.
+    const current=f.hub.pcf.storage.load(PROJECT,DRAWING);
+    current.data.comments[0].rounds[0].responderId='builder-existing';
+    await writeFile(f.hub.pcf.storage.file(PROJECT,DRAWING),JSON.stringify(current.data));
+    const complete=await (await f.request(pcf+'/download?format=json','manager')).json();
+    complete.comments[0].rounds[0].owner.text='Offline owner edit';
+    const completePreview=await (await f.request(pcf+'/imports','manager',f.json({step:'preview',json:complete}))).json();
+    const merged=await f.request(pcf+'/imports','manager',f.json({step:'apply',json:complete,previewToken:completePreview.previewToken,batchId:randomUUID()}));
+    assert.equal(merged.status,200);
+    const final=f.hub.pcf.storage.load(PROJECT,DRAWING).data.comments[0].rounds[0];
+    assert.equal(final.initiatorId,'owner');assert.equal(final.responderId,'builder-existing');assert.equal(final.owner.text,'Offline owner edit');
+  } finally {await f.cleanup();}
+});
+
+test('kjx integration: replay identity is bound and legacy HTTP remains anonymous', async () => {
+  const f=await fixture();
+  try {
+    await f.request('/pcf/'+PROJECT+'/'+DRAWING,'reviewer');
+    const {randomUUID}=await import('node:crypto');
+    const current=f.hub.pcf.storage.load(PROJECT,DRAWING);
+    const body={clientId:'shared-client',baseRev:current.rev,batchId:randomUUID(),ops:[{type:'comment.add',id:'C',roundIdNew:'R'}]};
+    const first=await f.request(pcf+'/ops','reviewer',f.json(body));assert.equal(first.status,200);
+    const replay=await f.request(pcf+'/ops','reviewer',f.json(body));assert.equal(replay.status,200);
+    assert.deepEqual(await replay.json(),await first.json());
+    assert.equal((await f.request(pcf+'/ops','reviewer',f.json(body),{sub:'other'})).status,409);
+    assert.equal(f.hub.pcf.storage.load(PROJECT,DRAWING).data.comments[0].rounds[0].initiatorId,'owner');
+  } finally {await f.cleanup();}
+  const legacy=await fixture('legacy');
+  try {
+    await legacy.request('/pcf/'+PROJECT+'/'+DRAWING,'reviewer');
+    const current=legacy.hub.pcf.storage.load(PROJECT,DRAWING);
+    const response=await legacy.request(pcf+'/ops','reviewer',legacy.json({clientId:'legacy',baseRev:current.rev,requestActor:{sub:'forged',name:'Forged'},ops:[{type:'comment.add',id:'C',roundIdNew:'R',initiatorId:'forged'}]}));
+    assert.equal(response.status,200);
+    const round=(await response.json()).data.comments[0].rounds[0];
+    assert.equal(Object.hasOwn(round,'initiatorId'),false);assert.equal(Object.hasOwn(round,'responderId'),false);assert.equal(round.initiator,'');
+    const latest=legacy.hub.pcf.storage.load(PROJECT,DRAWING);
+    assert.equal((await legacy.request(pcf+'/ops','reviewer',legacy.json({clientId:'legacy',baseRev:latest.rev,ops:[{type:'round.meta',commentId:'C',roundId:'R',field:'initiatorId',baseRev:0,value:'forged'}]}))).status,400);
+  } finally {await legacy.cleanup();}
 });
 
 test('kjx: Origin/Referer and CORS rules; configured CORS is explicit', async () => {

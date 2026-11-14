@@ -1,9 +1,10 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { createKjxVerifier, type KjxVerifier } from './kjx-auth-client.ts';
+import { upsertKjxUser, type KjxUser } from './kjx-users.ts';
 
 export type AuthMode = 'legacy' | 'kjx';
 export const PAHUB_ROLES = ['admin', 'manager', 'reviewer', 'viewer'] as const;
-export type RequestUser = { id: string; username: string; name: string; title: string | null; disciplines: string[]; role: typeof PAHUB_ROLES[number]; sid: string };
+export type RequestUser = KjxUser & { role: typeof PAHUB_ROLES[number]; sid: string };
 const users = new WeakMap<Request, RequestUser>();
 export const requestUser = (request: Request) => users.get(request);
 export const KJX_ENFORCE_PROJECT_PASSWORD = true;
@@ -38,7 +39,7 @@ export function createIdentity(verifier: KjxVerifier, db: DatabaseSync) {
     const now = Date.now();
     if (!lastWrite.has(u.id) || now - lastWrite.get(u.id)! >= 60000) {
       const at = new Date(now).toISOString();
-      db.prepare('INSERT INTO kjx_users(id,username,name,title,disciplines,role,first_seen,last_seen) VALUES(?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET username=excluded.username,name=excluded.name,title=excluded.title,disciplines=excluded.disciplines,role=excluded.role,last_seen=excluded.last_seen').run(u.id,u.username,u.name,u.title,JSON.stringify(u.disciplines),u.role,at,at);
+      upsertKjxUser(db, user, at);
       lastWrite.set(u.id, now);
       if (lastWrite.size > 10000) for (const [id, seen] of lastWrite) if (now - seen >= 60000) lastWrite.delete(id);
     }
