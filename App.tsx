@@ -11,6 +11,7 @@ import { CommandBar } from './components/CommandBar';
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { UnsavedChangesIndicator } from './components/UnsavedChangesIndicator';
 import { AdminLoginDialog } from './components/AdminLoginDialog';
+import { IdentityMenu, AuthNotice } from './components/IdentityMenu';
 import {
   FileStack,
   Settings as SettingsIcon,
@@ -61,6 +62,8 @@ const App: React.FC = () => {
   const saveProject = useStore(state => state.saveProject);
   const fetchGlobalSettings = useStore(state => state.fetchGlobalSettings);
   const isEditMode = useStore(state => state.isEditMode);
+  const session = useStore(state => state.session);
+  const canConfigure = useStore(state => state.can('settings.write'));
   const refreshSession = useStore(state => state.refreshSession);
   const logoutAdmin = useStore(state => state.logoutAdmin);
   const hasUnsavedChanges = useStore(state => state.hasUnsavedChanges());
@@ -94,8 +97,8 @@ const App: React.FC = () => {
   const [remoteUpdateCount, setRemoteUpdateCount] = useState(0);
   const [showAdminLogin, setShowAdminLogin] = useState(false);
   useEffect(() => {
-    if (!isEditMode && activeTab === 'settings') setActiveTab('drawings');
-  }, [isEditMode, activeTab]);
+    if (!canConfigure && activeTab === 'settings') setActiveTab('drawings');
+  }, [canConfigure, activeTab]);
 
   // 1. Startup Logic: Server First - FETCH LIST ONLY
   useEffect(() => {
@@ -343,7 +346,7 @@ const App: React.FC = () => {
       source.addEventListener('presence', e => { try { event('presence', JSON.parse((e as MessageEvent).data)); } catch {} });
       source.addEventListener('drawing-changed', e => { try { event('drawing-changed', JSON.parse((e as MessageEvent).data)); } catch {} });
       source.onopen = () => { retryDelay = 1000; stopPoll(); fullRefresh(); };
-      source.onerror = () => { source?.close(); source = undefined; reconnect(); };
+      source.onerror = () => { source?.close(); source = undefined; if (useStore.getState().session?.mode === 'kjx') void useStore.getState().refreshSession(); reconnect(); };
     }
     const onVisibility = () => {
       if (document.hidden) {
@@ -522,8 +525,8 @@ const App: React.FC = () => {
               <span className="hidden xl:inline">Comments</span>
             </button>
             <button
-              onClick={() => isEditMode && setActiveTab('settings')}
-              disabled={!isEditMode}
+              onClick={() => canConfigure && setActiveTab('settings')}
+              disabled={!canConfigure}
               className={`flex items-center gap-1.5 px-3 xl:px-5 py-2 rounded-full text-[10px] font-[1000] uppercase tracking-[0.15em] transition-all duration-300 shrink-0 ${activeTab === 'settings' ? 'bg-white text-teal-700 shadow-lg shadow-black/10' : !isEditMode ? 'text-white/35 cursor-not-allowed opacity-70' : 'text-teal-50/75 hover:text-white hover:bg-white/10'}`}
               title={!isEditMode ? "Administrator permission required" : "Configuration"}
             >
@@ -541,7 +544,8 @@ const App: React.FC = () => {
         </div>
 
         <div className="relative flex items-center gap-3 shrink-0 z-[1]">
-          <button
+          <IdentityMenu />
+          {session?.mode !== 'kjx' && <button
             onClick={() => isEditMode ? void logoutAdmin() : setShowAdminLogin(true)}
             title={isEditMode ? 'Sign out of the administrator session' : 'Administrator permission required'}
             aria-pressed={isEditMode}
@@ -550,7 +554,7 @@ const App: React.FC = () => {
           >
             {isEditMode ? <Unlock size={14} strokeWidth={2.5} className="shrink-0" /> : <Lock size={14} strokeWidth={2.5} className="shrink-0" />}
             <span className="hidden xl:inline">{isEditMode ? 'Administrator' : 'Reviewer'}</span>
-          </button>
+          </button>}
           {/* Phones have no tab bar: the manual opens as its own page */}
           <a
             href="/manual/"
@@ -671,7 +675,8 @@ const App: React.FC = () => {
         </div>
       </footer >
 
-      <AdminLoginDialog open={showAdminLogin} onClose={() => setShowAdminLogin(false)} />
+      <AuthNotice />
+      {session?.mode !== 'kjx' && <AdminLoginDialog open={showAdminLogin} onClose={() => setShowAdminLogin(false)} />}
 
       {/* Unsaved Changes Indicator */}
       <UnsavedChangesIndicator />

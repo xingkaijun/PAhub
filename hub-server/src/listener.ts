@@ -17,7 +17,8 @@ export async function listenHub(router: Router, config: ReturnType<typeof readCo
    if(router.kjx && !(url.pathname==='/api' || url.pathname.startsWith('/api/') || url.pathname.startsWith('/pcf/'))){
     const headers=new Headers();
     for(const [key,value]of Object.entries(req.headers))if(value!==undefined)headers.set(key,Array.isArray(value)?value.join(', '):value);
-    const denied=await router.authenticate(new Request(url,{method:req.method,headers}));
+    const request=new Request(url,{method:req.method,headers});
+    const denied=await router.authenticate(request) || router.originDenied(request);
     if(denied){await sendFetch(denied,req,res);return;}
    }
    if(url.pathname==='/api' || url.pathname.startsWith('/api/') || url.pathname.startsWith('/pcf/')){

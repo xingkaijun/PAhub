@@ -10,10 +10,11 @@ import { bannerToolbarHTML } from './pcf-banner-toolbar.ts';
 import type { AdminSession } from './admin-session.ts';
 import type { ProjectSession } from './project-session.ts';
 import { requestUser, KJX_ENFORCE_PROJECT_PASSWORD, type AuthMode } from './identity.ts';
-import { PCF_POLICIES, forbidden, requirePermission, permissionsFor } from './capabilities.ts';
+import { PCF_POLICIES, forbidden, requirePermission, permissionsFor, hasPermission } from './capabilities.ts';
 import { authorizeOps } from './pcf-op-auth.ts';
 import { auditContext } from './audit.ts';
 import { KJX_PCF_ADAPTER } from './pcf-kjx-adapter.ts';
+import { kjxDiscipline } from './discipline-map.ts';
 
 export class PcfApi {
   readonly realtime = new PcfRealtime();
@@ -111,7 +112,7 @@ export class PcfApi {
         const version = TEMPLATE_VERSION, html = renderTemplate(data);
         const replySet = url.searchParams.get('builderReplySet'), replyFile = url.searchParams.get('builderReplyFile');
         const handoff = replySet && replyFile ? '<script id="pahub-builder-reply-handoff">document.addEventListener("DOMContentLoaded",async()=>{const nativeFetch=window.fetch.bind(window);window.fetch=async(...args)=>{const init=args[1]||{},response=await nativeFetch(...args);try{if(String(args[0]).includes("/imports")&&init.method==="POST"&&JSON.parse(init.body).step==="apply"&&response.ok)window.opener?.postMessage({type:"builder-reply-applied",fileId:' + scriptJSON(replyFile) + '},location.origin);}catch{}return response;};try{const input=document.getElementById("pahub-import-file");if(!input)return;const url="/api/projects/"+' + scriptJSON(encodeURIComponent(p)) + '+"/builder-replies/"+' + scriptJSON(encodeURIComponent(replySet)) + '+"/file/"+' + scriptJSON(encodeURIComponent(replyFile)) + ';const response=await nativeFetch(url,{headers:{"X-PCF-Token":window.PAHUB.credential}});if(!response.ok)throw Error("Unable to load saved Builder reply ("+response.status+")");const blob=await response.blob(),file=new File([blob],"builder-reply.html",{type:"text/html"}),transfer=new DataTransfer();transfer.items.add(file);input.files=transfer.files;input.dispatchEvent(new Event("change",{bubbles:true}));}catch(error){alert(error.message);}});</script>' : '';
-        const injection = '<script id="pahub-context">window.PAHUB=' + scriptJSON({ projectId: p, drawingId: d, rev, apiBase: '/api', credential: grant, admin: !this.requiresAdmin(request), templateVersion: version, currentTemplateVersion: TEMPLATE_VERSION, ...(this.kjx ? { mode: 'kjx', user: requestUser(request), permissions: permissionsFor(requestUser(request)!) } : {}) }) + '</script>' + handoff + (this.kjx ? KJX_PCF_ADAPTER : '');
+        const injection = '<script id="pahub-context">window.PAHUB=' + scriptJSON({ projectId: p, drawingId: d, rev, apiBase: '/api', credential: grant, admin: this.kjx ? hasPermission(requestUser(request),'pcf.replace') : !this.requiresAdmin(request), templateVersion: version, currentTemplateVersion: TEMPLATE_VERSION, ...(this.kjx ? { mode: 'kjx', user: requestUser(request), permissions: permissionsFor(requestUser(request)!) } : {}) }) + '</script>' + handoff + (this.kjx ? KJX_PCF_ADAPTER : '');
         if (!/<\/head\s*>/i.test(html)) fail('Template missing head', 500);
         return new Response(bannerToolbarHTML(commentFocusHTML(html.replace(/<\/head\s*>/i, injection + '</head>'))), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' } });
       });
@@ -161,6 +162,8 @@ export class PcfApi {
         }
         case 'POST ops': {
           if (this.kjx && Array.isArray(body.ops)) {
+            const discipline = this.storage.db.prepare('SELECT discipline FROM drawings WHERE project_id=? AND id=?').get(p,d)?.discipline;
+            if (!kjxDiscipline(String(discipline || '')) && !hasPermission(requestUser(request),'pcf.comment.edit_any')) return forbidden('pcf.comment.edit_any');
             const authorized = authorizeOps(requestUser(request),body.ops,this.storage.load(p,d).data);
             if (authorized.ok === false) return forbidden(authorized.capability,authorized.opIndex);
           }

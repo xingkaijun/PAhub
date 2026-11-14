@@ -52,13 +52,17 @@ export class Router {
     if (denied?.status === 403) return denied;
     const base = config.publicUrl.replace(/\/$/, '');
     if (url.pathname === '/api' || url.pathname.startsWith('/api/')) return Response.json({ ok: false, error: 'unauthenticated', login: base + '/login' }, { status: 401 });
-    return Response.redirect(base + '/login?app=pahub&path=' + encodeURIComponent(url.pathname + url.search), 302);
+    return new Response(null, {status:302,headers:{Location:base + '/login?app=pahub&path=' + encodeURIComponent(url.pathname + url.search)}});
+  }
+  originDenied(request: Request): Response | undefined {
+    if (this.kjx && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method) && !validOrigin(request, this.options.identity!.publicOrigin)) return Response.json({ ok: false, error: 'bad_origin' }, { status: 403 });
   }
   async handle(request: Request): Promise<Response> {
     const url = new URL(request.url);
     const identityDenied = await this.authenticate(request);
     if (identityDenied) return this.finish(identityDenied, url);
-    if (this.kjx && ['POST', 'PUT', 'PATCH', 'DELETE'].includes(request.method) && !validOrigin(request, this.options.identity!.publicOrigin)) return this.finish(Response.json({ ok: false, error: 'bad_origin' }, { status: 403 }), url);
+    const originDenied = this.originDenied(request);
+    if (originDenied) return this.finish(originDenied, url);
     let response: Response;
     try {
       if (request.method === 'OPTIONS' && url.pathname.startsWith('/api')) response = new Response(null, { status: 204 });
