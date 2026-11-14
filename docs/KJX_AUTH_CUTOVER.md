@@ -1,11 +1,11 @@
 # PAhub 统一登录切换手册
 
-本文供负责人批准后在维护窗口执行；本 PR 不操作服务器。以负责人决定（2026-11-14）> v1.1 > v1.0 为准。身份、权限、审计与 PCF 身份字段已按集成版本 `232dee8` 核对；目录和相关前端功能仍按文中 T6 标记在合并后复核。
+本文供负责人批准后在维护窗口执行；本 PR 不操作服务器。以负责人决定（2026-11-14）> v1.1 > v1.0 为准。身份、权限、审计、PCF 身份字段、目录和相关前端功能已按 T6 提交 `78177f8` 核对。
 
 ## 前置条件
 
 - kjx-auth 已在 SGP0 运行，登录、健康检查、JWKS、真实客户端 IP 审计和签出已冒烟；PAhub 及认证服务 DNS、Cloudflare Tunnel ingress 与 HTTPS 入口正常。`/manual/` 也需登录。
-- T2/T3 集成版本与本手册已就绪，完整测试通过；T6 目录和相关前端功能合并后，还须完成四角色浏览器验收。负责人确认版本、窗口、执行人与回滚负责人。已轮换泄露过的旧凭据；至少两个 PAhub admin 已开通。目录服务账号和 `directory:read` 属 T6 前置条件。【待 T6 合并后核对】不得在文档、工单或日志中记录任何凭据。
+- T2/T3/T6 与本手册已就绪，完整测试通过；上线前还须完成四角色浏览器验收。负责人确认版本、窗口、执行人与回滚负责人。已轮换泄露过的旧凭据；至少两个 PAhub admin 已开通。负责人已创建 audience `kjx-auth`、scope `directory:read` 的目录服务账号，并把凭据直接写入服务器受限配置。不得在文档、工单或日志中记录任何凭据。
 - nginx 已安装 `snippets/kjx-auth.conf`、`conf.d/kjx-auth-map.conf` 和认证故障页面；核对站点与 kjx-auth 源码 `deploy/nginx/` 示例，不能直接覆盖现有站点。示例中的 `/health` 不适用于 PAhub，应仅将 `/api/health` 作为免登录健康检查。
 - **PAhub 后端端口只能经 nginx 访问**：进程监听 `127.0.0.1`，或由等效防火墙隔离，不能让公网或 Tailnet 客户端绕过 nginx 直连。当前 listener 会读取而不会剥离客户端提供的 `X-Auth-Token`，安全边界依赖 nginx；每个 PAhub 反向代理 location 都必须用 `proxy_set_header X-Auth-Token $kjx_token` 覆盖客户端同名头。
 - 公网和 Tailnet 分为独立 server；公网固定 `X-Forwarded-Proto https`，Tailnet 不信任客户端 `CF-Connecting-IP`，使用 `$remote_addr`。默认保留 Tailnet 运维入口、限 Tailnet 网段并提示使用域名登录，或由负责人决定移除；IP 入口无法取得域名 Cookie。
@@ -13,7 +13,7 @@
 
 ## 环境变量
 
-下表按集成版本 `232dee8` 的实际配置读取与校验整理，不含真实密钥。目录变量尚未进入该版本，列为 T6 待核对项。
+下表按 T6 提交 `78177f8` 的实际配置读取与校验整理，不含真实密钥。
 
 | 变量 | 用途 | 默认值 | 是否必填 |
 |---|---|---|---|
@@ -22,16 +22,16 @@
 | `KJX_ISSUER` | 校验令牌签发方 | `https://auth.kjxing.com` | 否，须与认证服务一致 |
 | `KJX_AUDIENCE` | 校验应用受众 | `pahub` | 否 |
 | `KJX_PUBLIC_URL` | 登录、登出及改密链接 | `https://auth.kjxing.com` | 否 |
-| `KJX_INTERNAL_URL` | 内网服务令牌和目录请求 | 设计默认 `http://127.0.0.1:8090` | T6 尚未读取【待 T6 合并后核对】 |
-| `KJX_CLIENT_ID` | 目录服务账号 ID | 设计默认空 | T6 尚未读取【待 T6 合并后核对】 |
-| `KJX_CLIENT_SECRET` | 目录服务账号密钥 | 设计默认空 | T6 尚未读取；由负责人安全配置【待 T6 合并后核对】 |
+| `KJX_INTERNAL_URL` | 内网服务令牌和目录请求 | `http://127.0.0.1:8090` | 否；须为无凭据、query、fragment 的 HTTP(S) URL |
+| `KJX_CLIENT_ID` | 目录服务账号 ID | 空 | 目录功能需要，与 secret 成对配置 |
+| `KJX_CLIENT_SECRET` | 目录服务账号密钥 | 空 | 目录功能需要；由负责人安全配置 |
 | `PAHUB_PUBLIC_ORIGIN` | 写请求 Origin / Referer 来源校验 | `https://pahub.kjxing.com` | 否；必须匹配实际公开来源 |
 | `PCF_GRANT_SECRET` | 每图凭据和 SSE 凭据签名 | 空：回退 `API_TOKEN` 或进程随机值 | 否；配置时至少 32 字节；与离线交换 HMAC 密钥不同，随机回退在重启后使旧凭据失效 |
 | `ALLOW_CORS_ORIGIN` | 显式允许的跨域来源 | 空 | 否；kjx 模式为空时不发 ACAO，legacy 保持原行为 |
 | `ADMIN_PASSWORD` | legacy 管理员登录与数据库控制台 | 空 | legacy 对外部署需配置；空时 legacy 请求按管理员处理 |
 | `API_TOKEN` | legacy 可选 API 访问凭据及 PCF 签名回退来源 | 空 | 否；kjx 不应将其作为用户身份 |
 
-密钥只由负责人直接写入服务器受限配置；不打印配置或请求头，不把真实值放入命令历史。集成版本中 `AUTH_MODE=kjx` 会校验 URL、audience 和公开 origin；未配置 `ALLOW_CORS_ORIGIN` 时不发送 ACAO，legacy 仍发送配置值或 `*`。目录失败及后备行为待 T6 实现后核对。【待 T6 合并后核对】
+密钥只由负责人直接写入服务器受限配置；不打印配置或请求头，不把真实值放入命令历史。`AUTH_MODE=kjx` 会校验 URL、audience 和公开 origin；未配置 `ALLOW_CORS_ORIGIN` 时不发送 ACAO，legacy 仍发送配置值或 `*`。目录凭据缺失、配置无效、取令牌/目录失败或 5 秒总超时都不会阻止启动：接口返回 `{"ok":false,"fallback":true}`，失败后 60 秒再尝试；成功结果缓存 5 分钟。Team Setup 显示 “Directory unavailable, enter the name manually.”，手填人员使用 `manual-` 加随机 UUID 的本地键，只是姓名快照，不可作为 kjx 身份或 PCF 提出人。
 
 ## 上线前清理演示数据（负责人执行）
 
@@ -88,8 +88,9 @@ SELECT id FROM reviewers WHERE id IN ('engineer_a','engineer_b','senior_eng_c');
 - [ ] **viewer**：登录、查看项目列表、PCF、Daily Log；不能新增或修改意见，也不能直接调用写接口。
 - [ ] **reviewer**：新增意见和单条新轮，提出人自动为本人；编辑自己轮次 owner 内容和高度成功；只有整条意见的所有轮次都属于本人时才能修改状态、页码或标签；改他人/无 ID 历史轮次、reply、提出人、删除/恢复记录及图纸状态均被拒。
 - [ ] **manager**：修改图纸状态、负责人和备注；编辑他人意见及 reply；批量导入/命令、导出与导回船厂回复；单张导出不改状态，导回仅 Waiting Reply → Reviewing；Team Setup、项目设置和创建被拒。
-- [ ] **admin**：创建项目和修改 Settings；验证管理控制台仅 admin 可访问。Team Setup 目录选择 admin/manager/reviewer、目录不可用时手填待 T6 合并后验收。【待 T6 合并后核对】
-- [ ] **所有角色**：受密码保护项目非 admin 仍须解锁，admin 绕过；姓名、角色和在线人员正确；深链登录返回原处、首次/重置后改密、退出后所有统一登录应用失效；停用或撤销 PAhub 角色后访问被拒。已建立的 SSE 连接可能持续到断开。Daily Log 已写入 `actor_id`、`actor_name`、`source`、`op_types`；Actor 列和按人筛选待 T6 合并后验收。【待 T6 合并后核对】
+- [ ] **admin**：创建项目和修改 Settings；验证管理控制台仅 admin 可访问。Team Setup 从目录选择 admin/manager/reviewer 并保存 kjx sub 与姓名快照；目录不可用时出现固定提示，可手填且生成 `manual-` 本地键。
+- [ ] **manager**：PCF 提出人下拉通过图纸级候选接口选择目录用户；Team Setup 目录接口仍被拒。提交指定时服务端还可验证项目团队或本地缓存用户。目录不可用时下拉只允许本人，既有其他提出人只保留不可选的显示快照。
+- [ ] **所有角色**：受密码保护项目非 admin 仍须解锁，admin 绕过；姓名、角色和在线人员正确；深链登录返回原处、首次/重置后改密、退出后所有统一登录应用失效；停用或撤销 PAhub 角色后访问被拒。已建立的 SSE 连接可能持续到断开。Daily Log 在 kjx 模式显示 Actor 列和 All/按人筛选，历史/后台无 actor 行显示 `—`，Copy、CSV 和 PDF 均包含 Actor。
 - [ ] 后端端口从用户网络不可达；公网伪造 `X-Auth-Token` 被 nginx 覆盖，本机获准直连伪造令牌返回 401。
 - [ ] 保持旧轮次无 ID 时不误判为本人；测试完整与外部离线导出/导回保留身份字段；检查拒绝的混合写入批次没有部分落库。
 
@@ -104,5 +105,5 @@ SELECT id FROM reviewers WHERE id IN ('engineer_a','engineer_b','senior_eng_c');
 
 - legacy 的 `/api/admin` 密码派生令牌固定且泄露密码前缀；切回 legacy 后风险仍存在，限制访问并由 P5-3 删除 legacy 时处理，不在此处复制其值或构造方式。
 - kjx-auth 故障会阻断受保护访问；先按认证服务运维手册排障，必要时负责人决定临时回滚。会话过期时 `/pcf/` 图片可能因重定向显示破图，重新登录并刷新。
-- T2/T3 已实现服务端身份字段、权限、离线交换保留及审计写入；Team Setup 目录、Daily Log Actor 前端列/筛选和提出人下拉尚待 T6。【待 T6 合并后核对】
+- T6 已实现 Team Setup 目录、Daily Log Actor 列/筛选/导出和提出人控件。PCF 持久模板保持版本 6：统一登录控件由 hosted kjx adapter 注入，不改 legacy/offline 模板字节；升级 dry-run 与 `fec6429` reader 兼容性已有执行测试。
 - 后端端口若可被用户网络直连，客户端可自行提供 `X-Auth-Token`，绕过 nginx 的头覆盖边界；必须保持仅 nginx 可达并纳入每次部署验收。

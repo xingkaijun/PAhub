@@ -64,7 +64,7 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 <main class="wrap" id="manual">
 <h1>PAhub 审图平台中文操作手册</h1>
 <p class="kicker">平台内置手册 · 顺栏 Guide 打开 · 地址 /manual/</p>
-<p class="updated">统一登录章节按集成提交 232dee8 核对，2026 年 11 月 14 日更新</p>
+<p class="updated">统一登录章节按 T6 提交 78177f8 核对，2026 年 11 月 14 日更新</p>
 <p class="lede">PAhub 的用法一句话：管理员在主表管图纸、人员和状态，审图人员在在线 PCF 里写意见，和船厂之间用离线 HTML 文件来回，导回时自动合并。</p>
 <ul>
 <li>标 <span class="tag">看代码推断</span> 的部分是按代码写的，没有在浏览器里实际点过，用之前最好自己试一遍。</li>
@@ -91,15 +91,15 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 <tr><td>admin（管理员）</td><td>具有上述全部能力，还可管理 Team Setup、项目设置和项目、作废、历史恢复及管理控制台。</td><td>进行替换、删除等操作前请先确认影响并备份。</td></tr>
 </tbody></table></div>
 <h3>“只能改自己的意见”是什么意思？</h3>
-<p>按<b>每个轮次</b>判断：系统记录该轮次的提出人账号 ID，而不是只看显示的名字。新建意见或轮次时，服务端会忽略页面传来的身份并自动记录当前登录人。reviewer 只能编辑属于自己的轮次的 Owner 内容和行高；整条意见的状态、页码或标签只有在所有轮次都属于自己时才能修改。reviewer 不能编辑 Reply、更改提出人或删除／恢复记录。旧轮次如果没有记录账号 ID，即使显示名字相同也不能认作自己的；请找 manager 或 admin 处理。admin／manager 指定其他团队成员的提出人下拉尚待 T6 上线。<span class="tag">【待 T6 合并后核对】</span></p>
+<p>按<b>每个轮次</b>判断：系统记录该轮次的提出人账号 ID，而不是只看显示的名字。新建意见或轮次时，服务端会忽略页面传来的身份并自动记录当前登录人；reviewer 看到只读提出人。reviewer 只能编辑属于自己的轮次的 Owner 内容和行高；整条意见的状态、页码或标签只有在所有轮次都属于自己时才能修改。reviewer 不能编辑 Reply、更改提出人或删除／恢复记录。旧轮次如果没有记录账号 ID，即使显示名字相同也不能认作自己的；请找 manager 或 admin 处理。admin／manager 可从当前图纸的提出人下拉选择经服务器验证的用户；目录不可用时只能选择自己，既有其他提出人仍以只读姓名显示。</p>
 <h3>为什么登录后还要输入项目密码？</h3>
 <p>统一账号证明你是谁；项目密码是受保护项目的第二道访问门槛。除 admin 可直接进入外，其他角色仍须输入该项目的密码解锁；解锁不会提高账号角色权限。没有项目密码请联系项目管理员。</p>
 <h3>日常使用与常见问题</h3>
 <ul>
 <li><b>没有 PAhub 访问权限：</b>请管理员检查账号是否启用、是否已开通 PAhub 角色；登录成功不等于有所有应用的权限。</li>
 <li><b>按钮不可用或操作被拒绝：</b>先确认当前角色、项目是否解锁，以及意见轮次是否属于自己；仍需操作时联系 manager 或 admin。</li>
-<li><b>查看谁做了修改：</b>服务端已记录操作人；Daily Log 的 Actor 列和按人筛选将在 T6 提供。旧记录和无登录人的后台操作没有操作人。<span class="tag">【待 T6 合并后核对】</span></li>
-<li><b>分配审图人：</b>当前仍使用项目已有名单；Team Setup 从统一目录选择人员及目录不可用时手填将在 T6 提供。<span class="tag">【待 T6 合并后核对】</span></li>
+<li><b>查看谁做了修改：</b>Daily Log 的 Actor 列显示操作人，可选 All 或按人筛选；Copy、CSV 和 PDF 都包含 Actor。旧记录和无登录人的后台操作显示 “—”。</li>
+<li><b>分配审图人：</b>admin 在 Team Setup 或 Config 从统一目录选择 admin、manager、reviewer；按专业选择时会筛选匹配专业。目录不可用时页面显示 “Directory unavailable, enter the name manually.”，可输入姓名点 Add。手填人员只是项目内姓名，不是统一登录身份，也不能指定为 PCF 提出人。</li>
 <li><b>登录服务暂不可用或图片显示异常：</b>稍后重试；会话过期时重新登录并刷新页面。持续失败请联系管理员。</li>
 </ul>
 
