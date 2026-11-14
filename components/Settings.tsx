@@ -28,7 +28,7 @@ export const Settings: React.FC = () => {
   const [passwordDraft, setPasswordDraft] = useState('');
   const [passwordBusy, setPasswordBusy] = useState(false);
   const [passwordNotice, setPasswordNotice] = useState('');
-  const isAdmin = useStore(state => state.isEditMode);
+  const isAdmin = useStore(state => state.can('settings.write'));
   const passwordRequest = useRef<AbortController | null>(null);
   useEffect(() => {
     setPasswordDraft(''); setPasswordNotice(''); setPasswordBusy(false);

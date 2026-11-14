@@ -5,6 +5,7 @@ export { countOpen, reconcileApproval, roundCleanupPlan, pruneRounds, cleanupLeg
 export type PcfData = Record<string, any>;
 export type Op = { type: string; baseRev?: number; [key: string]: any };
 export type Actor = { clientId: string; clientName: string; ip: string };
+export type RequestActor = { sub: string; name: string };
 export const projectFields = ['name', 'planNo', 'planTitle', 'revision', 'folder', 'approval', 'currentRound'];
 export const registerFields = ['revision', 'ownerRef', 'ownerDate', 'replyRef', 'replyDate'];
 export function fail(message: string, status = 400): never { throw Object.assign(new Error(message), { status }); }
@@ -103,7 +104,9 @@ export function summarize(op: Op) {
   if (op.type === 'comment.meta' || op.type === 'roundRegister.set') out.fields = Object.keys(op.value || {});
   return out;
 }
-export function applyOps(d: PcfData, ops: Op[], actor: Actor, rev: number) {
+export function applyOps(d: PcfData, ops: Op[], actor: Actor, rev: number, requestActor?: RequestActor) {
+  // kjx IDs are server-owned; legacy retains its existing invalid-field rejection.
+  if (requestActor) ops = ops.filter(op => !(op?.type === 'round.meta' && ['initiatorId', 'responderId'].includes(op.field)));
   // Validate identifiers/field names before mutation; extra body properties never enter logs.
   for (const op of ops) {
     if (!op || !['comment.add', 'round.add', 'content.set', 'comment.status', 'comment.meta', 'round.meta', 'project.set', 'settings.set', 'roundRegister.set', 'record.delete', 'record.restore', 'rounds.addAll', 'history.set'].includes(op.type)) fail('Unsupported op');
@@ -142,7 +145,7 @@ export function applyOps(d: PcfData, ops: Op[], actor: Actor, rev: number) {
         if (exists(id) || exists(roundId) || id === roundId) { conflict('ID already exists', null); continue; }
         const number = d.nextCommentNumber++, at = new Date().toISOString();
         c = { id, number, page: '', tags: [], status: 'open', createdAt: at, updatedAt: at, rounds: [] };
-        r = { id: roundId, number: d.project.currentRound, initiator: '', responder: '', owner: blankContent(), reply: blankContent(), minHeight: 0, createdAt: at, updatedAt: at };
+        r = { id: roundId, number: d.project.currentRound, initiator: requestActor?.name ?? '', ...(requestActor ? { initiatorId: requestActor.sub } : {}), responder: '', owner: blankContent(), reply: blankContent(), minHeight: 0, createdAt: at, updatedAt: at };
         c.rounds.push(r); d.comments.push(c); assigned[id] = { number, roundId, roundNumber: r.number }; break;
       }
       case 'round.add': {
@@ -151,7 +154,7 @@ export function applyOps(d: PcfData, ops: Op[], actor: Actor, rev: number) {
         const expected = Math.max(d.project.currentRound, Math.max(0, ...used) + 1);
         if (op.number !== undefined && op.number !== expected) { conflict('Round changed; refresh before adding', null); continue; }
         const number = expected, previous = c.rounds.at(-1), at = new Date().toISOString();
-        r = { id, number, initiator: previous?.initiator || '', responder: previous?.responder || '', owner: blankContent(), reply: blankContent(), minHeight: 0, createdAt: at, updatedAt: at };
+        r = { id, number, initiator: requestActor ? requestActor.name : previous?.initiator || '', ...(requestActor ? { initiatorId: requestActor.sub } : {}), responder: previous?.responder || '', owner: blankContent(), reply: blankContent(), minHeight: 0, createdAt: at, updatedAt: at };
         c.rounds.push(r); ensureRound(d, number); if (number > d.project.currentRound) { d.project.currentRound = number; stamp('project:currentRound'); }
         assigned[id] = { number }; break;
       }
@@ -166,7 +169,7 @@ export function applyOps(d: PcfData, ops: Op[], actor: Actor, rev: number) {
         const at = new Date().toISOString();
         for (const x of open) {
           const item = op.rounds.find((y: any) => y.commentId === x.id), previous = x.rounds.at(-1);
-          x.rounds.push({ id: item.id, number: op.number, initiator: previous?.initiator || '', responder: previous?.responder || '', owner: blankContent(), reply: blankContent(), minHeight: 0, createdAt: at, updatedAt: at });
+          x.rounds.push({ id: item.id, number: op.number, initiator: requestActor ? requestActor.name : previous?.initiator || '', ...(requestActor ? { initiatorId: requestActor.sub } : {}), responder: previous?.responder || '', owner: blankContent(), reply: blankContent(), minHeight: 0, createdAt: at, updatedAt: at });
           stamp('comment:' + x.id + ':record'); stamp('round:' + item.id + ':record'); x.updatedAt = at;
           assigned[item.id] = { number: op.number };
         }

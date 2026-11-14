@@ -1,5 +1,11 @@
 import { createHash, createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { errorResponse, type Router } from './router.ts';
+import { requestUser } from './identity.ts';
+import { permissionsFor, legacyPermissions } from './capabilities.ts';
+
+export function retiredLogin(publicUrl: string): Response {
+  return Response.json({ ok: false, error: 'gone', message: 'Sign in at ' + publicUrl.replace(/\/$/, '') }, { status: 410 });
+}
 
 export const ADMIN_COOKIE = 'pahub_admin';
 export const ADMIN_SESSION_MS = 12 * 60 * 60 * 1000;
@@ -118,7 +124,22 @@ export function registerAdminSessionRoutes(router: Router, session: AdminSession
   // One route for all verbs: the router matches on path first, so three same-pattern entries would shadow each other.
   router.add({
     pattern: /^\/api\/session$/, methods: ['GET', 'POST', 'DELETE'], auth: 'none',
-    handle: ctx => ctx.request.method === 'POST' ? session.login(ctx.request) : ctx.request.method === 'DELETE' ? session.logout(ctx.request) : session.status(ctx.request),
+    policies: ['GET', 'POST', 'DELETE'].map(method => ({ method, capability: 'view' })),
+    handle: async ctx => {
+      if (router.kjx) {
+        const base = router.options.identity!.publicUrl.replace(/\/$/, '');
+        if (ctx.request.method !== 'GET') return retiredLogin(base);
+        const user = requestUser(ctx.request)!;
+        const { sid: _sid, ...publicUser } = user;
+        return Response.json({ mode: 'kjx', user: publicUser, admin: user.role === 'admin', isAdmin: user.role === 'admin', requiresPassword: false, permissions: permissionsFor(user), auth: {
+          loginUrl: base + '/login?app=pahub&path=%2F', logoutUrl: base + '/logout', passwordUrl: base + '/password', myAppsUrl: base + '/',
+        } }, { headers: { 'Cache-Control': 'no-store' } });
+      }
+      if (ctx.request.method === 'POST') return session.login(ctx.request);
+      if (ctx.request.method === 'DELETE') return session.logout(ctx.request);
+      const response = session.status(ctx.request), status = await response.json();
+      return Response.json({ ...status, mode: 'legacy', user: null, auth: null, permissions: legacyPermissions(status.admin) }, { headers: response.headers });
+    },
   });
 }
 

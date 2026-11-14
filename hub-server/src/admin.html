@@ -312,20 +312,21 @@
   </div>
 
   <script>
-    let token = localStorage.getItem('d1_admin_token') || '';
+    let token = window.PAHUB_ADMIN_KJX ? '' : localStorage.getItem('d1_admin_token') || '';
     let currentTable = '';
     let currentSchema = [];
     let currentPage = 1;
 
-    if (token) {
+    if (token || window.PAHUB_ADMIN_KJX) {
       document.getElementById('login-overlay').style.display = 'none';
       init();
     }
 
     async function apiCall(path, options = {}) {
-      options.headers = { ...options.headers, 'Authorization': `Bearer ${token}` };
+      if (!window.PAHUB_ADMIN_KJX) options.headers = { ...options.headers, 'Authorization': `Bearer ${token}` };
       const res = await fetch(`/api/admin/api${path}`, options);
       if (res.status === 401) {
+        if (window.PAHUB_ADMIN_KJX) { location.assign('/'); throw new Error('Sign-in required'); }
         localStorage.removeItem('d1_admin_token');
         document.getElementById('login-overlay').style.display = 'flex';
         throw new Error('Unauthorized');

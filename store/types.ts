@@ -1,4 +1,5 @@
 import type { StateCreator } from 'zustand';
+import type { SessionStatus } from '../services/api/sessionApi';
 import type { AppData, Project, Drawing, AppSettings, ProjectConfig, ReviewTrackerData, AuditEntry } from '../types';
 import type { DirtyDrawingBase, DirtyDrawingFields } from '../lib/drawing-fields';
 import type { DirtyConfBase } from '../lib/project-config';
@@ -70,6 +71,8 @@ export interface ReviewTrackerSlice {
   _dirtyTrackerDrawingIds: Set<string>;
 }
 export interface UiSlice {
+  session: SessionStatus | null;
+  can: (capability: string) => boolean;
   viewMode: 'list' | 'board';
   setViewMode: (mode: 'list' | 'board') => void;
   filterQuery: string;

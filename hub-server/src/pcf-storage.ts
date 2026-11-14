@@ -1,3 +1,4 @@
+import { writeAudit } from './audit.ts';
 import { readFileSync, readdirSync, unlinkSync, existsSync } from 'node:fs';
 import { randomUUID, createHash } from 'node:crypto';
 import path from 'node:path';
@@ -11,7 +12,7 @@ import { historyEntries, prepareHistory } from './pcf-history.ts';
 import { PcfImageStore, mayHaveInlineImages } from './pcf-images.ts';
 import * as modelV26 from './pcf-v26.ts';
 import { validateJSON } from './pcf-schema.ts';
-import { initData, reconcile, roundNumber, roundLabel, registerFields, fail, type PcfData, type Actor, type Op, applyOps } from './pcf-model.ts';
+import { initData, reconcile, roundNumber, roundLabel, registerFields, fail, type PcfData, type Actor, type RequestActor, type Op, applyOps } from './pcf-model.ts';
 
 export class PcfStorage {
   private queues = new Map<string, Promise<unknown>>();
@@ -87,7 +88,7 @@ export class PcfStorage {
     this.db.prepare('UPDATE drawings SET manual_comments_count=?,manual_open_comments_count=?,current_round=?,version=? WHERE project_id=? AND id=?').run(total, open, roundLabel(n), row?.revision || before.version || '', p, d);
     this.db.prepare('UPDATE projects SET last_updated=? WHERE id=?').run(data.updatedAt, p);
     const inserted = this.db.prepare('INSERT OR IGNORE INTO pcf_changes(project_id,drawing_id,rev,client_id,client_name,ip,ops_json,created_at) VALUES(?,?,?,?,?,?,?,?)').run(p, d, data.hub.rev, change.clientId, change.clientName, change.ip, JSON.stringify(change.ops), data.updatedAt);
-    if (inserted.changes) this.db.prepare("INSERT INTO audit_log(table_name,row_id,project_id,action,detail,created_at) VALUES('drawings',?,?,'COMMENTS',?,?)").run(d, p, JSON.stringify({ customId: before.custom_id, drawingNo: before.drawing_no, from: { total: before.manual_comments_count, open: before.manual_open_comments_count }, to: { total, open }, source: 'PCF', rev: data.hub.rev, round: { from: before.current_round, to: roundLabel(n) }, version: row?.revision || before.version }), data.updatedAt);
+    if (inserted.changes) writeAudit(this.db,{table:'drawings',rowId:d,projectId:p,action:'COMMENTS',detail:{ customId: before.custom_id, drawingNo: before.drawing_no, from: { total: before.manual_comments_count, open: before.manual_open_comments_count }, to: { total, open }, source: 'PCF', rev: data.hub.rev, round: { from: before.current_round, to: roundLabel(n) }, version: row?.revision || before.version },createdAt:data.updatedAt,opTypes:change.ops.map((op:any)=>op.type)});
   }
   private save(p: string, d: string, data: PcfData, actor: Actor, ops: unknown[], commit?: () => void) {
     // During migration fallback preserve the authoritative HTML, including its
@@ -119,12 +120,12 @@ export class PcfStorage {
     return { rev: nextRev, ...result, data: this.publicData(data) };
   }
   publicData(data: PcfData) { const copy = structuredClone(data); delete copy.hub.receipts; return copy; }
-  ops(p: string, d: string, body: any, actor: Actor) { return this.opsBatch(p, d, body, actor).result; }
-  opsBatch(p: string, d: string, body: any, actor: Actor) {
+  ops(p: string, d: string, body: any, actor: Actor, requestActor?: RequestActor) { return this.opsBatch(p, d, body, actor, requestActor).result; }
+  opsBatch(p: string, d: string, body: any, actor: Actor, requestActor?: RequestActor) {
     if (!Number.isSafeInteger(body.baseRev) || body.baseRev < 1 || !Array.isArray(body.ops) || body.ops.length > 10000) fail('Invalid ops request');
     if (body.batchId !== undefined && !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(body.batchId)) fail('batchId must be UUID');
     const { data, rev } = this.load(p, d);
-    const hash = createHash('sha256').update(JSON.stringify({ clientId: actor.clientId, baseRev: body.baseRev, ops: body.ops })).digest('hex');
+    const hash = createHash('sha256').update(JSON.stringify({ clientId: actor.clientId, baseRev: body.baseRev, ops: body.ops, ...(requestActor ? { requestActor } : {}) })).digest('hex');
     const receipts = (data.hub.receipts || []).filter((r: any) => Date.now() - r.at < 86400000);
     const prior = body.batchId && receipts.find((r: any) => r.id === body.batchId);
     if (prior) {
@@ -134,7 +135,7 @@ export class PcfStorage {
       return { replayed: true, result: { ...prior.result, data: this.publicData(historical) } };
     }
     if (body.baseRev > rev) fail('Future document revision', 409);
-    const result = applyOps(data, body.ops as Op[], actor, rev + 1);
+    const result = applyOps(data, body.ops as Op[], actor, rev + 1, requestActor);
     if (body.batchId) data.hub.receipts = [...receipts, { id: body.batchId, hash, at: Date.now(), result: { rev: result.applied.length ? rev + 1 : rev, ...result } }].slice(-1000);
     const nextRev = result.applied.length ? this.save(p, d, data, actor, result.applied.map(({ entity: _e, entityRev: _r, ...summary }: any) => summary)) : rev;
     // Receipt-only acknowledgement stays in the authoritative JSON, never in SQLite body columns.

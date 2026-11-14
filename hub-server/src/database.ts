@@ -4,6 +4,7 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { ROOT_DIR, SQL_DIR } from './config.ts';
 import { migrateLegacyProjectPath } from './import-legacy.ts';
+import { initializeIdentitySchema } from './audit.ts';
 
 // Numbered migrations live next to the source. The build copies them to dist so
 // the bundled hub and standalone scripts resolve the same files.
@@ -139,6 +140,7 @@ export function initializeSchema(db: DatabaseSync): void {
   removeLegacySnapshots(db);
   migrateLegacyProjectPath(db);
   migrate(db);
+  initializeIdentitySchema(db);
   db.exec('CREATE TABLE IF NOT EXISTS project_passwords (project_id TEXT PRIMARY KEY REFERENCES projects(id) ON DELETE CASCADE,password_hash TEXT NOT NULL,version TEXT NOT NULL)');
   // Retire legacy read views for either storage version (1=HTML, 2=JSON).
   // Do not advance user_version here; the PCF converter owns version 2.

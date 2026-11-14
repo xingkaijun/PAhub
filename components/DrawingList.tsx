@@ -161,6 +161,8 @@ const PaginationControls = ({
 
 
 export const DrawingList: React.FC = () => {
+  const session = useStore(state => state.session);
+  const can = useStore(state => state.can);
   const { activeProjectId, data, updateDrawing, bulkImportDrawings, deleteDrawing, toggleRemarkStatus, resetAllAssignees, filterQuery, setFilterQuery, isEditMode, logoutAdmin, reviewTracker, batchUpdateDrawings, loadReviewTracker } = useStore();
   const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set());
   // Search state moved to store: filterQuery
@@ -471,17 +473,17 @@ export const DrawingList: React.FC = () => {
                   <Printer size={14} /> Print List
                 </button>
                 <button
-                  onClick={() => isEditMode && setShowTeamSetupModal(true)}
-                  title={!isEditMode ? ADMIN_REQUIRED : undefined}
-                  disabled={!isEditMode}
+                  onClick={() => can('team.setup') && setShowTeamSetupModal(true)}
+                  title={!can('team.setup') ? ADMIN_REQUIRED : undefined}
+                  disabled={!can('team.setup')}
                   className={`hidden md:flex px-4 py-2.5 bg-white/85 border border-slate-200 rounded-full text-[9px] font-black uppercase tracking-[0.18em] items-center gap-2 transition-all shadow-sm ${!isEditMode ? 'opacity-50 cursor-not-allowed text-slate-400' : 'text-slate-500 hover:bg-white hover:border-teal-200 hover:text-teal-700 active:scale-95'}`}
                 >
                   <Layers size={14} /> Team Setup
                 </button>
                 <button
-                  onClick={() => isEditMode && setShowImportModal(true)}
-                  title={!isEditMode ? ADMIN_REQUIRED : undefined}
-                  disabled={!isEditMode}
+                  onClick={() => can('bulk.import') && setShowImportModal(true)}
+                  title={!can('bulk.import') ? ADMIN_REQUIRED : undefined}
+                  disabled={!can('bulk.import')}
                   className={`hidden md:flex px-4 py-2.5 rounded-full text-[9px] font-black uppercase tracking-[0.18em] items-center gap-2 transition-all ${!isEditMode ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-[linear-gradient(135deg,#005c55_0%,#0f766e_100%)] text-white border border-transparent shadow-[0_12px_24px_-16px_rgba(13,148,136,0.45)] hover:brightness-105 active:scale-95'}`}
                 >
                   <FileUp size={14} /> Bulk Load
@@ -503,8 +505,8 @@ export const DrawingList: React.FC = () => {
                       {[
                         { key: 'replies', label: 'Import Builder Replies', icon: <DownloadCloud size={14} />, disabled: !activeProjectId || !isEditMode, run: () => builderRepliesImport.current?.open() },
                         { key: 'print', label: 'Print List', icon: <Printer size={14} />, disabled: false, run: () => window.print() },
-                        { key: 'team', label: 'Team Setup', icon: <Layers size={14} />, disabled: !isEditMode, run: () => setShowTeamSetupModal(true) },
-                        { key: 'bulk', label: 'Bulk Load', icon: <FileUp size={14} />, disabled: !isEditMode, run: () => setShowImportModal(true) },
+                        { key: 'team', label: 'Team Setup', icon: <Layers size={14} />, disabled: !can('team.setup'), run: () => setShowTeamSetupModal(true) },
+                        { key: 'bulk', label: 'Bulk Load', icon: <FileUp size={14} />, disabled: !can('bulk.import'), run: () => setShowImportModal(true) },
                       ].map(item => (
                         <button
                           key={item.key}
@@ -521,7 +523,7 @@ export const DrawingList: React.FC = () => {
                     </div>
                   )}
                 </div>
-                <button
+                {session?.mode !== 'kjx' && <button
                   onClick={() => isEditMode ? void logoutAdmin() : setShowAdminLogin(true)}
                   title={isEditMode ? 'Sign out of the administrator session' : ADMIN_REQUIRED}
                   aria-pressed={isEditMode}
@@ -530,7 +532,7 @@ export const DrawingList: React.FC = () => {
                 >
                   {isEditMode ? <Unlock size={14} /> : <Lock size={14} />}
                   {isEditMode ? 'Administrator' : 'Admin Sign-in'}
-                </button>
+                </button>}
               </div>
             </div>
             <div className="flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
@@ -761,7 +763,7 @@ export const DrawingList: React.FC = () => {
         </div>
       </div>
 
-      <AdminLoginDialog open={showAdminLogin} onClose={() => setShowAdminLogin(false)} />
+      {session?.mode !== 'kjx' && <AdminLoginDialog open={showAdminLogin} onClose={() => setShowAdminLogin(false)} />}
 
       {showImportModal && (
         <ModalOverlay onClose={() => setShowImportModal(false)} labelledBy="bulk-entry-title" className="max-w-lg rounded-[2rem] shadow-2xl">
