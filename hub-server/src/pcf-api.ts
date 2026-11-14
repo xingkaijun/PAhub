@@ -155,7 +155,8 @@ export class PcfApi {
         case 'GET initiators': {
           if (!this.kjx) fail('Not found', 404);
           this.storage.load(p, d);
-          return json(await this.auth.directory?.list() || { ok: false, fallback: true });
+          const result = await this.auth.directory?.list();
+          return json(result?.ok ? { ok: true, users: result.users.map(({id,name}) => ({id,name})) } : { ok: false, fallback: true });
         }
         case 'GET meta': return json(this.storage.meta(p, d));
         case 'POST create': return json(this.storage.create(p, d, this.actor(body, ip)));

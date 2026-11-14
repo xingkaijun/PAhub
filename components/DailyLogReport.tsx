@@ -2,7 +2,7 @@ import React, { useState, useMemo, useEffect } from 'react';
 import { useStore } from '../store';
 import { describeAuditEntry } from '../lib/auditLogDescribe';
 import type { AuditEntry } from '../types';
-import { actorLabel, actorOptions, filterActor, actorExport } from '../lib/auditActors';
+import { actorLabel, actorOptions, filterActor, actorExport, spreadsheetCell } from '../lib/auditActors';
 import { Calendar, Download, Copy, FileText, Printer, Check, Table2, ClipboardCheck, Filter, Database, HardDrive, Layers } from 'lucide-react';
 import { format, isWithinInterval, startOfDay, endOfDay, parseISO, addDays } from 'date-fns';
 
@@ -400,11 +400,12 @@ export const DailyLogReport: React.FC = () => {
     // 导出为 CSV
     const handleExportCSV = () => {
         const csv = [
+            ...(kjx ? [['Change Log:',`${startDate} ~ ${endDate}`],['Project:',activeProject?.name || 'N/A'],['Source:',logSource === 'server' ? 'Database writes' : 'Local snapshot'],['Filters:',getFilterText()],['Total Events:',String(dailyChanges.length)]].map(cells => cells.map(cell => '"' + spreadsheetCell(cell).replace(/"/g,'""') + '"').join(',')) : [
             `"Change Log:","${startDate} ~ ${endDate}"`,
             `"Project:","${activeProject?.name || 'N/A'}"`,
             `"Source:","${logSource === 'server' ? 'Database writes' : 'Local snapshot'}"`,
             `"Filters:","${getFilterText()}"`,
-            `"Total Events:","${dailyChanges.length}"`,
+            `"Total Events:","${dailyChanges.length}"`]),
             '',
             ...(kjx ? [actorExport<ChangeRow>(['Date','Time','ID','Drawing No','Title','Type','Detail','Note'], dailyChanges, c => [c.date,c.time,c.customId,c.drawingNo,c.drawingTitle,c.eventType,c.detail,c.note], true)] : [
             'Date,Time,ID,Drawing No,Title,Type,Detail,Note',

@@ -205,6 +205,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
       return state;
     const current = state.data.projects.find(p => p.id === activeProjectId)?.drawings.find(d => d.id === id);
     updates = editableDrawingUpdates(current, updates);
+    if (state.session?.mode === 'kjx') updates = Object.fromEntries(Object.entries(updates).filter(([key,value]) => !sameValue(current?.[key as keyof Drawing], value))) as Partial<Drawing>;
     if (Object.keys(updates).length === 0)
       return state;
     const newDirty = new Set(state._dirtyDrawingIds);
@@ -212,7 +213,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     // 如果 assignees 发生变化，标记 tracker 为脏数据（需要清理移除的 assignee 的 tracker 行）
     let newDirtyTracker = state._dirtyTracker;
     const newDirtyTrackerIds = new Set(state._dirtyTrackerDrawingIds);
-    if (updates.assignees) {
+    if (updates.assignees && state.session?.mode !== 'kjx') {
       newDirtyTracker = true;
       newDirtyTrackerIds.add(id);
     }
@@ -363,7 +364,12 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     return get().saveProject(activeProjectId);
   },
   saveProject: async (projectId: string) => {
-    const { data, reviewTracker, _dirtyDrawingIds, _dirtyDrawingFields, _dirtyDrawingBase, _deletedDrawingIds, _dirtyConf, _dirtyConfKeys, _dirtyConfBase, _dirtyTracker, _dirtyTrackerDrawingIds } = get();
+    const state = get();
+    if (state.session?.mode === 'kjx' && state.projectNotice?.projectId === projectId && state.projectNotice.requiresReload) return false;
+    // A new workspace must persist its own configuration even when the active
+    // workspace is clean; never borrow another project's global dirty flags.
+    const source = state.activeProjectId === projectId || !state.data.projects.find(project => project.id === projectId)?.localOnly ? state : { ...state, _dirtyDrawingIds: new Set<string>(), _dirtyDrawingFields: {}, _dirtyDrawingBase: {}, _deletedDrawingIds: new Set<string>(), _dirtyConf: false, _dirtyConfKeys: new Set<keyof ProjectConfig>(), _dirtyConfBase: {}, _dirtyTracker: false, _dirtyTrackerDrawingIds: new Set<string>() };
+    const { data, reviewTracker, _dirtyDrawingIds, _dirtyDrawingFields, _dirtyDrawingBase, _deletedDrawingIds, _dirtyConf, _dirtyConfKeys, _dirtyConfBase, _dirtyTracker, _dirtyTrackerDrawingIds } = source;
     const project = data.projects.find(p => p.id === projectId);
     if (!project)
       return false;
@@ -375,7 +381,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     const confKeySnapshot = new Set(_dirtyConfKeys);
     const dirtyTrackerSnapshotFlag = _dirtyTracker;
     const dirtyCount = dirtyDrawingSnapshot.size + deletedDrawingSnapshot.size;
-    const hasDirty = dirtyCount > 0 || dirtyConfSnapshot || dirtyTrackerSnapshotFlag;
+    const hasDirty = project.localOnly || dirtyCount > 0 || dirtyConfSnapshot || dirtyTrackerSnapshotFlag;
     // 无任何变更时跳过
     if (!hasDirty) {
       console.log('[Save] No changes detected, skipping.');
@@ -384,18 +390,23 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     set({ isLoading: true, error: null });
     try {
       // 只发改过的字段，并带上开始修改时的版本和旧值，服务端据此判断是否被别人先改了
-      const updatedDrawings = project.drawings.filter(d => dirtyDrawingSnapshot.has(d.id)).map(d => buildDrawingPatch(d,
-        fieldSnapshot[d.id] || new Set(Object.keys(d) as (keyof Drawing)[]),
-        _dirtyDrawingBase[d.id] || (d.rev ? { rev: d.rev, values: {} } : undefined)));
+      const updatedDrawings = project.drawings.filter(d => dirtyDrawingSnapshot.has(d.id)).map(d => {
+        const fields = fieldSnapshot[d.id] || new Set(Object.keys(d) as (keyof Drawing)[]);
+        const base = _dirtyDrawingBase[d.id] || (d.rev ? { rev: d.rev, values: {} } : undefined);
+        const actual = state.session?.mode === 'kjx' && base ? new Set([...fields].filter(field => !Object.hasOwn(base.values,field) || !sameValue(d[field],base.values[field]))) : fields;
+        return buildDrawingPatch(d,actual,base);
+      }).filter(patch => state.session?.mode !== 'kjx' || Object.keys(patch.changes).length || Object.values(patch.remarkOps || {}).some(items => items.length));
       const payload: DeltaPayload = { projectName: project.name };
       if (deletedDrawingSnapshot.size)
         payload.deletedDrawingIds = [...deletedDrawingSnapshot];
       if (updatedDrawings.length > 0)
         payload.updatedDrawings = updatedDrawings;
-      if (dirtyConfSnapshot) {
+      if (project.localOnly) payload.conf = project.conf;
+      else if (dirtyConfSnapshot) {
         if (confKeySnapshot.size) {
           // 只发改过的设置项，并带上开始修改时的值
-          const { conf, confBase } = buildConfigPatch(project.conf, confKeySnapshot, _dirtyConfBase);
+          const actualKeys = state.session?.mode === 'kjx' ? new Set([...confKeySnapshot].filter(key => !Object.hasOwn(_dirtyConfBase,key) || !sameValue(project.conf[key],_dirtyConfBase[key]))) : confKeySnapshot;
+          const { conf, confBase } = buildConfigPatch(project.conf, actualKeys, _dirtyConfBase);
           payload.conf = conf;
           if (confBase) payload.confBase = confBase;
         }
@@ -405,8 +416,13 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
         const trackerSlice: ReviewTrackerData = {};
         for (const id of dirtyTrackerSnapshot)
           trackerSlice[id] = reviewTracker[id] || {};
-        if (Object.keys(trackerSlice).length > 0)
-          payload.reviewTracker = trackerSlice;
+        if (Object.keys(trackerSlice).length > 0) {
+          if (state.session?.mode === 'kjx') {
+            const stored = await projectsApi.loadReviewTracker(projectId);
+            for (const id of Object.keys(trackerSlice)) if (sameValue(trackerSlice[id], stored[id] || {})) delete trackerSlice[id];
+          }
+          if (Object.keys(trackerSlice).length) payload.reviewTracker = trackerSlice;
+        }
       }
       const saveResult = await projectsApi.saveDelta(projectId, payload);
       // 服务端回读校验：没落库的图纸不清脏标记，交给下次保存重试
@@ -422,6 +438,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
         console.error(`[Save] ${verificationMessage}`);
       // 保存期间可能发生新修改：只清理本次 payload 中已发送且未再次改变的脏标记
       set(state => {
+        if (project.localOnly && state.activeProjectId !== projectId) return { isLoading: false };
         const currentProject = state.data.projects.find(p => p.id === projectId);
         const nextDirtyDrawingIds = new Set(state._dirtyDrawingIds);
         const nextFields = { ...state._dirtyDrawingFields };
@@ -571,6 +588,11 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
         });
         // 载入别人的其他改动（不覆盖仍在编辑的字段）
         void get().refreshProjectPreservingDirty(projectId).catch(e => console.warn('[Save] Refresh after conflict failed', e));
+        return false;
+      }
+      if (get().session?.mode === 'kjx' && err instanceof ApiError && err.status === 403) {
+        const message = 'Save was denied and nothing was written. Reload this workspace to discard unsaved changes before continuing.';
+        set({ isLoading: false, error: message, projectNotice: { message, projectId, at: Date.now(), requiresReload: true } });
         return false;
       }
       console.error("Push failed", err);

@@ -76,7 +76,8 @@ test('T6 directory routes: only admin sees team directory, PCF candidates allow 
     for(const role of ['viewer','reviewer','manager'])assert.equal((await f.request('/api/team/directory',role)).status,403);
     const response=await f.request('/api/team/directory?discipline=Hull','admin');assert.equal(response.status,200);
     const result=await response.json();assert.equal(result.users.length,3);
-    assert.equal((await f.request(base+'/initiators','manager')).status,200);
+    const candidates=await f.request(base+'/initiators','manager');assert.equal(candidates.status,200);
+    const candidateBody=await candidates.json();assert.equal(candidateBody.users.length,3);for(const person of candidateBody.users)assert.deepEqual(Object.keys(person).sort(),['id','name']);
     assert.equal((await f.request(base+'/initiators','reviewer')).status,403);
   }finally{await f.cleanup();}
   const legacy=await fixture('legacy',fake.options);

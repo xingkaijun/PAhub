@@ -13,6 +13,7 @@ export interface LobbyViewProps {
   manualHref: string;
   showNoProjectsNote: boolean;
   onCardClick: (card: LobbyCard, el: HTMLElement) => void;
+  canCreate?: boolean;
   onCreate: () => void;
   onRefresh: () => void;
   onOffline: () => void;

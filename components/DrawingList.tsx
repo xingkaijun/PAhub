@@ -466,29 +466,29 @@ export const DrawingList: React.FC = () => {
                 />
               </div>
               <div className="flex items-center gap-2">
-                {activeProjectId && <div className="hidden md:contents"><BuilderRepliesImport ref={builderRepliesImport} projectId={activeProjectId} /></div>}
+                {activeProjectId && (session?.mode !== 'kjx' || can('builder.import_reply')) && <div className="hidden md:contents"><BuilderRepliesImport ref={builderRepliesImport} projectId={activeProjectId} /></div>}
                 <button
                   onClick={() => window.print()}
                   className="hidden md:flex px-4 py-2.5 bg-white/85 border border-slate-200 text-slate-600 rounded-full text-[9px] font-black uppercase tracking-[0.18em] flex items-center gap-2 hover:bg-white hover:border-teal-200 hover:text-teal-700 active:scale-95 transition-all shadow-sm"
                 >
                   <Printer size={14} /> Print List
                 </button>
-                <button
+                {(session?.mode !== 'kjx' || can('team.setup')) && <button
                   onClick={() => can('team.setup') && setShowTeamSetupModal(true)}
                   title={!can('team.setup') ? ADMIN_REQUIRED : undefined}
                   disabled={!can('team.setup')}
                   className={`hidden md:flex px-4 py-2.5 bg-white/85 border border-slate-200 rounded-full text-[9px] font-black uppercase tracking-[0.18em] items-center gap-2 transition-all shadow-sm ${!isEditMode ? 'opacity-50 cursor-not-allowed text-slate-400' : 'text-slate-500 hover:bg-white hover:border-teal-200 hover:text-teal-700 active:scale-95'}`}
                 >
                   <Layers size={14} /> Team Setup
-                </button>
-                <button
+                </button>}
+                {(session?.mode !== 'kjx' || can('bulk.import')) && <button
                   onClick={() => can('bulk.import') && setShowImportModal(true)}
                   title={!can('bulk.import') ? ADMIN_REQUIRED : undefined}
                   disabled={!can('bulk.import')}
                   className={`hidden md:flex px-4 py-2.5 rounded-full text-[9px] font-black uppercase tracking-[0.18em] items-center gap-2 transition-all ${!isEditMode ? 'bg-slate-100 text-slate-400 cursor-not-allowed' : 'bg-[linear-gradient(135deg,#005c55_0%,#0f766e_100%)] text-white border border-transparent shadow-[0_12px_24px_-16px_rgba(13,148,136,0.45)] hover:brightness-105 active:scale-95'}`}
                 >
                   <FileUp size={14} /> Bulk Load
-                </button>
+                </button>}
                 <div ref={moreMenuRef} className="relative md:hidden">
                   <button
                     type="button"
@@ -508,7 +508,7 @@ export const DrawingList: React.FC = () => {
                         { key: 'print', label: 'Print List', icon: <Printer size={14} />, disabled: false, run: () => window.print() },
                         { key: 'team', label: 'Team Setup', icon: <Layers size={14} />, disabled: !can('team.setup'), run: () => setShowTeamSetupModal(true) },
                         { key: 'bulk', label: 'Bulk Load', icon: <FileUp size={14} />, disabled: !can('bulk.import'), run: () => setShowImportModal(true) },
-                      ].map(item => (
+                      ].filter(item => session?.mode !== 'kjx' || item.key === 'print' || can(item.key === 'team' ? 'team.setup' : item.key === 'bulk' ? 'bulk.import' : 'builder.import_reply')).map(item => (
                         <button
                           key={item.key}
                           type="button"
@@ -612,7 +612,7 @@ export const DrawingList: React.FC = () => {
                 <th className="px-2 py-3 bg-slate-50/50" style={{ width: columnWidths.ok || 70 }}>
                   <div className="flex flex-col items-center gap-1">
                     <span className="text-[8px] font-black uppercase tracking-[0.1em]">Check</span>
-                    <button
+                    {(session?.mode !== 'kjx' || can('drawing.update')) && <button
                       onClick={async () => {
                         if (!isEditMode) {
                           alert(ADMIN_REQUIRED);
@@ -640,7 +640,7 @@ export const DrawingList: React.FC = () => {
                       title={isEditMode ? "Sync all check statuses" : ADMIN_REQUIRED}
                     >
                       Sync
-                    </button>
+                    </button>}
                   </div>
                 </th>
                 <th className="px-3 py-3 w-10 bg-slate-50/50"></th>

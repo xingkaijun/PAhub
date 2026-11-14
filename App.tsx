@@ -378,22 +378,15 @@ const App: React.FC = () => {
   const handleAddProject = async () => {
     const name = prompt('Enter Hull Number or Project Name (e.g. PG-VLEC-H2684):');
     if (name) {
+      const beforeIds = new Set(useStore.getState().data.projects.map(project => project.id));
       addProject(name);
+      const newProject = useStore.getState().data.projects.find(project => !beforeIds.has(project.id));
+      if (!newProject) return;
+      const saved = await saveProject(newProject.id);
+      if (!saved) { alert('Workspace was not saved. Reload and try again.'); return; }
+      await loadProject(newProject.id);
+      setActiveProject(newProject.id);
       setShowProjectSelector(false);
-
-      // 新建项目后自动同步到后端 D1
-      // 使用 setTimeout 确保 store 状态已更新
-      setTimeout(async () => {
-        const newProject = useStore.getState().data.projects.find(p => p.name === name);
-        if (newProject) {
-          try {
-            await saveProject(newProject.id);
-            console.log(`[新建项目] "${name}" 已同步到后端`);
-          } catch (e) {
-            console.warn(`[新建项目] "${name}" 同步失败:`, e);
-          }
-        }
-      }, 100);
     }
   };
 
@@ -412,6 +405,7 @@ const App: React.FC = () => {
       {projectNotice && (
         <div role="alert" data-testid="project-not-found" className="fixed left-1/2 top-4 z-[10001] flex w-[min(92vw,640px)] -translate-x-1/2 items-start justify-between gap-3 rounded-xl border border-rose-200 bg-rose-50 px-4 py-3 text-xs font-semibold text-rose-900 shadow-lg">
           <span>{projectNotice.message}</span>
+          {projectNotice.requiresReload && <button className="shrink-0 rounded border border-rose-300 px-2 py-1" onClick={() => { if (!window.confirm('Discard unsaved changes and reload this workspace?')) return; useStore.setState({ _dirtyDrawingIds: new Set(), _dirtyDrawingFields: {}, _dirtyDrawingBase: {}, _deletedDrawingIds: new Set(), _dirtyConf: false, _dirtyConfKeys: new Set(), _dirtyConfBase: {}, _dirtyTracker: false, _dirtyTrackerDrawingIds: new Set(), reviewTracker: {} }); window.location.reload(); }}>Reload workspace</button>}
           <button className="shrink-0 rounded px-2 py-1 text-rose-800 hover:bg-white/70" onClick={clearProjectNotice} aria-label="Dismiss project notice">×</button>
         </div>
       )}
@@ -426,6 +420,7 @@ const App: React.FC = () => {
           showNoProjectsNote={data.projects.length === 0}
           autoSelectId={startupReady ? resumeProjectId : undefined}
           onSelect={(id, _motionSettled, requestPassword, signal) => handleSelectProject(id, { requestPassword, signal })}
+          canCreate={session?.mode !== 'kjx' || Boolean(session.permissions?.includes('project.create'))}
           onCreate={handleAddProject}
           onRefresh={handleGlobalRefresh}
           onOffline={handleOfflineMode}

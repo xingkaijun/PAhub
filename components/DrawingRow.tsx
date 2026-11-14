@@ -133,6 +133,8 @@ export const DrawingRow = memo(({
 }: DrawingRowProps) => {
     const { isEditMode } = useStore();
     const canDelete = useStore(state => state.can('drawing.void'));
+    const kjx = useStore(state => state.session?.mode === 'kjx');
+    const canWrite = useStore(state => state.session?.mode !== 'kjx' || state.can('drawing.update'));
     const pcfOnline = useStore(s => s.pcfPresence[drawing.id] || 0);
     const liveRemarkCount = drawing.remarks?.length || 0;
     const liveOpenRemarkCount = drawing.remarks?.filter(r => !r.resolved).length || 0;
@@ -173,7 +175,7 @@ export const DrawingRow = memo(({
                 </td>
                 <td className="px-1 py-2 font-mono text-[10px] font-bold text-teal-600 truncate">{drawing.drawingNo}</td>
                 <td className="px-3 py-2">
-                    <input
+                    {!canWrite ? drawing.version || EMPTY_MARK : <input
                         disabled={!isEditMode}
                         readOnly={pcfManaged}
                         title={pcfManagedTitle}
@@ -181,20 +183,20 @@ export const DrawingRow = memo(({
                         value={drawing.version}
                         onChange={(e) => updateDrawing(drawing.id, { version: e.target.value })}
                         className={`w-full bg-slate-100/50 border-none rounded-md text-[9px] font-black text-center py-0.5 focus:bg-white ${!isEditMode || pcfManaged ? 'cursor-not-allowed text-slate-400' : ''}`}
-                    />
+                    />}
                 </td>
                 <td className="px-3 py-2 text-center">
                     <span className="text-[8px] font-black text-slate-400" title={pcfManagedTitle}>{drawing.currentRound}</span>
                 </td>
                 <td className="px-3 py-2">
-                    <select
+                    {!canWrite ? drawing.discipline : <select
                         disabled={!isEditMode}
                         value={drawing.discipline}
                         onChange={(e) => updateDrawing(drawing.id, { discipline: e.target.value })}
                         className={`w-full bg-transparent border-none text-[9px] font-black uppercase text-slate-500 p-0 ${!isEditMode ? 'cursor-not-allowed' : 'cursor-pointer'}`}
                     >
                         {derivedDisciplines.map(d => <option key={d} value={d}>{d}</option>)}
-                    </select>
+                    </select>}
                 </td>
                 <td className="px-3 py-2 truncate text-[10px] font-bold text-slate-700 tracking-tight" title={drawing.title}>
                     {import.meta.env.MODE === 'hub' ? <a
@@ -293,13 +295,13 @@ export const DrawingRow = memo(({
                     })() : EMPTY_MARK}
                 </td>
                 <td className="px-1 py-2">
-                    <MultiAssigneeDropdown disabled={!isEditMode} drawing={drawing} reviewers={reviewers} onUpdate={(ids) => updateDrawing(drawing.id, { assignees: ids })} />
+                    {!canWrite ? drawing.assignees.join(', ') || EMPTY_MARK : <MultiAssigneeDropdown disabled={!isEditMode} drawing={drawing} reviewers={reviewers} onUpdate={(ids) => updateDrawing(drawing.id, { assignees: ids })} />}
                 </td>
                 <td className="px-3 py-2 text-center">
-                    <StatusBadge disabled={!isEditMode} drawing={drawing} onStatusChange={(s) => updateDrawing(drawing.id, { status: s })} />
+                    {!canWrite ? drawing.status : <StatusBadge disabled={!isEditMode} drawing={drawing} onStatusChange={(s) => updateDrawing(drawing.id, { status: s })} />}
                 </td>
                 <td className="px-3 py-2 text-center group/cell">
-                    <input
+                    {!canWrite ? drawing.manualCommentsCount : <input
                         type="number"
                         min="0"
                         disabled={!isEditMode}
@@ -308,10 +310,10 @@ export const DrawingRow = memo(({
                         value={drawing.manualCommentsCount}
                         onChange={(e) => updateDrawing(drawing.id, { manualCommentsCount: parseInt(e.target.value) || 0 })}
                         className={`w-full bg-slate-100/50 border-none rounded-md text-[10px] font-black text-center py-0.5 focus:bg-white focus:ring-1 focus:ring-teal-500/30 ${!isEditMode || pcfManaged ? 'cursor-not-allowed text-slate-400' : ''}`}
-                    />
+                    />}
                 </td>
                 <td className="px-3 py-2 text-center">
-                    <input
+                    {!canWrite ? drawing.manualOpenCommentsCount : <input
                         type="number"
                         min="0"
                         disabled={!isEditMode}
@@ -320,10 +322,10 @@ export const DrawingRow = memo(({
                         value={drawing.manualOpenCommentsCount}
                         onChange={(e) => updateDrawing(drawing.id, { manualOpenCommentsCount: parseInt(e.target.value) || 0 })}
                         className={`w-full border-none rounded-md text-[10px] font-black text-center py-0.5 focus:bg-white focus:ring-1 focus:ring-teal-500/30 ${drawing.manualOpenCommentsCount > 0 ? 'bg-red-50 text-red-500' : 'bg-slate-100/50 text-slate-400'} ${!isEditMode || pcfManaged ? 'cursor-not-allowed' : ''}`}
-                    />
+                    />}
                 </td>
                 <td className="px-3 py-2 text-center">
-                    <button
+                    {!canWrite ? (drawing.checked ? '✓' : EMPTY_MARK) : <button
                         onClick={() => isEditMode && updateDrawing(drawing.id, { checked: !drawing.checked, checkedSynced: false })}
                         disabled={!isEditMode}
                         className={`w-5 h-5 rounded-lg flex items-center justify-center mx-auto transition-all ${isEditMode ? 'cursor-pointer hover:scale-110' : 'cursor-not-allowed opacity-50'} ${drawing.checked
@@ -335,12 +337,12 @@ export const DrawingRow = memo(({
                         title={!isEditMode ? 'Administrator permission required' : drawing.checked ? (drawing.checkedSynced ? 'Checked (Synced)' : 'Checked (Not Synced)') : 'Not Checked'}
                     >
                         <Check size={12} strokeWidth={4} />
-                    </button>
+                    </button>}
                 </td>
                 <td className="px-3 py-2 text-right">
-                    <button disabled={!canDelete} onClick={() => canDelete && confirmAndDeleteDrawing(drawing, deleteDrawing)} title={isEditMode ? `Delete ${drawing.drawingNo || drawing.customId}` : undefined} aria-label="Delete drawing" className={`p-1.5 transition-colors ${!isEditMode ? 'text-slate-100 cursor-not-allowed' : 'text-slate-200 hover:text-red-500'}`}>
+                    {(!kjx || canDelete) && <button disabled={!canDelete} onClick={() => canDelete && confirmAndDeleteDrawing(drawing, deleteDrawing)} title={isEditMode ? `Delete ${drawing.drawingNo || drawing.customId}` : undefined} aria-label="Delete drawing" className={`p-1.5 transition-colors ${!isEditMode ? 'text-slate-100 cursor-not-allowed' : 'text-slate-200 hover:text-red-500'}`}>
                         <Trash2 size={12} />
-                    </button>
+                    </button>}
                 </td>
             </tr>
             {isExpanded && (
@@ -379,9 +381,9 @@ export const DrawingRow = memo(({
 
                                         return (
                                             <div key={r.id} className={`text-[9px] px-3 py-1.5 rounded-lg flex items-start gap-2 transition-colors ${bgClass} ${r.resolved ? 'opacity-50 grayscale' : ''}`}>
-                                                <button onClick={() => toggleRemarkStatus(drawing.id, r.id)} className={`mt-0.5 ${r.resolved ? 'text-slate-400' : iconClass} hover:opacity-80 cursor-pointer`}>
+                                                {canWrite && <button onClick={() => toggleRemarkStatus(drawing.id, r.id)} className={`mt-0.5 ${r.resolved ? 'text-slate-400' : iconClass} hover:opacity-80 cursor-pointer`}>
                                                     {r.resolved ? <CheckCircle2 size={14} /> : <Circle size={14} fill="currentColor" className="opacity-20" />}
-                                                </button>
+                                                </button>}
                                                 <span className={`font-bold leading-normal flex-1 ${r.resolved ? 'line-through' : ''}`}>{r.content}</span>
                                                 <span className="text-[7px] font-mono opacity-50 mt-0.5">{safeFormatDate(r.createdAt, 'MM-dd')}</span>
                                             </div>

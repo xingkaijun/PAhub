@@ -43,6 +43,8 @@ const matchFilter = (drawing: Drawing, filterText: string): boolean => {
 export const ReviewTracker: React.FC = () => {
     const session = useStore(state => state.session);
     const can = useStore(state => state.can);
+    const canTracker = session?.mode !== 'kjx' || can('admin.only');
+    const canSend = session?.mode !== 'kjx' || can('drawing.update');
     const {
         data,
         activeProjectId,
@@ -407,7 +409,7 @@ export const ReviewTracker: React.FC = () => {
                         assignees.map(assignee => {
                             const isDone = trackerEntry[assignee]?.done;
                             return (
-                                <button
+                                !canTracker ? <span key={assignee} className="text-xs text-slate-500">{assignee}{isDone ? ' ✓' : ''}</span> : <button
                                     key={assignee}
                                     onClick={() => toggleAssigneeDone(drawing.id, assignee)}
                                     disabled={!isEditMode || isSending}
@@ -440,7 +442,7 @@ export const ReviewTracker: React.FC = () => {
                 </div>
 
                 {/* Approved 标记 (仅 Ready 图纸显示) */}
-                {isReady && (
+                {isReady && canTracker && (
                     <button
                         onClick={() => toggleApproved(drawing.id)}
                         disabled={!isEditMode || isSending}
@@ -609,7 +611,7 @@ export const ReviewTracker: React.FC = () => {
                                         <span>Ready Drawings ({readyDrawings.length})</span>
                                     </button>
                                     {/* 一键发送按钮 */}
-                                    {isEditMode && (
+                                    {isEditMode && canSend && (
                                         <button
                                             onClick={handleSendReady}
                                             disabled={isSending}

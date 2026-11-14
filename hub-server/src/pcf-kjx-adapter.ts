@@ -15,13 +15,25 @@ export const KJX_PCF_ADAPTER = `<script id="pahub-kjx-permissions">
   }catch{}
   return response;
  };
+ const hide=node=>{if(!node)return;node.hidden=true;node.setAttribute('data-kjx-denied','');node.style.setProperty('display','none','important');};
  function apply(){
   const ctx=context();if(!ctx||ctx.mode!=='kjx')return;
-  const can=cap=>ctx.permissions.includes(cap);
-  const gates={'pahub-export':'builder.export','pahub-io-export':'builder.export','pahub-import':'builder.import_reply','json-menu-btn':'builder.export','save-menu-btn':'builder.export','theme-btn':'pcf.settings','settings-btn':'pcf.settings','add-comment-btn':'pcf.comment.create'};
-  for(const [id,cap]of Object.entries(gates)){const node=document.getElementById(id);if(node&&!can(cap)){node.hidden=true;node.disabled=true;}}
+  const can=cap=>ctx.permissions.includes(cap),writer=can('pcf.comment.create');
+  const gates={'pahub-export':'builder.export','pahub-io-export':'builder.export','pahub-import':'builder.import_reply','pahub-io-menu-btn':'builder.import_reply','save-menu-btn':'builder.export','save-as-btn':'builder.export','json-menu-btn':'builder.export','theme-btn':'pcf.settings','settings-btn':'pcf.settings','font-up':'pcf.settings','font-down':'pcf.settings','add-btn':'pcf.comment.create','fab-add':'pcf.comment.create','save-btn':'pcf.comment.create','fab-save':'pcf.comment.create','bulk-round-btn':'pcf.document.write','panel-lock':'pcf.document.write','circulate-btn':'pcf.document.write'};
+  for(const [id,cap]of Object.entries(gates))if(!can(cap))hide(document.getElementById(id));
+  const deny=(selector,cap)=>{if(!can(cap))document.querySelectorAll(selector).forEach(hide);};
+  deny('[data-action="add-comment"],[data-action="add-round"]','pcf.comment.create');
+  deny('[data-action="delete-comment"],[data-action="delete-round"],[data-action="delete-image"]','pcf.comment.edit_any');
+  deny('[data-action="import-json"],#import-json-btn','pcf.replace');
+  deny('#more-btn', 'pcf.comment.create');
+  if(!writer){
+   document.querySelectorAll('[contenteditable="true"]').forEach(node=>{node.contentEditable='false';node.setAttribute('aria-readonly','true');});
+   document.querySelectorAll('.page-field,.person-input,.tag-toggle,.resize-handle,.status-drag,.attach-button,.pcf-date,#format-bar,#format-tools,#font-family,#bold-btn,#italic-btn,#underline-btn').forEach(hide);
+   document.querySelectorAll('[data-cfield],[data-name-field],[data-project]').forEach(node=>{if(node.tagName==='SELECT')node.disabled=true;else node.readOnly=true;});
+  }
  }
  document.addEventListener('DOMContentLoaded',()=>{
+  const style=document.createElement('style');style.textContent='[data-kjx-denied]{display:none!important}';document.head.append(style);
   const ctx=context();if(!ctx||ctx.mode!=='kjx')return;
   const privileged=['admin','manager'].includes(ctx.user.role);
   let candidates=[ctx.user],directoryAvailable=false;
