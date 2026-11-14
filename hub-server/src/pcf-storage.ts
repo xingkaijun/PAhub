@@ -1,3 +1,4 @@
+import { writeAudit } from './audit.ts';
 import { readFileSync, readdirSync, unlinkSync, existsSync } from 'node:fs';
 import { randomUUID, createHash } from 'node:crypto';
 import path from 'node:path';
@@ -87,7 +88,7 @@ export class PcfStorage {
     this.db.prepare('UPDATE drawings SET manual_comments_count=?,manual_open_comments_count=?,current_round=?,version=? WHERE project_id=? AND id=?').run(total, open, roundLabel(n), row?.revision || before.version || '', p, d);
     this.db.prepare('UPDATE projects SET last_updated=? WHERE id=?').run(data.updatedAt, p);
     const inserted = this.db.prepare('INSERT OR IGNORE INTO pcf_changes(project_id,drawing_id,rev,client_id,client_name,ip,ops_json,created_at) VALUES(?,?,?,?,?,?,?,?)').run(p, d, data.hub.rev, change.clientId, change.clientName, change.ip, JSON.stringify(change.ops), data.updatedAt);
-    if (inserted.changes) this.db.prepare("INSERT INTO audit_log(table_name,row_id,project_id,action,detail,created_at) VALUES('drawings',?,?,'COMMENTS',?,?)").run(d, p, JSON.stringify({ customId: before.custom_id, drawingNo: before.drawing_no, from: { total: before.manual_comments_count, open: before.manual_open_comments_count }, to: { total, open }, source: 'PCF', rev: data.hub.rev, round: { from: before.current_round, to: roundLabel(n) }, version: row?.revision || before.version }), data.updatedAt);
+    if (inserted.changes) writeAudit(this.db,{table:'drawings',rowId:d,projectId:p,action:'COMMENTS',detail:{ customId: before.custom_id, drawingNo: before.drawing_no, from: { total: before.manual_comments_count, open: before.manual_open_comments_count }, to: { total, open }, source: 'PCF', rev: data.hub.rev, round: { from: before.current_round, to: roundLabel(n) }, version: row?.revision || before.version },createdAt:data.updatedAt,opTypes:change.ops.map((op:any)=>op.type)});
   }
   private save(p: string, d: string, data: PcfData, actor: Actor, ops: unknown[], commit?: () => void) {
     // During migration fallback preserve the authoritative HTML, including its

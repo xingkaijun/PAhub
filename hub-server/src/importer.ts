@@ -1,3 +1,4 @@
+import { writeAudit } from './audit.ts';
 import { DatabaseSync } from 'node:sqlite';
 import { constants } from 'node:fs';
 import { access, copyFile, mkdir, mkdtemp, readFile, rmdir, unlink } from 'node:fs/promises';
@@ -56,7 +57,7 @@ export async function importData(source: string, destination: string) {
           const verification = await writer.save(entry.project.id,entry.project,entry.reviewTracker || {},'import');
           if (!verification.ok) throw new Error('Project import verification failed: ' + JSON.stringify(verification));
         }
-        sqlite.prepare("INSERT INTO audit_log(table_name,action,detail) VALUES('FULL_DB','IMPORT',?)").run(JSON.stringify({imported:data.projects.length}));
+        writeAudit(sqlite,{table:'FULL_DB',action:'IMPORT',detail:{imported:data.projects.length},source:'offline-import'},null);
         sqlite.exec('RELEASE pahub_import');
       } catch (error) { sqlite.exec('ROLLBACK TO pahub_import; RELEASE pahub_import'); throw error; }
       finally { realtime.close(); }

@@ -11,9 +11,15 @@ export async function listenHub(router: Router, config: ReturnType<typeof readCo
  const server=createServer((req,res)=>{
   logRequest(req,res);
   void(async()=>{
-   const denied=basicAuthResponse(req.headers.authorization,config.basicAuth);
+   const denied=router.kjx ? undefined : basicAuthResponse(req.headers.authorization,config.basicAuth);
    if(denied){await sendFetch(denied,req,res);return;}
    const url=new URL(req.url || '/','http://pahub.local');
+   if(router.kjx && !(url.pathname==='/api' || url.pathname.startsWith('/api/') || url.pathname.startsWith('/pcf/'))){
+    const headers=new Headers();
+    for(const [key,value]of Object.entries(req.headers))if(value!==undefined)headers.set(key,Array.isArray(value)?value.join(', '):value);
+    const denied=await router.authenticate(new Request(url,{method:req.method,headers}));
+    if(denied){await sendFetch(denied,req,res);return;}
+   }
    if(url.pathname==='/api' || url.pathname.startsWith('/api/') || url.pathname.startsWith('/pcf/')){
     const headers=new Headers();
     for(const [key,value]of Object.entries(req.headers))if(value!==undefined)headers.set(key,Array.isArray(value)?value.join(', '):value);
@@ -39,6 +45,6 @@ export async function listenHub(router: Router, config: ReturnType<typeof readCo
  console.log('PAhub listening on http://'+address.address+':'+address.port+' (pid '+process.pid+')');
  console.log('PAhub database: '+config.dbPath);
  // Make the development convenience visible so an exposed deployment cannot miss it.
- if(!config.env.ADMIN_PASSWORD?.trim())console.warn('WARNING: ADMIN_PASSWORD is not set. Every visitor is treated as an administrator; set ADMIN_PASSWORD before exposing PAhub.');
+ if(!router.kjx && !config.env.ADMIN_PASSWORD?.trim())console.warn('WARNING: ADMIN_PASSWORD is not set. Every visitor is treated as an administrator; set ADMIN_PASSWORD before exposing PAhub.');
  return {server,port:address.port,close:async()=>{realtime.close();await new Promise<void>((resolve,reject)=>server.close(error=>error?reject(error):resolve()));}};
 }

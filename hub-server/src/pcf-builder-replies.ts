@@ -1,3 +1,4 @@
+import { writeAudit } from './audit.ts';
 import { randomUUID } from 'node:crypto';
 import { mkdirSync, readFileSync, writeFileSync, readdirSync, existsSync } from 'node:fs';
 import path from 'node:path';
@@ -40,7 +41,7 @@ export function recordBuilderReplyImport(storage: PcfStorage, projectId: string,
     round: exported ? roundToLetters(Number(exported.round)) : '', replies, status, statusFrom: statusBefore, statusTo: statusAfter,
     via, source: via === 'bulk' ? 'Builder reply import (bulk)' : 'Builder reply import (PCF)',
   };
-  db.prepare("INSERT INTO audit_log(table_name,row_id,project_id,action,detail,created_at) VALUES('drawings',?,?,'BUILDER_REPLY',?,?)").run(drawingId, projectId, JSON.stringify(detail), new Date().toISOString());
+  writeAudit(db,{table:'drawings',rowId:drawingId,projectId,action:'BUILDER_REPLY',detail,createdAt:new Date().toISOString()});
   return true;
 }
 

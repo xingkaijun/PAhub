@@ -6,6 +6,9 @@ import { errorResponse } from './router.ts';
 import { getProjectDetail, getProjectList, getReviewTracker } from './project-read.ts';
 import { transaction, type ProjectWriter, type RecordValue } from './project-write.ts';
 import { writeDrawing } from './drawing-write.ts';
+import { writeAudit } from './audit.ts';
+import { requestUser } from './identity.ts';
+import { retiredLogin } from './admin-session.ts';
 
 const privateKey = (key: string) => /password|secret|hash/i.test(key);
 function redact(value: any): any {
@@ -26,9 +29,9 @@ const drawingColumns: Record<string,string> = {custom_id:'customId',drawing_no:'
 
 export class AdminApi {
   private password: string;
-  constructor(readonly db: DatabaseSync, readonly dbPath: string, password: string | undefined, readonly writer: ProjectWriter) {this.password=password?.trim() || '';}
+  constructor(readonly db: DatabaseSync, readonly dbPath: string, password: string | undefined, readonly writer: ProjectWriter, private publicUrl = 'https://auth.kjxing.com') {this.password=password?.trim() || '';}
   private audit(table: string, action: string, detail?: unknown, id?: string) {
-    this.db.prepare('INSERT INTO audit_log(table_name,row_id,action,detail) VALUES(?,?,?,?)').run(table,id || null,action,detail === undefined ? null : JSON.stringify(redact(detail)));
+    writeAudit(this.db,{table,rowId:id || null,action,detail:detail === undefined ? undefined : redact(detail)});
   }
   private notify(table: string, rows: RecordValue[]) {
     for (const row of rows) {
@@ -79,16 +82,23 @@ export class AdminApi {
   }
   async handle(request: Request): Promise<Response> {
     const url=new URL(request.url),pathname=url.pathname.replace(/^\/api/,'');
-    if (!this.password) return errorResponse(pathname==='/admin'?'Not found':'Admin console is disabled: ADMIN_PASSWORD is not set',pathname==='/admin'?404:403);
-    if (pathname==='/admin' && request.method==='GET') return new Response(readFileSync(path.join(ROOT_DIR,'hub-server/src/admin.html'),'utf8'),{headers:{'Content-Type':'text/html; charset=utf-8'}});
-    const token='admin_token_' + btoa(this.password).substring(0,10);
+    const kjx = Boolean(requestUser(request));
+    if (kjx && requestUser(request)?.role !== 'admin') return Response.json({ok:false,error:'forbidden',capability:'admin.console'},{status:403});
+    if (kjx && pathname==='/admin/auth' && request.method==='POST') return retiredLogin(this.publicUrl);
+    if (!kjx && !this.password) return errorResponse(pathname==='/admin'?'Not found':'Admin console is disabled: ADMIN_PASSWORD is not set',pathname==='/admin'?404:403);
+    if (pathname==='/admin' && request.method==='GET') {
+      let html=readFileSync(path.join(ROOT_DIR,'hub-server/src/admin.html'),'utf8');
+      if (kjx) html=html.replace('<head>','<head><script>window.PAHUB_ADMIN_KJX=true;</script>');
+      return new Response(html,{headers:{'Content-Type':'text/html; charset=utf-8',...(kjx ? {'Cache-Control':'no-store'} : {})}});
+    }
+    const token=kjx ? '' : 'admin_token_' + btoa(this.password).substring(0,10);
     const body=async ():Promise<RecordValue> => {
       const text=await request.text(),value=text?JSON.parse(text):{};
       if (!value || typeof value!=='object' || Array.isArray(value)) throw Object.assign(new Error('Expected JSON object'),{status:400});
       return value;
     };
     if (pathname==='/admin/auth' && request.method==='POST') return (await body()).password===this.password ? Response.json({token}) : errorResponse('Unauthorized',401);
-    if (request.headers.get('Authorization')!=='Bearer ' + token) return errorResponse('Unauthorized',401);
+    if (!kjx && request.headers.get('Authorization')!=='Bearer ' + token) return errorResponse('Unauthorized',401);
     const segments=pathname.split('/').filter(Boolean);
     if (segments[1]==='api' && segments[2]==='tables') {
       if (segments.length===3 && request.method==='GET') {
