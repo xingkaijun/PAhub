@@ -11,6 +11,8 @@ export interface AuditLogResult {
 }
 export interface ProjectSlice {
   data: AppData;
+  /** Local recovery copies are not selectable workspaces and are never submitted without renewed access. */
+  membershipRecovery: Record<string, { project: Project; tracker: ReviewTrackerData }>;
   isLoading: boolean;
   error: string | null;
   activeProjectId: string | null;

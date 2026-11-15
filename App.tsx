@@ -83,15 +83,15 @@ const App: React.FC = () => {
   const [resumeProjectId, setResumeProjectId] = useState<string>();
   const [startupReady, setStartupReady] = useState(false);
   const lobbyCards = useMemo(
-    () => toLobbyCards(data.projects.map(p => ({
+    () => toLobbyCards((session?.mode==='kjx' && !startupReady ? [] : data.projects).map(p => ({
       id: p.id,
       name: p.name,
       drawingCount: p.drawings?.length || 0,
       approvedCount: p.drawings?.filter(d => d.status === 'Approved').length || 0,
       lastUpdated: p.lastUpdated,
-      locked: !!(p.passwordProtected || p.conf?.passwordSet),
+      locked: session?.mode !== 'kjx' && !!(p.passwordProtected || p.conf?.passwordSet),
     }))),
-    [data.projects]
+    [data.projects,session?.mode,startupReady]
   );
   const lobbyVisible = showProjectSelector || lobbyLaunching;
   const [remoteUpdateCount, setRemoteUpdateCount] = useState(0);
@@ -214,6 +214,11 @@ const App: React.FC = () => {
     return () => window.removeEventListener('pahub:project-locked', locked);
   }, [activeProjectId, lobbyVisible]);
 
+  useEffect(()=>{
+    const denied=()=>{setShowProjectSelector(true);setResumeProjectId(undefined);void useStore.getState().fetchProjectList();};
+    window.addEventListener('pahub:project-access-denied',denied);
+    return()=>window.removeEventListener('pahub:project-access-denied',denied);
+  },[]);
   const handleOfflineMode = () => {
     setShowProjectSelector(false);
   };
@@ -346,7 +351,7 @@ const App: React.FC = () => {
       source.addEventListener('presence', e => { try { event('presence', JSON.parse((e as MessageEvent).data)); } catch {} });
       source.addEventListener('drawing-changed', e => { try { event('drawing-changed', JSON.parse((e as MessageEvent).data)); } catch {} });
       source.onopen = () => { retryDelay = 1000; stopPoll(); fullRefresh(); };
-      source.onerror = () => { source?.close(); source = undefined; if (useStore.getState().session?.mode === 'kjx') void useStore.getState().refreshSession(); reconnect(); };
+      source.onerror = () => { source?.close(); source = undefined; if (useStore.getState().session?.mode === 'kjx') {void useStore.getState().refreshSession();void useStore.getState().fetchProjectList();} reconnect(); };
     }
     const onVisibility = () => {
       if (document.hidden) {

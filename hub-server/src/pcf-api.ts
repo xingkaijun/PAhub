@@ -17,6 +17,7 @@ import { KJX_PCF_ADAPTER } from './pcf-kjx-adapter.ts';
 import { kjxDiscipline } from './discipline-map.ts';
 import type { KjxDirectory } from './kjx-directory.ts';
 import { resolveInitiatorOps } from './pcf-initiator.ts';
+import { canAccessProject, membershipDenied } from './project-membership.ts';
 
 export class PcfApi {
   readonly realtime = new PcfRealtime();
@@ -57,6 +58,7 @@ export class PcfApi {
     const page = parts[0] === 'pcf';
     const p = safeId(parts[page ? 1 : 2]), d = parts[page ? 2 : 3], tail = parts.slice(page ? 3 : 4).join('/');
     if (this.kjx) {
+      if (!canAccessProject(this.storage.db,p,requestUser(request))) return membershipDenied();
       const policy = PCF_POLICIES.find(policy => policy.method === request.method && policy.pattern!.test(url.pathname));
       if (!policy) return forbidden('route.unregistered');
       const denied = requirePermission(requestUser(request),policy.capability); if (denied) return denied;
@@ -109,6 +111,7 @@ export class PcfApi {
         return new Response(html, { status: 401, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' } });
       }
       return this.storage.serial(p, d, () => {
+        if(this.kjx && !canAccessProject(this.storage.db,p,requestUser(request))) return membershipDenied();
         this.storage.create(p, d, { clientId: 'page-create', clientName: '', ip });
         const { data, rev } = this.storage.load(p, d), grant = this.grant(p, d, requestUser(request)?.id);
         const version = TEMPLATE_VERSION, html = renderTemplate(data);
@@ -151,11 +154,13 @@ export class PcfApi {
       if (tail === 'ops') safeId(body.clientId);
     }
     return this.storage.serial(p, d, async () => {
+      if(this.kjx && !canAccessProject(this.storage.db,p,requestUser(request))) return membershipDenied();
       switch (request.method + ' ' + tail) {
         case 'GET initiators': {
           if (!this.kjx) fail('Not found', 404);
           this.storage.load(p, d);
           const result = await this.auth.directory?.list();
+          if(!canAccessProject(this.storage.db,p,requestUser(request))) return membershipDenied();
           return json(result?.ok ? { ok: true, users: result.users.map(({id,name}) => ({id,name})) } : { ok: false, fallback: true });
         }
         case 'GET meta': return json(this.storage.meta(p, d));
@@ -177,6 +182,7 @@ export class PcfApi {
           }
           const user = this.kjx ? requestUser(request) : undefined;
           const initiators = user && Array.isArray(body.ops) ? await resolveInitiatorOps(this.storage.db, this.auth.directory, p, user, body.ops) : undefined;
+          if(user && !canAccessProject(this.storage.db,p,user)) return membershipDenied();
           const requestActor = user ? { sub: user.id, name: user.name, ...(initiators ? { initiators } : {}) } : undefined;
           const actor = this.actor(body, ip), outcome = this.storage.opsBatch(p, d, body, actor, requestActor);
           if (!outcome.replayed && outcome.result.applied.length) this.realtime.changed(p + '/' + d, outcome.result, actor);

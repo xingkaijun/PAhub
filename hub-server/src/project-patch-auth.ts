@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { RequestUser } from './identity.ts';
 import { hasPermission, type Capability } from './capabilities.ts';
+import {authorizeTracker} from './tracker-auth.ts';
 import { DRAWING_COLUMNS } from './drawing-revision.ts';
 
 // Check the complete request under the PATCH transaction, before even implicit creation.
@@ -35,14 +36,14 @@ export function authorizeProjectPatch(db: DatabaseSync, project: string, body: R
         for (const _id of value || []) require('drawing.void');
         break;
       case 'conf':
-        for (const field of Object.keys(value || {})) require(['reviewers','disciplineDefaults','defaultAssignees'].includes(field) ? 'team.setup' : 'settings.write');
+        for (const field of Object.keys(value || {})) require(!existingProject && ['reviewers','disciplineDefaults','defaultAssignees','holidays','roundACycle','otherRoundsCycle','displayName','autoSyncInterval','projectSummary'].includes(field) ? 'project.create' : ['reviewers','disciplineDefaults','defaultAssignees'].includes(field) ? 'team.setup' : 'settings.write');
         break;
       case 'confBase':
         // Conflict baselines are not persisted, but unknown keys still fail closed.
         for (const field of Object.keys(value || {})) if (!Object.hasOwn(body.conf || {},field)) require('admin.only');
         break;
       case 'reviewTracker':
-        for (const _entry of Object.entries(value || {})) require('admin.only');
+        authorizeTracker(db,project,value,user,false);
         break;
       default: require('admin.only');
     }

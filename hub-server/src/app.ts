@@ -20,7 +20,9 @@ import {createIdentity,createProductionVerifier,requestUser} from './identity.ts
 import type {KjxVerifier} from './kjx-auth-client.ts';
 import {ADMIN_POLICIES} from './capabilities.ts';
 import {KjxDirectory, type DirectoryOptions} from './kjx-directory.ts';
+import {registerReviewerRoutes} from './reviewer-routes.ts';
 import {registerTeamDirectoryRoutes} from './team-directory-routes.ts';
+import {canAccessProject,initializeMembershipSchema,projectRequestDenied} from './project-membership.ts';
 
 export async function createHub(options: {middleware?: Middleware;host?: '127.0.0.1';verifier?: KjxVerifier;directory?: DirectoryOptions} = {}) {
  const config=readConfig();
@@ -28,19 +30,22 @@ export async function createHub(options: {middleware?: Middleware;host?: '127.0.
  migratePcfJsonAtStartup(config.dataDir,config.dbPath);
  const db=openDatabase(config.dbPath);
  try { migrateProjectPasswords(db,config.dataDir); } catch (error) { db.close(); throw error; }
+ if(config.identity.mode==='kjx') initializeMembershipSchema(db);
  const legacyAdmin=createAdminSession({password:config.env.ADMIN_PASSWORD,apiToken:config.env.API_TOKEN});
  const adminSession=config.identity.mode==='kjx' ? {...legacyAdmin,isAdmin:(request:Request)=>requestUser(request)?.role==='admin'} : legacyAdmin;
- const projectSession=createProjectSession(db,adminSession);
+ const legacyProjectSession=createProjectSession(db,adminSession);
+ const projectSession=config.identity.mode==='kjx' ? {...legacyProjectSession,allowed:(request:Request,project:string)=>canAccessProject(db,project,requestUser(request)),challenge:()=>undefined,unlock:async()=>Response.json({unlocked:true})} : legacyProjectSession;
  const directory=config.identity.mode==='kjx' ? new KjxDirectory({internalUrl:process.env.KJX_INTERNAL_URL,clientId:process.env.KJX_CLIENT_ID,clientSecret:process.env.KJX_CLIENT_SECRET,...options.directory}) : undefined;
  const pcf=new PcfApi(new PcfStorage(db,config.dataDir),config.env.API_TOKEN,adminSession,projectSession,{mode:config.identity.mode,grantSecret:config.grantSecret,directory});
  const authenticate=config.identity.mode==='kjx' ? createIdentity(options.verifier || createProductionVerifier(config.identity),db) : undefined;
- const router=new Router({...config.env,adminSession,projectSession,identity:config.identity,authenticate}),writer=new ProjectWriter(pcf.storage,pcf.realtime);
+ const router=new Router({...config.env,adminSession,projectSession,identity:config.identity,authenticate,projectAccess:config.identity.mode==='kjx' ? (request:Request)=>projectRequestDenied(db,request,requestUser(request)) : undefined}),writer=new ProjectWriter(pcf.storage,pcf.realtime);
  registerAdminSessionRoutes(router,adminSession);
  registerPcfRoutes(router,pcf,config.env.ADMIN_PASSWORD);
  registerProjectRoutes(router,writer);
+ registerReviewerRoutes(router,writer);
  registerTrackerRoutes(router,writer);
  registerActivityRoutes(router,db);
- if(directory) registerTeamDirectoryRoutes(router,directory);
+ if(directory) registerTeamDirectoryRoutes(router,directory,db);
  registerSystemRoutes(router,db);
  const admin=new AdminApi(db,config.dbPath,config.env.ADMIN_PASSWORD,writer,config.identity.publicUrl);
  router.add({pattern:/^\/api\/admin(?:\/|$)/,auth:'none',policies:ADMIN_POLICIES,handle:ctx=>admin.handle(ctx.request)});

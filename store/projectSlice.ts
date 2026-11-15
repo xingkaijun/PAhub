@@ -33,6 +33,7 @@ const projectNotFoundMessage = (name: string, whileOpen: boolean) => whileOpen
   : `Project "${name}" does not exist on the server. It may have been deleted. The local copy was not opened.`;
 
 export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
+  membershipRecovery: {},
   data: { ...DEFAULT_DATA, projects: [], settings: { ...DEFAULT_DATA.settings } },
   isLoading: false,
   error: null,
@@ -624,7 +625,8 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     try {
       const remoteProjects = await projectsApi.fetchProjectList();
       set(state => {
-        const currentProjects = state.data.projects;
+        const visibleIds = new Set(remoteProjects.map(project=>project.id));
+        const currentProjects = state.session?.mode === 'kjx' ? state.data.projects.filter(project=>visibleIds.has(project.id)) : state.data.projects;
         const mergedProjects = [...currentProjects];
         remoteProjects.forEach(rp => {
           // 按 ID 合并，避免同名项目污染
@@ -650,7 +652,12 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
             });
           }
         });
+        const revoked=state.session?.mode==='kjx' ? state.data.projects.filter(project=>!visibleIds.has(project.id)) : [];
+        const membershipRecovery={...state.membershipRecovery};
+        for(const project of revoked)membershipRecovery[project.id]={project,tracker:state.reviewTracker};
         return {
+          membershipRecovery,
+          ...(state.session?.mode==='kjx' && state.activeProjectId && !visibleIds.has(state.activeProjectId) ? {activeProjectId:null} : {}),
           data: { ...state.data, projects: mergedProjects },
           isLoading: false
         };

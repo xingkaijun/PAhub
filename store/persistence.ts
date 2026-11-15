@@ -12,6 +12,7 @@ export const persistenceOptions: PersistOptions<AppState, any> = {
       ...state.data,
       projects: state.data.projects.map(project => stripProjectPayload(project, project.id === state.activeProjectId)),
     },
+    membershipRecovery: state.membershipRecovery,
     activeProjectId: state.activeProjectId,
     reviewTracker: state.reviewTracker,
     _dirtyDrawingIds: [...state._dirtyDrawingIds],

@@ -10,6 +10,7 @@ export const KJX_PCF_ADAPTER = `<script id="pahub-kjx-permissions">
    const body=await response.clone().json();
    if(response.status===401&&body.login){const login=new URL(body.login);login.searchParams.set('app','pahub');login.searchParams.set('path',location.pathname+location.search);location.assign(login.toString());}
    else if(response.status===403&&body.denied)location.assign(body.denied);
+   else if(response.status===403&&body.capability==='project.member'){notice('You no longer have access to this workspace. Ask to be added to Team Setup.');setTimeout(()=>location.assign('/'),1000);}
    else if(response.status===403&&body.error==='forbidden')notice("You don't have permission to do this.");
    else if(response.status===503&&body.error==='auth_unavailable')notice('Sign-in service is temporarily unavailable. Try again in a minute.');
   }catch{}

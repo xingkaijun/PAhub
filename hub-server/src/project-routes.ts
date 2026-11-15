@@ -5,20 +5,23 @@ import { getProjectDetail, getProjectDrawings, getProjectList, MAX_DRAWING_IDS }
 import { conditionalJson } from './etag.ts';
 import type { ProjectWriter } from './project-write.ts';
 import { requestUser } from './identity.ts';
+import {canAccessProject,projectRoster} from './project-membership.ts';
 
 export function registerProjectRoutes(router: Router, writer: ProjectWriter) {
   router.add({pattern:/^\/api\/projects\/([^/]+)\/unlock$/,methods:['POST'],policies:[{method:'POST',capability:'view'}],handle:ctx => router.options.projectSession ? router.options.projectSession.unlock(ctx.request,safeId(ctx.params[0])) : errorResponse('Project sessions unavailable',503)});
-  router.add({pattern:/^\/api\/projects$/,methods:['GET'],policies:[{method:'GET',capability:'view'}],handle:() => Response.json(getProjectList(writer.storage.db))});
+  router.add({pattern:/^\/api\/projects$/,methods:['GET'],policies:[{method:'GET',capability:'view'}],handle:ctx => Response.json(getProjectList(writer.storage.db).filter(project=>!router.kjx || canAccessProject(writer.storage.db,String(project.id),requestUser(ctx.request))).map(project=>router.kjx ? {...project,passwordProtected:false} : project))});
   // POST reads the project; PATCH saves field deltas with revision checks. The old whole-project PUT had no
   // caller left in the app and could overwrite concurrent edits; whole-project replacement is import-only
   // (importer.ts and the admin JSON import call ProjectWriter.save directly). Project-level writes require
   // an administrator; reviewers only read.
   router.add({pattern:/^\/api\/projects\/([^/]+)$/,methods:['POST','PATCH'],policies:[{method:'POST',capability:'view'},{method:'PATCH',capability:'drawing.update'}],handle:async ctx => {
     const p = safeId(ctx.params[0]), body = await ctx.json();
+    const access=router.kjx ? router.options.projectAccess?.(ctx.request) : undefined;if(access)return access;
     if (ctx.request.method === 'POST') {
       const project = getProjectDetail(writer.storage.db,p);
       if (!project) return errorResponse('Project not found: ' + p,404);
       // ETag + 304: a refresh that finds nothing new costs a header instead of the whole project.
+      if (router.kjx) { (project as any).passwordProtected=false; Object.assign(project.conf,{reviewers:projectRoster(writer.storage.db,p),passwordSet:false}); }
       return conditionalJson(ctx.request,project);
     }
     if (!router.kjx && router.options.adminSession && !router.options.adminSession.isAdmin(ctx.request)) return errorResponse('Administrator permission required',403);
