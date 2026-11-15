@@ -10,6 +10,15 @@ import { ensureDrawingHasId, normalizeProjectDrawingIds, stripProjectPayload, re
 import { editableDrawingUpdates, applyDrawingUpdates } from '../lib/drawing-edit';
 import { describeVerification } from '../lib/project-save';
 import type { AuditLogResult, ProjectSlice, SliceCreator } from './types';
+import {SaveLock,withSaveTimeout,saveFailure,retryable,retryDelay,failureText} from '../lib/save-control';
+const editSnapshots = new WeakMap<Function, Map<string, Project>>();
+function rememberProject(get: Function, state: any, id: string | null) {
+  if(state.session?.mode!=='kjx'||!id)return;
+  const project=state.data.projects.find((p:Project)=>p.id===id);if(!project)return;
+  let snapshots=editSnapshots.get(get);if(!snapshots){snapshots=new Map();editSnapshots.set(get,snapshots);}
+  if(!snapshots.has(id))snapshots.set(id,structuredClone(project));
+}
+const allowedEdit=(state:any,capability:string)=>state.session?.mode!=='kjx'||state.session.permissions?.includes(capability);
 const generateId = () => Math.random().toString(36).substr(2, 9);
 const DEFAULT_DATA: AppData = {
   lastUpdated: new Date().toISOString(),
@@ -32,7 +41,21 @@ const projectNotFoundMessage = (name: string, whileOpen: boolean) => whileOpen
   ? `Project "${name}" no longer exists on the server. It may have been deleted; changes you make here cannot be saved.`
   : `Project "${name}" does not exist on the server. It may have been deleted. The local copy was not opened.`;
 
-export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
+export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => {
+ const lock=new SaveLock();
+ return ({
+  saveStatuses:{},pendingSaves:{},
+  saveProject:(id,options={})=>lock.run(id,async()=>{
+    const status=get().saveStatuses[id];
+    if(!get().hasUnsavedChanges()&&!get().pendingSaves[id]&&!get().data.projects.find(p=>p.id===id)?.localOnly)return true;
+    if(status?.failure==='forbidden' && get().hasUnsavedChanges() && !get().pendingSaves[id]){set(current=>({saveStatuses:{...current.saveStatuses,[id]:{phase:'saved',attempts:0,lastSuccess:status.lastSuccess}}}));return get().saveProjectAttempt(id);}
+    if(get().session?.mode!=='kjx')return get().saveProjectAttempt(id);
+    if(!options.manual && status?.phase==='failed' && (!status.retryAt || status.retryAt>Date.now()))return false;
+    if(status?.failure==='login'||status?.failure==='oversize')return false;
+    if(status?.failure==='forbidden' && !get().hasUnsavedChanges())return false;
+    return get().saveProjectAttempt(id);
+  }),
+  membershipRecovery: {},
   data: { ...DEFAULT_DATA, projects: [], settings: { ...DEFAULT_DATA.settings } },
   isLoading: false,
   error: null,
@@ -114,7 +137,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
         if (result.reviewTracker?.[id]) remoteTracker[id] = result.reviewTracker[id];
         else delete remoteTracker[id];
       }
-      const merged = mergeProjectPreservingDirty(local, { ...local, drawings }, state._dirtyDrawingIds, state._deletedDrawingIds, state._dirtyConfKeys.size ? state._dirtyConfKeys : state._dirtyConf, state.reviewTracker, remoteTracker, state._dirtyTrackerDrawingIds, state._dirtyTracker, state._dirtyDrawingFields);
+      const merged = mergeProjectPreservingDirty(local, { ...local, drawings, ...(result.assigneeNames ? {assigneeNames:result.assigneeNames} : {}) }, state._dirtyDrawingIds, state._deletedDrawingIds, state._dirtyConfKeys.size ? state._dirtyConfKeys : state._dirtyConf, state.reviewTracker, remoteTracker, state._dirtyTrackerDrawingIds, state._dirtyTracker, state._dirtyDrawingFields);
       changed = merged.changedDrawings;
       return {
         data: { ...state.data, projects: state.data.projects.map(p => p.id === projectId ? merged.project : p) },
@@ -164,10 +187,12 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     },
     activeProjectId: state.activeProjectId === projectId ? null : state.activeProjectId,
   })),
-  updateSettings: (newSettings) => set((state) => ({
+  updateSettings: (newSettings) => set((state) => !allowedEdit(state,'settings.write') ? state : ({
     data: { ...state.data, settings: { ...state.data.settings, ...newSettings } },
   })),
   addDrawing: (drawing) => set((state) => {
+    if(!allowedEdit(state,'bulk.import'))return state;
+    rememberProject(get,state,state.activeProjectId);
     const { activeProjectId, data } = state;
     if (!activeProjectId)
       return state;
@@ -200,6 +225,8 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     };
   }),
   updateDrawing: (id, updates) => set((state) => {
+    if(!allowedEdit(state,'drawing.update'))return state;
+    rememberProject(get,state,state.activeProjectId);
     const { activeProjectId } = state;
     if (!activeProjectId)
       return state;
@@ -239,6 +266,8 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     };
   }),
   deleteDrawing: (id) => set((state) => {
+    if(!allowedEdit(state,'drawing.void'))return state;
+    rememberProject(get,state,state.activeProjectId);
     const { activeProjectId } = state;
     if (!activeProjectId)
       return state;
@@ -256,6 +285,8 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     };
   }),
   addRemark: (drawingId, content) => set((state) => {
+    if(!allowedEdit(state,'drawing.update'))return state;
+    rememberProject(get,state,state.activeProjectId);
     const { activeProjectId } = state;
     if (!activeProjectId)
       return state;
@@ -286,6 +317,8 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     };
   }),
   deleteRemark: (drawingId, remarkId) => set((state) => {
+    if(!allowedEdit(state,'drawing.update'))return state;
+    rememberProject(get,state,state.activeProjectId);
     const { activeProjectId } = state;
     if (!activeProjectId)
       return state;
@@ -315,6 +348,8 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
       get().updateDrawing(update.id, update.changes);
   },
   resetAllAssignees: () => set((state) => {
+    if(!allowedEdit(state,'team.setup'))return state;
+    rememberProject(get,state,state.activeProjectId);
     const { activeProjectId, data } = state;
     if (!activeProjectId)
       return state;
@@ -343,6 +378,8 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     };
   }),
   bulkImportDrawings: (drawings) => set((state) => {
+    if(!allowedEdit(state,'bulk.import'))return state;
+    rememberProject(get,state,state.activeProjectId);
     const { activeProjectId } = state;
     if (!activeProjectId)
       return state;
@@ -363,8 +400,11 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
       return false;
     return get().saveProject(activeProjectId);
   },
-  saveProject: async (projectId: string) => {
-    const state = get();
+  saveProjectAttempt: async (projectId: string) => {
+    let state = get();
+    const pending=state.session?.mode==='kjx'?state.pendingSaves[projectId]:undefined;
+    if(pending?.actorId && pending.actorId!==state.session?.user?.id){set(current=>({saveStatuses:{...current.saveStatuses,[projectId]:{phase:'failed',attempts:0,failure:'login',reason:'Pending changes belong to another account; sign in with the original account'}}}));return false;}
+    if(pending)state={...state,...pending.source,data:{...state.data,projects:state.data.projects.map(p=>p.id===projectId?pending.project:p)},reviewTracker:pending.tracker,_dirtyDrawingIds:new Set(pending.source._dirtyDrawingIds),_dirtyDrawingFields:Object.fromEntries(Object.entries(pending.source._dirtyDrawingFields).map(([id,fields])=>[id,new Set(fields as any)])),_deletedDrawingIds:new Set(pending.source._deletedDrawingIds),_dirtyConfKeys:new Set(pending.source._dirtyConfKeys),_dirtyTrackerDrawingIds:new Set(pending.source._dirtyTrackerDrawingIds)};
     if (state.session?.mode === 'kjx' && state.projectNotice?.projectId === projectId && state.projectNotice.requiresReload) return false;
     // A new workspace must persist its own configuration even when the active
     // workspace is clean; never borrow another project's global dirty flags.
@@ -387,6 +427,9 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
       console.log('[Save] No changes detected, skipping.');
       return true;
     }
+    const previousStatus=get().saveStatuses[projectId];
+    const status=(value:any)=>set(current=>({saveStatuses:{...current.saveStatuses,[projectId]:value}}));
+    status({...previousStatus,phase:'saving',attempts:previousStatus?.attempts || 0,retryAt:undefined});
     set({ isLoading: true, error: null });
     try {
       // 只发改过的字段，并带上开始修改时的版本和旧值，服务端据此判断是否被别人先改了
@@ -396,7 +439,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
         const actual = state.session?.mode === 'kjx' && base ? new Set([...fields].filter(field => !Object.hasOwn(base.values,field) || !sameValue(d[field],base.values[field]))) : fields;
         return buildDrawingPatch(d,actual,base);
       }).filter(patch => state.session?.mode !== 'kjx' || Object.keys(patch.changes).length || Object.values(patch.remarkOps || {}).some(items => items.length));
-      const payload: DeltaPayload = { projectName: project.name };
+      const payload: DeltaPayload = { projectName: project.name, ...(state.session?.mode==='kjx'?{saveRequestId:crypto.randomUUID()}:{}) };
       if (deletedDrawingSnapshot.size)
         payload.deletedDrawingIds = [...deletedDrawingSnapshot];
       if (updatedDrawings.length > 0)
@@ -412,19 +455,21 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
         }
         else payload.conf = project.conf; // 旧版本地缓存里只有 _dirtyConf 标记：按原样整份发送
       }
-      if (dirtyTrackerSnapshotFlag) {
+      if (!pending && dirtyTrackerSnapshotFlag) {
         const trackerSlice: ReviewTrackerData = {};
         for (const id of dirtyTrackerSnapshot)
           trackerSlice[id] = reviewTracker[id] || {};
         if (Object.keys(trackerSlice).length > 0) {
           if (state.session?.mode === 'kjx') {
-            const stored = await projectsApi.loadReviewTracker(projectId);
+            const stored = await withSaveTimeout(signal=>projectsApi.loadReviewTracker(projectId,signal));
             for (const id of Object.keys(trackerSlice)) if (sameValue(trackerSlice[id], stored[id] || {})) delete trackerSlice[id];
           }
           if (Object.keys(trackerSlice).length) payload.reviewTracker = trackerSlice;
         }
       }
-      const saveResult = await projectsApi.saveDelta(projectId, payload);
+      const request=pending?.payload || payload;
+      if(!pending && state.session?.mode==='kjx')set(current=>({pendingSaves:{...current.pendingSaves,[projectId]:{actorId:state.session?.user?.id,payload:request,project:structuredClone(project),tracker:structuredClone(reviewTracker),source:{_dirtyDrawingIds:[...dirtyDrawingSnapshot],_dirtyDrawingFields:Object.fromEntries(Object.entries(fieldSnapshot).map(([id,fields])=>[id,[...fields]])),_dirtyDrawingBase,_deletedDrawingIds:[...deletedDrawingSnapshot],_dirtyConf:dirtyConfSnapshot,_dirtyConfKeys:[...confKeySnapshot],_dirtyConfBase,_dirtyTracker:dirtyTrackerSnapshotFlag,_dirtyTrackerDrawingIds:[...dirtyTrackerSnapshot]}}}}));
+      const saveResult = state.session?.mode==='kjx' ? await withSaveTimeout(signal=>projectsApi.saveDelta(projectId,request,signal)) : await projectsApi.saveDelta(projectId,request);
       // 服务端回读校验：没落库的图纸不清脏标记，交给下次保存重试
       const verification = saveResult?.verification;
       const unverifiedIds = new Set(verification && !verification.ok && !verification.error
@@ -461,7 +506,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
             return;
           const previousDrawing = project.drawings.find(d => d.id === id);
           const currentDrawing = currentProject?.drawings.find(d => d.id === id);
-          const remaining = new Set(nextFields[id] || []);
+          const remaining = new Set(nextFields[id] || (currentDrawing && !sameValue(currentDrawing,previousDrawing) ? Object.keys(currentDrawing).filter(field=>!sameValue((currentDrawing as any)[field],(previousDrawing as any)?.[field])) as (keyof Drawing)[] : []));
           for (const field of fieldSnapshot[id] || []) {
             if (JSON.stringify(currentDrawing?.[field]) === JSON.stringify(previousDrawing?.[field]))
               remaining.delete(field);
@@ -492,7 +537,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
         dirtyTrackerSnapshot.forEach(id => {
           if (unverifiedIds.has(id))
             return;
-          if (state.reviewTracker[id] === reviewTracker[id])
+          if (sameValue(state.reviewTracker[id],reviewTracker[id]))
             nextDirtyTrackerDrawingIds.delete(id);
         });
         // 设置项：发出后没再改的项清掉；服务端回传合并后的设置（按专业合并的 map 以服务端为准）
@@ -512,7 +557,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
           }
         }
         const nextDirtyConf = nextConfKeys.size > 0 || (dirtyConfSnapshot
-          ? !confKeySnapshot.size && currentProject?.conf !== project.conf && state._dirtyConf
+          ? !confKeySnapshot.size && !sameValue(currentProject?.conf,project.conf) && state._dirtyConf
           : state._dirtyConf);
         return {
           isLoading: false,
@@ -536,9 +581,15 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
           const { localOnly: _localOnly, ...rest } = p;
           return rest;
         }) } }));
+      if(!get().hasUnsavedChanges())editSnapshots.get(get)?.delete(projectId);
+      set(current=>{const pendingSaves={...current.pendingSaves};delete pendingSaves[projectId];return{pendingSaves};});
+      status({phase:'saved',lastSuccess:Date.now(),attempts:0});
       return unverifiedIds.size === 0;
     }
     catch (err: any) {
+      const failure=saveFailure(err),attempts=(previousStatus?.attempts || 0)+1;
+      status({phase:'failed',lastSuccess:previousStatus?.lastSuccess,attempts,failure,reason:failureText(failure)+(err instanceof ApiError?' (HTTP '+err.status+')':''),...(retryable(failure)?{retryAt:Date.now()+retryDelay(attempts)}:{})});
+      if(!retryable(failure) && failure!=='login' && failure!=='oversize')set(current=>{const pendingSaves={...current.pendingSaves};delete pendingSaves[projectId];return{pendingSaves};});
       if (err instanceof ApiError && err.status === 409 && (err.data?.code === 'DRAWING_CONFLICT' || err.data?.code === 'CONFIG_CONFLICT') && Array.isArray(err.data.conflicts)) {
         // 整批没有写入。冲突字段换成服务端最新值并放弃本地修改，其余未冲突的修改保留，下次自动保存再发
         const conflicts = err.data.conflicts as DrawingConflict[];
@@ -588,11 +639,25 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
         });
         // 载入别人的其他改动（不覆盖仍在编辑的字段）
         void get().refreshProjectPreservingDirty(projectId).catch(e => console.warn('[Save] Refresh after conflict failed', e));
+        if(get().hasUnsavedChanges())status({phase:'failed',failure:'conflict',reason:failureText('conflict'),attempts:0,lastSuccess:previousStatus?.lastSuccess,retryAt:Date.now()+3000});
         return false;
       }
       if (get().session?.mode === 'kjx' && err instanceof ApiError && err.status === 403) {
-        const message = 'Save was denied and nothing was written. Reload this workspace to discard unsaved changes before continuing.';
-        set({ isLoading: false, error: message, projectNotice: { message, projectId, at: Date.now(), requiresReload: true } });
+        const message = 'You do not have permission. Unsaved changes were rolled back.';
+        let restored=editSnapshots.get(get)?.get(projectId);
+        let tracker=reviewTracker;
+        try { restored=await withSaveTimeout(signal=>projectsApi.loadProject(project,undefined,signal)); tracker=await withSaveTimeout(signal=>projectsApi.loadReviewTracker(projectId,signal)); } catch { /* The pre-edit copy also works offline or after access revocation. */ }
+        if(!restored){
+          restored=structuredClone(project);
+          for(const drawing of restored.drawings)for(const [field,value]of Object.entries(_dirtyDrawingBase[drawing.id]?.values || {}))(drawing as any)[field]=value;
+          for(const [key,value]of Object.entries(_dirtyConfBase))(restored.conf as any)[key]=value;
+          restored.drawings=restored.drawings.filter(d=>!!d.rev);
+        }
+        const rollback=restored;
+        set(current=>({data:{...current.data,projects:current.data.projects.map(p=>p.id===projectId?rollback:p)},
+          ...(current.activeProjectId===projectId ? {reviewTracker:tracker,_dirtyDrawingIds:new Set<string>(),_dirtyDrawingFields:{},_dirtyDrawingBase:{},_deletedDrawingIds:new Set<string>(),_dirtyConf:false,_dirtyConfKeys:new Set<keyof ProjectConfig>(),_dirtyConfBase:{},_dirtyTracker:false,_dirtyTrackerDrawingIds:new Set<string>()} : {}),
+          isLoading:false,error:message,projectNotice:{message,projectId,at:Date.now()}}));
+        editSnapshots.get(get)?.delete(projectId);
         return false;
       }
       console.error("Push failed", err);
@@ -624,7 +689,8 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     try {
       const remoteProjects = await projectsApi.fetchProjectList();
       set(state => {
-        const currentProjects = state.data.projects;
+        const visibleIds = new Set(remoteProjects.map(project=>project.id));
+        const currentProjects = state.session?.mode === 'kjx' ? state.data.projects.filter(project=>visibleIds.has(project.id)) : state.data.projects;
         const mergedProjects = [...currentProjects];
         remoteProjects.forEach(rp => {
           // 按 ID 合并，避免同名项目污染
@@ -650,7 +716,12 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
             });
           }
         });
+        const revoked=state.session?.mode==='kjx' ? state.data.projects.filter(project=>!visibleIds.has(project.id)) : [];
+        const membershipRecovery={...state.membershipRecovery};
+        for(const project of revoked)membershipRecovery[project.id]={project,tracker:state.reviewTracker};
         return {
+          membershipRecovery,
+          ...(state.session?.mode==='kjx' && state.activeProjectId && !visibleIds.has(state.activeProjectId) ? {activeProjectId:null} : {}),
           data: { ...state.data, projects: mergedProjects },
           isLoading: false
         };
@@ -663,6 +734,8 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     }
   },
   loadProject: async (projectId: string, _legacyPassword?: string, signal?: AbortSignal) => {
+    const state=get();
+    if(state.session?.mode==='kjx' && state.activeProjectId && state.activeProjectId!==projectId && state.hasUnsavedChanges()){const saved=await state.saveProject(state.activeProjectId,{manual:true});if(!saved || get().hasUnsavedChanges())throw new Error('Switch blocked: current workspace has unsaved changes. Retry saving before switching.');}
     const { data } = get();
     const projectStub = data.projects.find(p => p.id === projectId);
     if (!projectStub)
@@ -734,6 +807,8 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
   },
   testConnection: async () => projectsApi.testConnection(),
   updateProjectConfig: (projectId, updates) => set((state) => {
+    if(!allowedEdit(state,'project.settings'))return state;
+    rememberProject(get,state,projectId);
     // Passwords have a separate write-only settings flow; never put a draft in the persisted store.
     updates = withoutProjectSecrets(updates);
     const shouldRecalculateDeadlines = updates.holidays !== undefined ||
@@ -772,6 +847,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     };
   }),
   restoreProject: (project) => set((state) => {
+    if(state.session?.mode==='kjx')return state;
     const restoredProject = withoutProjectSecrets(project);
     // 恢复后标记所有 drawing 为脏，确保用户手动保存时同步到云端
     const newDirty = new Set(state._dirtyDrawingIds);
@@ -797,6 +873,8 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     };
   }),
   toggleRemarkStatus: (drawingId, remarkId) => set((state) => {
+    if(!allowedEdit(state,'drawing.update'))return state;
+    rememberProject(get,state,state.activeProjectId);
     const { activeProjectId } = state;
     if (!activeProjectId)
       return state;
@@ -838,3 +916,4 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     }
   }
 });
+};

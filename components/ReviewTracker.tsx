@@ -43,7 +43,9 @@ const matchFilter = (drawing: Drawing, filterText: string): boolean => {
 export const ReviewTracker: React.FC = () => {
     const session = useStore(state => state.session);
     const can = useStore(state => state.can);
-    const canTracker = session?.mode !== 'kjx' || can('admin.only');
+    const canTracker = session?.mode !== 'kjx' || can('drawing.update');
+    const canMark = (assignee: string) => session?.mode !== 'kjx' ? isEditMode : can('drawing.update') || (session.user?.role === 'reviewer' && session.user.id === assignee && !assignee.startsWith('manual-'));
+    const assigneeName = (id: string) => session?.mode === 'kjx' ? currentProject?.conf.reviewers.find(r=>r.id===id)?.name || id : id;
     const canSend = session?.mode !== 'kjx' || can('drawing.update');
     const {
         data,
@@ -409,24 +411,24 @@ export const ReviewTracker: React.FC = () => {
                         assignees.map(assignee => {
                             const isDone = trackerEntry[assignee]?.done;
                             return (
-                                !canTracker ? <span key={assignee} className="text-xs text-slate-500">{assignee}{isDone ? ' ✓' : ''}</span> : <button
+                                <button
                                     key={assignee}
                                     onClick={() => toggleAssigneeDone(drawing.id, assignee)}
-                                    disabled={!isEditMode || isSending}
+                                    disabled={!canMark(assignee) || isSending}
                                     className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold transition-all active:scale-95 border shadow-sm ${isDone
                                         ? 'bg-emerald-100/90 text-emerald-700 border-emerald-200 hover:bg-emerald-50'
                                         : isOverdue
                                             ? 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100 shadow-red-500/10'
                                             : 'bg-white/85 text-slate-600 border-white/80 hover:bg-white hover:border-teal-200 hover:text-teal-700'
                                         }`}
-                                    title={isDone ? `${assignee}: Done (click to undo)` : `${assignee}: Click to mark done`}
+                                    title={!canMark(assignee) ? 'Only this reviewer or a project manager can change this mark' : isDone ? `${assigneeName(assignee)}: Done (click to undo)` : `${assigneeName(assignee)}: Click to mark done`}
                                 >
                                     {isDone ? (
                                         <CheckCircle2 size={12} className="text-emerald-500" />
                                     ) : (
                                         <Circle size={12} className={isOverdue ? 'text-red-400' : 'text-slate-300'} />
                                     )}
-                                    <span className="uppercase tracking-[0.16em]">{assignee}</span>
+                                    <span className="uppercase tracking-[0.16em]">{assigneeName(assignee)}</span>
                                 </button>
                             );
                         })

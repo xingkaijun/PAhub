@@ -4,7 +4,7 @@ import { apiClient, ApiError, type ApiClient, type ApiRequestOptions } from './a
 export interface ProjectListItem { id: string; name: string; storagePath?: string; passwordProtected?: boolean }
 export interface AuditLogPage { entries: AuditEntry[]; truncated: boolean }
 export const projectResource = (projectId: string, resource = '') => 'projects/' + encodeURIComponent(projectId) + (resource ? '/' + resource : '');
-export interface DrawingsByIdResult { drawings: Drawing[]; missing: string[]; reviewTracker: ReviewTrackerData }
+export interface DrawingsByIdResult { assigneeNames?: Record<string,string>; drawings: Drawing[]; missing: string[]; reviewTracker: ReviewTrackerData }
 /** null when the server answered 304: nothing changed since the copy this client already holds. */
 export type IfChanged<T> = T | null;
 /** The server has no project with this id (404): it was deleted, or never reached the server. */
@@ -67,7 +67,8 @@ export function createProjectsApi(client: ApiClient) {
     loadDrawings: (projectId: string, ids: string[], _legacyPassword?: string | null, signal?: AbortSignal) => client.json<DrawingsByIdResult>(
       projectResource(projectId, 'drawings') + '?' + new URLSearchParams({ ids: ids.join(',') }),
       { cache: 'no-store', signal }),
-    saveDelta: (projectId: string, payload: DeltaPayload, signal?: AbortSignal) => client.json<SaveResult>(projectResource(projectId), { method: 'PATCH', json: payload, signal }),
+    deleteReviewer: (projectId: string, id: string) => client.json<{ok:boolean}>(projectResource(projectId, 'reviewers/' + encodeURIComponent(id)), {method:'DELETE'}),
+    saveDelta: (projectId: string, payload: DeltaPayload, signal?: AbortSignal) => client.json<SaveResult>(projectResource(projectId), { method: 'PATCH', json: payload, signal, deferAuthRedirect: Boolean(payload.saveRequestId) }),
     loadReviewTracker: async (projectId: string, signal?: AbortSignal): Promise<ReviewTrackerData> => JSON.parse((await trackerRead(projectId, true, signal)).text),
     async loadReviewTrackerIfChanged(projectId: string): Promise<IfChanged<ReviewTrackerData>> {
       const read = await trackerRead(projectId, false); return read.changed ? JSON.parse(read.text) : null;

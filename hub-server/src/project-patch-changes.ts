@@ -2,6 +2,7 @@ import { isDeepStrictEqual } from 'node:util';
 import type { DatabaseSync } from 'node:sqlite';
 import { readDrawing, DRAWING_COLUMNS } from './drawing-revision.ts';
 import { getProjectConfiguration, getReviewTracker } from './project-read.ts';
+import {projectRoster} from './project-membership.ts';
 
 const trackerValue = (value: any) => Object.fromEntries(Object.entries(value || {}).map(([id, info]: [string, any]) => [id, { done: info?.done === true || info?.done === 1, doneAt: info?.doneAt ?? null }]));
 // Only omit recognized values that are already stored. Unknown keys always
@@ -10,7 +11,7 @@ const trackerValue = (value: any) => Object.fromEntries(Object.entries(value || 
 export function changedProjectPatch(db: DatabaseSync, project: string, body: Record<string, any>) {
   const changed = { ...body };
   if (body.conf && typeof body.conf === 'object' && !Array.isArray(body.conf)) {
-    const current = getProjectConfiguration(db, project);
+    const current = {...getProjectConfiguration(db, project),reviewers:projectRoster(db,project)};
     const conf = Object.fromEntries(Object.entries(body.conf).filter(([key, value]) => !Object.hasOwn(current, key) || !isDeepStrictEqual(current[key as keyof typeof current], value)));
     if (Object.keys(conf).length) changed.conf = conf; else delete changed.conf;
     if (body.confBase && typeof body.confBase === 'object' && !Array.isArray(body.confBase)) {

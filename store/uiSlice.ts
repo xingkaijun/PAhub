@@ -12,7 +12,7 @@ export const createUiSlice: SliceCreator<UiSlice> = (set, get) => ({
   refreshSession: async () => {
     try {
       const status = await sessionApi.status();
-      set({ session: status });
+      set(state=>({session:status,saveStatuses:Object.fromEntries(Object.entries(state.saveStatuses).map(([id,value])=>[id,value.failure==='login' ? {...value,failure:'network',reason:'Session restored; retrying',retryAt:Date.now()}:value]))}));
       get().applySession(status.mode === 'kjx' ? Boolean(status.permissions?.includes('drawing.update')) : status.admin);
     } catch {
       // Offline: the server cannot vouch for the session, so clear cached kjx capabilities.

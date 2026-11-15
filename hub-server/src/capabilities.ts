@@ -2,12 +2,12 @@ import type { RequestUser } from './identity.ts';
 
 export const CAPABILITIES = {
   view: 'viewer', 'pcf.presence': 'viewer',
-  'pcf.comment.create': 'reviewer', 'pcf.comment.edit_own': 'reviewer',
+  'tracker.edit': 'reviewer', 'pcf.comment.create': 'reviewer', 'pcf.comment.edit_own': 'reviewer',
   'pcf.comment.status': 'reviewer', 'pcf.comment.meta': 'reviewer',
   'pcf.comment.edit_any': 'manager', 'pcf.document.write': 'manager', 'pcf.settings': 'manager',
   'drawing.update': 'manager', 'builder.export': 'manager', 'builder.import_reply': 'manager',
   'bulk.import': 'manager', 'bulk.command': 'manager', 'pcf.replace': 'manager',
-  'team.setup': 'admin', 'settings.write': 'admin', 'project.create': 'admin',
+  'project.settings': 'manager', 'team.setup': 'manager', 'settings.write': 'admin', 'project.create': 'manager',
   'project.delete': 'admin', 'drawing.void': 'admin', 'history.restore': 'admin',
   'cloud.sync': 'admin', 'admin.console': 'admin', 'admin.only': 'admin',
 } as const;

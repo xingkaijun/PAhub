@@ -10,6 +10,9 @@ import { setProjectPassword } from './project-password.ts';
 import { authorizeProjectPatch } from './project-patch-auth.ts';
 import { changedProjectPatch } from './project-patch-changes.ts';
 import type { RequestUser } from './identity.ts';
+import {saveReceiptKey,replaySave,recordSave} from './project-save-receipts.ts';
+import {auditTracker} from './tracker-auth.ts';
+import {requireProjectAccess,saveProjectRoster,projectRoster} from './project-membership.ts';
 
 export type RecordValue = Record<string, any>;
 export type Verification = { ok: boolean; checked: number; mismatched: { id: string; customId?: string; fields: string[] }[]; error?: string };
@@ -168,7 +171,11 @@ export class ProjectWriter {
     // Lock every touched drawing, then check revisions and write everything in
     // one SQLite transaction: a conflict on any drawing rolls back the batch.
     return this.storage.serialMany(projectId, [...deleted, ...updates.map(d => String(d.id))], () => transaction(db, 'project_patch', () => {
+      const receipt=user?saveReceiptKey(body):undefined;
+      const creating=!db.prepare('SELECT 1 FROM projects WHERE id=?').get(projectId);
       if (user) {
+        if(!creating) requireProjectAccess(db,projectId,user);
+        if(receipt){const replay=replaySave(db,projectId,user.id,receipt);if(replay)return replay;}
         body = changedProjectPatch(db,projectId,{...body,updatedDrawings:updates});
         updates = body.updatedDrawings || [];
         authorizeProjectPatch(db,projectId,body,user);
@@ -185,10 +192,17 @@ export class ProjectWriter {
       // configuration/deletions were drained before native drawing writes.
       let statements = 0;
       if (config) this.configuration(projectId,config.conf,false);
+      if(user && (creating || config && Object.hasOwn(config.conf,'reviewers'))) {
+        const roster = config?.conf.reviewers || [];
+        saveProjectRoster(db,projectId,creating ? [...roster.filter((person:any)=>person.id!==user.id),{id:user.id,name:user.name}] : roster);
+      }
+      if(user) this.realtime.recheckProject(projectId);
       const written: RecordValue[] = updates.map(drawing => writeDrawingLocked(this.storage,this.realtime,projectId,drawing));
-      if (body.reviewTracker && typeof body.reviewTracker === 'object') statements += writeTracker(db,projectId,body.reviewTracker,true,this.realtime);
+      if (body.reviewTracker && typeof body.reviewTracker === 'object') { statements += writeTracker(db,projectId,body.reviewTracker,!user,this.realtime); if(user)auditTracker(db,projectId,body.reviewTracker,user); }
       db.prepare("UPDATE projects SET last_updated=datetime('now') WHERE id=?").run(projectId); statements++;
-      return { success: true, mode: 'delta', statements, verification: verifyProjectWrite(db,projectId,written,body.reviewTracker || null), drawings: written.map(({ __expected, ...drawing }) => drawing), ...(config ? { conf: getProjectConfiguration(db,projectId) } : {}) };
+      const result = { success: true, mode: 'delta', statements, verification: verifyProjectWrite(db,projectId,written,body.reviewTracker || null), drawings: written.map(({ __expected, ...drawing }) => drawing), ...(config || user && creating ? { conf: user ? {...getProjectConfiguration(db,projectId),reviewers:projectRoster(db,projectId),passwordSet:false} : getProjectConfiguration(db,projectId) } : {}) };
+      if(user && receipt)recordSave(db,projectId,user.id,receipt,result);
+      return result;
     }));
   }
 }

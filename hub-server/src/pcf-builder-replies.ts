@@ -92,7 +92,7 @@ export class PcfBuilderReplies {
     if (!validUuid(setId)) throw Error('Invalid importSetId');
     return path.join(this.storage.dataDir, 'pcf', projectId, 'imports', setId);
   }
-  async preview(projectId: string, form: FormData) {
+  async preview(projectId: string, form: FormData, authorize = () => {}) {
     const files: Input[] = [], failures: any[] = [], evidence: Input[] = []; let uploadBytes = 0;
     for (const item of form.getAll('files')) {
       if (!(item instanceof File)) continue;
@@ -104,6 +104,7 @@ export class PcfBuilderReplies {
         catch (e: any) { failures.push({ fileName: item.name, category: 'unmatched', reason: e.message }); }
       } else if (item.name.toLowerCase().endsWith('.html')) files.push({ name: item.name, bytes });
     }
+    authorize();
     if (files.length + failures.length > MAX_FILES) throw Object.assign(Error('Upload exceeds configured 50 file limit'), { status: 413 });
     const setId = randomUUID(), root = this.dir(projectId, setId); mkdirSync(root, { recursive: true });
     const evidenceDir = path.join(root, 'evidence'); mkdirSync(evidenceDir, { recursive: true });
@@ -148,7 +149,7 @@ export class PcfBuilderReplies {
       return true;
     }).map((r: any) => ({ ...r, importSetId: x.name })); } catch { return []; } });
   }
-  async apply(projectId: string, setId: string, ids: string[], batchId: string) {
+  async apply(projectId: string, setId: string, ids: string[], batchId: string, authorize = () => {}) {
     const file = path.join(this.dir(projectId, setId), 'manifest.json'), manifest = JSON.parse(readFileSync(file, 'utf8'));
     if (manifest.projectId !== projectId || !Array.isArray(ids) || ids.length > MAX_FILES) throw Error('Invalid import set or file list');
     const results = [];
@@ -159,6 +160,7 @@ export class PcfBuilderReplies {
       const html = readFileSync(path.join(this.dir(projectId, setId), row.id + '.html'), 'utf8');
       try {
         await this.storage.serial(projectId, row.drawingId, () => {
+          authorize();
           const fresh = this.exchange.preview(projectId, row.drawingId, { html });
           if (fresh.repeated) throw Error('duplicate');
           if (fresh.conflicts.length) { row.category = 'conflict'; row.conflicts = fresh.conflicts.length; row.previewToken = fresh.previewToken; results.push({ id, category: 'conflict', conflicts: fresh.conflicts.length }); return; }

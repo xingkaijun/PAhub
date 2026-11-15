@@ -26,7 +26,7 @@ export const UnsavedChangesIndicator: React.FC = () => {
 
   const handleSave = async () => {
     if (activeProjectId && isEditMode) {
-      await saveProject(activeProjectId);
+      await saveProject(activeProjectId,{manual:true});
     }
   };
 

@@ -10,6 +10,7 @@ export class ApiError extends Error {
 
 export interface ApiRequestOptions extends Omit<RequestInit, 'body'> {
   json?: unknown;
+  deferAuthRedirect?: boolean;
   body?: BodyInit;
 }
 
@@ -38,7 +39,7 @@ export function createApiClient(config: ApiClientConfig = {}) {
     return new URL(resource, base).toString();
   };
   const request = async (resource: string, options: ApiRequestOptions = {}): Promise<Response> => {
-    const { json, body, headers: suppliedHeaders, ...init } = options;
+    const { json, body, deferAuthRedirect, headers: suppliedHeaders, ...init } = options;
     const headers = new Headers(suppliedHeaders);
     // With no token do not set Authorization: browsers retain their own Basic credentials.
     if (token) headers.set('Authorization', 'Bearer ' + token);
@@ -56,11 +57,16 @@ export function createApiClient(config: ApiClientConfig = {}) {
         message = typeof data.error === 'string' ? data.error : typeof data.message === 'string' ? data.message : '';
       } catch { /* Legacy APIs return text and reverse proxies may return HTML. */ }
       if (typeof window !== 'undefined') {
-        if (response.status === 401 && data?.login) {
+        if (response.status === 401 && data?.login && !deferAuthRedirect) {
           const login = new URL(data.login); login.searchParams.set('app', 'pahub');
           login.searchParams.set('path', window.location.pathname + window.location.search);
           window.location.assign(login.toString());
         } else if (response.status === 403 && data?.denied) window.location.assign(data.denied);
+        else if (response.status === 403 && data?.capability === 'project.member') {
+          const message='You no longer have access to this workspace. Ask to be added to Team Setup.';
+          window.dispatchEvent(new CustomEvent('pahub:auth-notice',{detail:message}));
+          window.dispatchEvent(new CustomEvent('pahub:project-access-denied'));
+        }
         else if (response.status === 403 && data?.error === 'forbidden') window.dispatchEvent(new CustomEvent('pahub:auth-notice', { detail: "You don't have permission to do this." }));
         else if (response.status === 503 && data?.error === 'auth_unavailable') window.dispatchEvent(new CustomEvent('pahub:auth-notice', { detail: 'Sign-in service is temporarily unavailable. Try again in a minute.' }));
       }

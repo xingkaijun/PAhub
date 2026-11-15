@@ -10,6 +10,7 @@ import { CommandBar } from './components/CommandBar';
 
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { UnsavedChangesIndicator } from './components/UnsavedChangesIndicator';
+import { SaveStatusBar } from './components/SaveStatusBar';
 import { AdminLoginDialog } from './components/AdminLoginDialog';
 import { IdentityMenu, AuthNotice } from './components/IdentityMenu';
 import {
@@ -63,7 +64,7 @@ const App: React.FC = () => {
   const fetchGlobalSettings = useStore(state => state.fetchGlobalSettings);
   const isEditMode = useStore(state => state.isEditMode);
   const session = useStore(state => state.session);
-  const canConfigure = useStore(state => state.can('settings.write'));
+  const canConfigure = useStore(state => state.session?.mode==='kjx' ? state.can('project.settings') : state.can('settings.write'));
   const refreshSession = useStore(state => state.refreshSession);
   const logoutAdmin = useStore(state => state.logoutAdmin);
   const hasUnsavedChanges = useStore(state => state.hasUnsavedChanges());
@@ -83,15 +84,15 @@ const App: React.FC = () => {
   const [resumeProjectId, setResumeProjectId] = useState<string>();
   const [startupReady, setStartupReady] = useState(false);
   const lobbyCards = useMemo(
-    () => toLobbyCards(data.projects.map(p => ({
+    () => toLobbyCards((session?.mode==='kjx' && !startupReady ? [] : data.projects).map(p => ({
       id: p.id,
       name: p.name,
       drawingCount: p.drawings?.length || 0,
       approvedCount: p.drawings?.filter(d => d.status === 'Approved').length || 0,
       lastUpdated: p.lastUpdated,
-      locked: !!(p.passwordProtected || p.conf?.passwordSet),
+      locked: session?.mode !== 'kjx' && !!(p.passwordProtected || p.conf?.passwordSet),
     }))),
-    [data.projects]
+    [data.projects,session?.mode,startupReady]
   );
   const lobbyVisible = showProjectSelector || lobbyLaunching;
   const [remoteUpdateCount, setRemoteUpdateCount] = useState(0);
@@ -139,24 +140,14 @@ const App: React.FC = () => {
   }): Promise<boolean> => {
     // Check for unsaved changes before switching projects
     const hasUnsaved = useStore.getState().hasUnsavedChanges();
-    if (hasUnsaved && activeProjectId && projectId !== activeProjectId) {
-      const confirmSwitch = window.confirm(
-        'You have unsaved changes in the current project. Switching projects will discard these changes.\n\nWould you like to save the current project first?\n\nClick "OK" to save and switch, or "Cancel" to switch without saving (changes will be lost).'
-      );
-
-      if (confirmSwitch) {
-        // Save current project first
-        const saved = await saveProject(activeProjectId);
-        if (!saved) {
-          alert('Save failed. Please try again or choose to switch without saving.');
-          return false;
-        }
-      } else {
-        // User chose to discard changes, confirm again
-        const confirmDiscard = window.confirm('Are you sure you want to discard unsaved changes? This action cannot be undone.');
-        if (!confirmDiscard) {
-          return false; // Cancel the switch
-        }
+    if(hasUnsaved && activeProjectId && projectId!==activeProjectId){
+      if(useStore.getState().session?.mode==='kjx'){
+        const saved=await saveProject(activeProjectId,{manual:true});
+        if(!saved || useStore.getState().hasUnsavedChanges()){alert('Switch blocked: current workspace has unsaved changes. Retry saving before switching.');return false;}
+      }else{
+        const confirmSwitch=window.confirm('You have unsaved changes in the current project. Switching projects will discard these changes.\n\nWould you like to save the current project first?\n\nClick "OK" to save and switch, or "Cancel" to switch without saving (changes will be lost).');
+        if(confirmSwitch){const saved=await saveProject(activeProjectId);if(!saved){alert('Save failed. Please try again or choose to switch without saving.');return false;}}
+        else if(!window.confirm('Are you sure you want to discard unsaved changes? This action cannot be undone.'))return false;
       }
     }
 
@@ -214,6 +205,11 @@ const App: React.FC = () => {
     return () => window.removeEventListener('pahub:project-locked', locked);
   }, [activeProjectId, lobbyVisible]);
 
+  useEffect(()=>{
+    const denied=()=>{setShowProjectSelector(true);setResumeProjectId(undefined);void useStore.getState().fetchProjectList();};
+    window.addEventListener('pahub:project-access-denied',denied);
+    return()=>window.removeEventListener('pahub:project-access-denied',denied);
+  },[]);
   const handleOfflineMode = () => {
     setShowProjectSelector(false);
   };
@@ -346,7 +342,7 @@ const App: React.FC = () => {
       source.addEventListener('presence', e => { try { event('presence', JSON.parse((e as MessageEvent).data)); } catch {} });
       source.addEventListener('drawing-changed', e => { try { event('drawing-changed', JSON.parse((e as MessageEvent).data)); } catch {} });
       source.onopen = () => { retryDelay = 1000; stopPoll(); fullRefresh(); };
-      source.onerror = () => { source?.close(); source = undefined; if (useStore.getState().session?.mode === 'kjx') void useStore.getState().refreshSession(); reconnect(); };
+      source.onerror = () => { source?.close(); source = undefined; if (useStore.getState().session?.mode === 'kjx') {void useStore.getState().refreshSession();void useStore.getState().fetchProjectList();} reconnect(); };
     }
     const onVisibility = () => {
       if (document.hidden) {
@@ -382,7 +378,7 @@ const App: React.FC = () => {
       addProject(name);
       const newProject = useStore.getState().data.projects.find(project => !beforeIds.has(project.id));
       if (!newProject) return;
-      const saved = await saveProject(newProject.id);
+      const saved = await saveProject(newProject.id,{manual:true});
       if (!saved) { alert('Workspace was not saved. Reload and try again.'); return; }
       await loadProject(newProject.id);
       setActiveProject(newProject.id);
@@ -675,6 +671,7 @@ const App: React.FC = () => {
 
       {/* Unsaved Changes Indicator */}
       <UnsavedChangesIndicator />
+      <SaveStatusBar />
     </div >
   );
 };

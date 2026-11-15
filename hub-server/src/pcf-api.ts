@@ -13,10 +13,12 @@ import { requestUser, KJX_ENFORCE_PROJECT_PASSWORD, type AuthMode } from './iden
 import { PCF_POLICIES, forbidden, requirePermission, permissionsFor, hasPermission } from './capabilities.ts';
 import { authorizeOps } from './pcf-op-auth.ts';
 import { auditContext } from './audit.ts';
+import {KJX_SAVE_STATUS} from './pcf-save-status.ts';
 import { KJX_PCF_ADAPTER } from './pcf-kjx-adapter.ts';
 import { kjxDiscipline } from './discipline-map.ts';
 import type { KjxDirectory } from './kjx-directory.ts';
 import { resolveInitiatorOps } from './pcf-initiator.ts';
+import { canAccessProject, membershipDenied } from './project-membership.ts';
 
 export class PcfApi {
   readonly realtime = new PcfRealtime();
@@ -57,6 +59,7 @@ export class PcfApi {
     const page = parts[0] === 'pcf';
     const p = safeId(parts[page ? 1 : 2]), d = parts[page ? 2 : 3], tail = parts.slice(page ? 3 : 4).join('/');
     if (this.kjx) {
+      if (!canAccessProject(this.storage.db,p,requestUser(request))) return membershipDenied();
       const policy = PCF_POLICIES.find(policy => policy.method === request.method && policy.pattern!.test(url.pathname));
       if (!policy) return forbidden('route.unregistered');
       const denied = requirePermission(requestUser(request),policy.capability); if (denied) return denied;
@@ -109,12 +112,17 @@ export class PcfApi {
         return new Response(html, { status: 401, headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'Referrer-Policy': 'no-referrer' } });
       }
       return this.storage.serial(p, d, () => {
+        if(this.kjx && !canAccessProject(this.storage.db,p,requestUser(request))) return membershipDenied();
         this.storage.create(p, d, { clientId: 'page-create', clientName: '', ip });
         const { data, rev } = this.storage.load(p, d), grant = this.grant(p, d, requestUser(request)?.id);
-        const version = TEMPLATE_VERSION, html = renderTemplate(data);
+        const version = TEMPLATE_VERSION;
+        let html = renderTemplate(data);
+        // Hosted-only recovery hook runs before the template starts IndexedDB
+        // restoration; changing it at DOMContentLoaded would be too late.
+        if(this.kjx)html=html.replace('async function hubRestore(){', 'async function hubRestore(){ if(window.pahubPendingIsRejected?.(state.documentId)){try{await window.pahubRemoveRejectedPending(state.documentId);}catch{hubBlocked=true;}return;}');
         const replySet = url.searchParams.get('builderReplySet'), replyFile = url.searchParams.get('builderReplyFile');
         const handoff = replySet && replyFile ? '<script id="pahub-builder-reply-handoff">document.addEventListener("DOMContentLoaded",async()=>{const nativeFetch=window.fetch.bind(window);window.fetch=async(...args)=>{const init=args[1]||{},response=await nativeFetch(...args);try{if(String(args[0]).includes("/imports")&&init.method==="POST"&&JSON.parse(init.body).step==="apply"&&response.ok)window.opener?.postMessage({type:"builder-reply-applied",fileId:' + scriptJSON(replyFile) + '},location.origin);}catch{}return response;};try{const input=document.getElementById("pahub-import-file");if(!input)return;const url="/api/projects/"+' + scriptJSON(encodeURIComponent(p)) + '+"/builder-replies/"+' + scriptJSON(encodeURIComponent(replySet)) + '+"/file/"+' + scriptJSON(encodeURIComponent(replyFile)) + ';const response=await nativeFetch(url,{headers:{"X-PCF-Token":window.PAHUB.credential}});if(!response.ok)throw Error("Unable to load saved Builder reply ("+response.status+")");const blob=await response.blob(),file=new File([blob],"builder-reply.html",{type:"text/html"}),transfer=new DataTransfer();transfer.items.add(file);input.files=transfer.files;input.dispatchEvent(new Event("change",{bubbles:true}));}catch(error){alert(error.message);}});</script>' : '';
-        const injection = '<script id="pahub-context">window.PAHUB=' + scriptJSON({ projectId: p, drawingId: d, rev, apiBase: '/api', credential: grant, admin: this.kjx ? hasPermission(requestUser(request),'pcf.replace') : !this.requiresAdmin(request), templateVersion: version, currentTemplateVersion: TEMPLATE_VERSION, ...(this.kjx ? { mode: 'kjx', user: requestUser(request), permissions: permissionsFor(requestUser(request)!) } : {}) }) + '</script>' + handoff + (this.kjx ? KJX_PCF_ADAPTER : '');
+        const injection = '<script id="pahub-context">window.PAHUB=' + scriptJSON({ projectId: p, drawingId: d, rev, apiBase: '/api', credential: grant, admin: this.kjx ? hasPermission(requestUser(request),'pcf.replace') : !this.requiresAdmin(request), templateVersion: version, currentTemplateVersion: TEMPLATE_VERSION, ...(this.kjx ? { mode: 'kjx', user: requestUser(request), permissions: permissionsFor(requestUser(request)!) } : {}) }) + '</script>' + handoff + (this.kjx ? KJX_PCF_ADAPTER + KJX_SAVE_STATUS : '');
         if (!/<\/head\s*>/i.test(html)) fail('Template missing head', 500);
         return new Response(bannerToolbarHTML(commentFocusHTML(html.replace(/<\/head\s*>/i, injection + '</head>'))), { headers: { 'Content-Type': 'text/html; charset=utf-8', 'Cache-Control': 'no-store', 'X-Content-Type-Options': 'nosniff', 'Referrer-Policy': 'no-referrer' } });
       });
@@ -151,11 +159,13 @@ export class PcfApi {
       if (tail === 'ops') safeId(body.clientId);
     }
     return this.storage.serial(p, d, async () => {
+      if(this.kjx && !canAccessProject(this.storage.db,p,requestUser(request))) return membershipDenied();
       switch (request.method + ' ' + tail) {
         case 'GET initiators': {
           if (!this.kjx) fail('Not found', 404);
           this.storage.load(p, d);
           const result = await this.auth.directory?.list();
+          if(!canAccessProject(this.storage.db,p,requestUser(request))) return membershipDenied();
           return json(result?.ok ? { ok: true, users: result.users.map(({id,name}) => ({id,name})) } : { ok: false, fallback: true });
         }
         case 'GET meta': return json(this.storage.meta(p, d));
@@ -177,6 +187,7 @@ export class PcfApi {
           }
           const user = this.kjx ? requestUser(request) : undefined;
           const initiators = user && Array.isArray(body.ops) ? await resolveInitiatorOps(this.storage.db, this.auth.directory, p, user, body.ops) : undefined;
+          if(user && !canAccessProject(this.storage.db,p,user)) return membershipDenied();
           const requestActor = user ? { sub: user.id, name: user.name, ...(initiators ? { initiators } : {}) } : undefined;
           const actor = this.actor(body, ip), outcome = this.storage.opsBatch(p, d, body, actor, requestActor);
           if (!outcome.replayed && outcome.result.applied.length) this.realtime.changed(p + '/' + d, outcome.result, actor);

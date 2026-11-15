@@ -17,6 +17,7 @@ try {
  hub=await createHub({host:'127.0.0.1',verifier:createKjxVerifier({jwksUrl:'http://kjx.test',issuer:'https://auth.kjxing.com',audience:'pahub',fetch:signer.fetch}),directory:{clientId:'test-client',clientSecret:randomBytes(24).toString('hex'),internalUrl:'http://directory.test',warn:()=>{},fetch:async(url)=>String(url).endsWith('/oauth/token')?Response.json({access_token:randomBytes(24).toString('hex'),expires_in:600}):Response.json([{id:'other',username:'other',name:'Other Reviewer',title:null,disciplines:['HULL'],role:'reviewer',active:true}])}});
  const P='proj-test-001',D='dwg-001',base='/api/pcf/'+P+'/'+D,origin='http://127.0.0.1:'+hub.port;hub.router.options.identity.publicOrigin=origin;
  hub.db.exec(await readFile('hub-server/test/fixtures/seed-test-data.sql','utf8'));hub.db.prepare('UPDATE drawings SET discipline=? WHERE id=?').run('Hull',D);
+ for(const id of ['reviewer','manager']){hub.db.prepare('INSERT INTO reviewers VALUES(?,?)').run(id,'Logged '+id);hub.db.prepare('INSERT INTO project_team_reviewers VALUES(?,?)').run(P,id);}
  browser=await chromium.launch({headless:true,channel:process.env.PAHUB_BROWSER_CHANNEL||'chromium'});
  const contexts={};for(const role of ['reviewer','manager','admin'])contexts[role]=await browser.newContext({acceptDownloads:true,permissions:['clipboard-read','clipboard-write'],extraHTTPHeaders:{'X-Auth-Token':signer.signUser('pahub',{sub:role,username:role,name:'Logged '+role,role})}});
  const errors=[];
@@ -29,6 +30,10 @@ try {
  assert.equal(hub.pcf.storage.load(P,D).data.comments[0].rounds[0].initiatorId,'reviewer');
  const manager=await contexts.manager.newPage();manager.on('pageerror',e=>errors.push(e.message));
  await manager.goto(origin+'/pcf/'+P+'/'+D);await manager.locator('[data-kjx-initiator] option[value="other"]').waitFor({state:'attached'});
+ // Opening another author's round must display that author, never the viewer.
+ assert.equal(await manager.locator('[data-kjx-initiator]').inputValue(),'reviewer');
+ assert.equal(await manager.locator('[data-kjx-initiator] option:checked').innerText(),'Logged reviewer');
+ assert.equal(hub.pcf.storage.load(P,D).data.comments[0].rounds[0].initiatorId,'reviewer');
  await manager.locator('[data-kjx-initiator]').selectOption('other');await manager.locator('#save-btn').click();await manager.waitForFunction(()=>document.querySelector('#save-state').textContent.includes('Saved'));
  assert.equal(hub.pcf.storage.load(P,D).data.comments[0].rounds[0].initiatorId,'other');
  assert.equal(hub.pcf.storage.load(P,D).data.comments[0].rounds[0].initiator,'Other Reviewer');
@@ -55,6 +60,9 @@ try {
  await manager.reload();await manager.waitForFunction(()=>document.querySelector('[data-kjx-initiator]')?.options.length===2);
  assert.equal(await manager.locator('[data-kjx-initiator] option:not(:disabled)').count(),1);
  assert.equal(await manager.locator('[data-kjx-initiator] option:not(:disabled)').getAttribute('value'),'manager');
+ assert.equal(await manager.locator('[data-kjx-initiator]').inputValue(),'');
+ assert.equal(await manager.locator('[data-kjx-initiator] option:checked').innerText(),'Other Reviewer');
+ assert.equal(hub.pcf.storage.load(P,D).data.comments[0].rounds[0].initiatorId,'other');
  await contexts.admin.route('**/api/team/directory*',route=>route.fulfill({status:200,contentType:'application/json',body:JSON.stringify({ok:false,fallback:true})}));
  await admin.getByRole('button',{name:'Team Setup',exact:true}).click();
  await admin.getByLabel('Select Hull reviewer manually').fill('Manual Person');
