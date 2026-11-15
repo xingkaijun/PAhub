@@ -14,6 +14,7 @@ export function authorizeProjectPatch(db: DatabaseSync, project: string, body: R
   if (!existingProject) require('project.create');
   for (const [key, value] of Object.entries(body)) {
     switch (key) {
+      case 'saveRequestId': break;
       case 'projectName':
         // Every browser delta carries this unchanged label; PATCH never renames an existing project.
         if (existingProject && value !== existingProject.name) require('settings.write');

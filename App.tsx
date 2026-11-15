@@ -10,6 +10,7 @@ import { CommandBar } from './components/CommandBar';
 
 import { ErrorBoundary } from './components/ErrorBoundary';
 import { UnsavedChangesIndicator } from './components/UnsavedChangesIndicator';
+import { SaveStatusBar } from './components/SaveStatusBar';
 import { AdminLoginDialog } from './components/AdminLoginDialog';
 import { IdentityMenu, AuthNotice } from './components/IdentityMenu';
 import {
@@ -139,24 +140,14 @@ const App: React.FC = () => {
   }): Promise<boolean> => {
     // Check for unsaved changes before switching projects
     const hasUnsaved = useStore.getState().hasUnsavedChanges();
-    if (hasUnsaved && activeProjectId && projectId !== activeProjectId) {
-      const confirmSwitch = window.confirm(
-        'You have unsaved changes in the current project. Switching projects will discard these changes.\n\nWould you like to save the current project first?\n\nClick "OK" to save and switch, or "Cancel" to switch without saving (changes will be lost).'
-      );
-
-      if (confirmSwitch) {
-        // Save current project first
-        const saved = await saveProject(activeProjectId);
-        if (!saved) {
-          alert('Save failed. Please try again or choose to switch without saving.');
-          return false;
-        }
-      } else {
-        // User chose to discard changes, confirm again
-        const confirmDiscard = window.confirm('Are you sure you want to discard unsaved changes? This action cannot be undone.');
-        if (!confirmDiscard) {
-          return false; // Cancel the switch
-        }
+    if(hasUnsaved && activeProjectId && projectId!==activeProjectId){
+      if(useStore.getState().session?.mode==='kjx'){
+        const saved=await saveProject(activeProjectId,{manual:true});
+        if(!saved || useStore.getState().hasUnsavedChanges()){alert('Switch blocked: current workspace has unsaved changes. Retry saving before switching.');return false;}
+      }else{
+        const confirmSwitch=window.confirm('You have unsaved changes in the current project. Switching projects will discard these changes.\n\nWould you like to save the current project first?\n\nClick "OK" to save and switch, or "Cancel" to switch without saving (changes will be lost).');
+        if(confirmSwitch){const saved=await saveProject(activeProjectId);if(!saved){alert('Save failed. Please try again or choose to switch without saving.');return false;}}
+        else if(!window.confirm('Are you sure you want to discard unsaved changes? This action cannot be undone.'))return false;
       }
     }
 
@@ -387,7 +378,7 @@ const App: React.FC = () => {
       addProject(name);
       const newProject = useStore.getState().data.projects.find(project => !beforeIds.has(project.id));
       if (!newProject) return;
-      const saved = await saveProject(newProject.id);
+      const saved = await saveProject(newProject.id,{manual:true});
       if (!saved) { alert('Workspace was not saved. Reload and try again.'); return; }
       await loadProject(newProject.id);
       setActiveProject(newProject.id);
@@ -680,6 +671,7 @@ const App: React.FC = () => {
 
       {/* Unsaved Changes Indicator */}
       <UnsavedChangesIndicator />
+      <SaveStatusBar />
     </div >
   );
 };

@@ -1,3 +1,4 @@
+import type {SaveStatus,RetryOptions} from '../lib/save-control';
 import type { StateCreator } from 'zustand';
 import type { SessionStatus } from '../services/api/sessionApi';
 import type { AppData, Project, Drawing, AppSettings, ProjectConfig, ReviewTrackerData, AuditEntry } from '../types';
@@ -11,6 +12,9 @@ export interface AuditLogResult {
 }
 export interface ProjectSlice {
   data: AppData;
+  saveStatuses: Record<string,SaveStatus>;
+  pendingSaves: Record<string,any>;
+  saveProjectAttempt: (projectId:string)=>Promise<boolean>;
   /** Local recovery copies are not selectable workspaces and are never submitted without renewed access. */
   membershipRecovery: Record<string, { project: Project; tracker: ReviewTrackerData }>;
   isLoading: boolean;
@@ -34,7 +38,7 @@ export interface ProjectSlice {
   resetAllAssignees: () => void;
   bulkImportDrawings: (drawings: Drawing[]) => void;
   saveActiveProject: (password: string) => Promise<boolean>;
-  saveProject: (projectId: string) => Promise<boolean>;
+  saveProject: (projectId: string, options?: RetryOptions) => Promise<boolean>;
   fetchGlobalSettings: () => Promise<void>;
   fetchProjectList: () => Promise<void>;
   loadProject: (projectId: string, _legacyPassword?: string, signal?: AbortSignal) => Promise<void>;

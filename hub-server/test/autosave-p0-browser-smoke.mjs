@@ -1,0 +1,43 @@
+import assert from 'node:assert/strict';
+import {mkdtemp,readFile,rm,mkdir} from 'node:fs/promises';
+import {tmpdir} from 'node:os';
+import path from 'node:path';
+import {chromium} from '@playwright/test';
+import {createHub} from '../dist/app.mjs';
+import {createKjxTestSigner,createKjxVerifier} from '../src/kjx-auth-client.ts';
+const keys=['PORT','AUTH_MODE','PAHUB_DATA_DIR','PAPC_DB_PATH','API_TOKEN','ADMIN_PASSWORD','PAHUB_BASIC_AUTH','PCF_GRANT_SECRET'];const prior=Object.fromEntries(keys.map(key=>[key,process.env[key]]));
+const dir=await mkdtemp(path.join(tmpdir(),'autosave-p0-browser-'));let hub,browser;
+try{
+ Object.assign(process.env,{PORT:'0',AUTH_MODE:'kjx',PAHUB_DATA_DIR:dir,PAPC_DB_PATH:path.join(dir,'papc.db'),API_TOKEN:'',ADMIN_PASSWORD:'',PAHUB_BASIC_AUTH:''});delete process.env.PCF_GRANT_SECRET;
+ const signer=createKjxTestSigner();hub=await createHub({host:'127.0.0.1',verifier:createKjxVerifier({jwksUrl:'http://test',issuer:'https://auth.kjxing.com',audience:'pahub',fetch:signer.fetch})});
+ const P='proj-test-001',D='dwg-001',origin='http://127.0.0.1:'+hub.port;hub.router.options.identity.publicOrigin=origin;
+ hub.db.exec(await readFile('hub-server/test/fixtures/seed-test-data.sql','utf8'));hub.db.prepare('INSERT INTO projects(id,name) VALUES(?,?)').run('other','Other Workspace');
+ for(const p of [P,'other'])hub.db.prepare('INSERT INTO project_team_reviewers VALUES(?,?)').run(p,'manager');
+ browser=await chromium.launch({headless:true,channel:process.env.PAHUB_BROWSER_CHANNEL||'chromium'});const context=await browser.newContext({viewport:{width:1440,height:1000},extraHTTPHeaders:{'X-Auth-Token':signer.signUser('pahub',{sub:'manager',username:'manager',name:'Manager',role:'manager'})}});
+ const page=await context.newPage();page.on('dialog',dialog=>dialog.dismiss());const errors=[];page.on('pageerror',error=>errors.push(error.message));
+ await page.goto(origin+'/?project='+P);await page.locator('[data-drawing-list-root]').waitFor();await page.locator('button[title="Configuration"]').click();await page.getByPlaceholder('CUSTOM DISPLAY TITLE').waitFor();
+ let mode='fail',calls=0;const sent=[];
+ await page.route('**/api/projects/'+P,async route=>{if(route.request().method()!=='PATCH'){await route.continue();return;}calls++;sent.push(route.request().postDataJSON());if(mode==='ok'){await route.continue();return;}await route.fulfill({status:mode==='large'?413:503,contentType:'application/json',body:JSON.stringify({error:mode==='large'?'too large':'temporary server failure'})});});
+ const input=page.getByPlaceholder('CUSTOM DISPLAY TITLE');await input.fill('Keep pending');const bar=page.getByTestId('save-status-bar');await page.waitForFunction(()=>document.querySelector('[data-testid="save-status-bar"]')?.textContent.includes('Pending sync'));
+ await mkdir('hub-server/test/artifacts',{recursive:true});await bar.screenshot({path:'hub-server/test/artifacts/autosave-p0-pending.png'});
+ await page.waitForFunction(()=>document.querySelector('[data-testid="save-status-bar"]')?.textContent.includes('Save failed'));
+ assert.match(await bar.innerText(),/Retry in/);await bar.screenshot({path:'hub-server/test/artifacts/autosave-p0-failed.png'});
+ await page.waitForFunction(()=>JSON.parse(localStorage.getItem('pahub-storage')).state.saveStatuses['proj-test-001'].attempts>=2);
+ assert.deepEqual(sent[0],sent[1]);
+ mode='ok';await bar.getByRole('button',{name:'Retry now'}).click();await page.waitForFunction(()=>document.querySelector('[data-testid="save-status-bar"]')?.textContent.includes('Saved ·'));
+ await bar.screenshot({path:'hub-server/test/artifacts/autosave-p0-saved.png'});
+ assert.equal(hub.db.prepare('SELECT setting_value FROM project_settings WHERE project_id=? AND setting_key=?').get(P,'displayName').setting_value,'Keep pending');
+ mode='large';await input.fill('Oversize blocked');await page.waitForFunction(()=>document.querySelector('[data-testid="save-status-bar"]')?.textContent.includes('Data is too large'));
+ const before=calls;await page.waitForTimeout(7000);assert.equal(calls,before);assert.equal(await bar.getByRole('button',{name:'Retry now'}).isDisabled(),true);
+ await page.locator('header button').filter({hasText:'PG-VLEC-H2684'}).click();await page.getByRole('button',{name:/Other Workspace/}).click();
+ await page.waitForTimeout(500);const held=await page.evaluate(()=>JSON.parse(localStorage.getItem('pahub-storage')).state);assert.equal(held.activeProjectId,'proj-test-001');assert.equal(held._dirtyConf,true);assert.equal(held.data.projects.find(project=>project.id==='proj-test-001').conf.displayName,'Oversize blocked');assert.equal(calls,before);
+ // Direct PCF member-403 clears IndexedDB before the adapter sends the user home.
+ const pcf=await context.newPage();pcf.on('pageerror',error=>errors.push(error.message));await pcf.goto(origin+'/pcf/'+P+'/'+D);await pcf.locator('#pahub-save-status').waitFor();
+ await pcf.locator('#add-btn').click();await pcf.locator('.editor[data-side="owner"]').first().fill('Rejected queued comment');
+ const documentId=await pcf.evaluate(()=>state.documentId);
+ await pcf.route('**/ops',route=>route.fulfill({status:403,contentType:'application/json',body:JSON.stringify({ok:false,error:'forbidden',capability:'project.member'})}));
+ await pcf.locator('#save-btn').click();await pcf.waitForURL(origin+'/');
+ const retained=await pcf.evaluate(id=>new Promise((resolve,reject)=>{const request=indexedDB.open('pahub-pcf-offline',1);request.onsuccess=()=>{const db=request.result;const get=db.transaction('documents').objectStore('documents').get(id);get.onsuccess=()=>{resolve(get.result);db.close();};get.onerror=()=>reject(get.error);};request.onerror=()=>reject(request.error);}),documentId);
+ assert.equal(retained,undefined);
+ assert.deepEqual(errors,[]);console.log('autosave P0 browser: pending/failure/saved states, backoff retry identity, 413 stop and PCF member-403 cleanup PASS');
+}finally{await browser?.close();await hub?.close();await rm(dir,{recursive:true,force:true});for(const[key,value]of Object.entries(prior))if(value===undefined)delete process.env[key];else process.env[key]=value;}

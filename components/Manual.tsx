@@ -167,6 +167,7 @@ export const Manual: React.FC = () => {
           </a>
         </div>
       </div>
+      {kjx && <p className="shrink-0 px-4 py-2 text-xs text-teal-800 bg-teal-50">{language==='zh' ? '保存状态显示待同步项、保存中、上次成功时间或持续失败原因；临时错误退避重试，登录／权限／数据过大需处理。未同步修改保存失败时会阻止切换项目。' : 'Save status shows pending, saving, saved time or a persistent failure. Temporary failures retry with backoff; sign-in, permission and oversized-data errors require attention. A workspace switch is blocked until pending changes are saved.'}</p>}
       {language === 'zh'
         ? <iframe data-testid="manual-frame" title="PAhub 中文操作手册" src="/manual/" className="flex-1 w-full min-h-[480px] border-0 bg-white" />
         : kjx ? <KjxManual /> : <EnglishGuide />}

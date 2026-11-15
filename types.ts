@@ -152,6 +152,7 @@ export interface ConfigConflict {
 }
 
 export interface DeltaPayload {
+  saveRequestId?: string;
   projectName?: string;
   updatedDrawings?: (Drawing | DrawingPatch)[];
   deletedDrawingIds?: string[];

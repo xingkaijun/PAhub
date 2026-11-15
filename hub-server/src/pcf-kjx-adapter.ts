@@ -8,9 +8,10 @@ export const KJX_PCF_ADAPTER = `<script id="pahub-kjx-permissions">
   const response=await nativeFetch(...args);
   if([401,403,503].includes(response.status))try{
    const body=await response.clone().json();
-   if(response.status===401&&body.login){const login=new URL(body.login);login.searchParams.set('app','pahub');login.searchParams.set('path',location.pathname+location.search);location.assign(login.toString());}
+   if(response.status===401&&body.login&&String(args[0]).endsWith('/ops'))notice('Sign in again to continue saving');
+   else if(response.status===401&&body.login){const login=new URL(body.login);login.searchParams.set('app','pahub');login.searchParams.set('path',location.pathname+location.search);location.assign(login.toString());}
    else if(response.status===403&&body.denied)location.assign(body.denied);
-   else if(response.status===403&&body.capability==='project.member'){notice('You no longer have access to this workspace. Ask to be added to Team Setup.');setTimeout(()=>location.assign('/'),1000);}
+   else if(response.status===403&&body.capability==='project.member'){if(window.pahubRejectPendingSave)await window.pahubRejectPendingSave(true);notice('You no longer have access to this workspace. Unsynced changes were rejected. Ask to be added to Team Setup.');setTimeout(()=>location.assign('/'),1000);}
    else if(response.status===403&&body.error==='forbidden'){notice("You don't have permission to do this.");if(String(args[0]).endsWith('/ops')){Object.assign(state,structuredClone(hubBase));hubQueue=[];hubDirty.clear();hubBlocked=false;hubConflictItems=[];savedRevision=editRevision;await hubPersist();render();}}
    else if(response.status===503&&body.error==='auth_unavailable')notice('Sign-in service is temporarily unavailable. Try again in a minute.');
   }catch{}
