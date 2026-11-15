@@ -37,6 +37,31 @@ test('new rounds use the request identity and ignore submitted ids', () => {
   assert.equal(r3.initiatorId, user.sub); assert.equal(r3.initiator, user.name); assert.equal(r3.responderId, undefined);
 });
 
+test('comment closure records the verified closer, preserves no-op attribution and clears on reopen', () => {
+  const data = fixture(); apply(data, [{ type: 'comment.add', id: 'c1', roundIdNew: 'r1' }]);
+  const status = (value: string, baseRev: number, extras = {}) => ({ type: 'comment.status', commentId: 'c1', value, baseRev, ...extras });
+  apply(data, [status('closed', 0, { closedBy: 'Forged', closedById: 'forged' })], user, 3);
+  const c = data.comments[0]; assert.equal(c.closedBy, user.name); assert.equal(c.closedById, user.sub);
+  const next = { sub: 'user-2', name: 'User Two' };
+  const same = apply(data, [status('closed', 3)], next, 4);
+  assert.equal(same.applied.length, 0); assert.equal(c.closedBy, user.name);
+  const stale = apply(data, [status('open', 0)], next, 4);
+  assert.equal(stale.conflicts.length, 1); assert.equal(c.closedById, user.sub);
+  const exported = parseHTML(standaloneHTML(externalData(data))); validateJSON(exported);
+  assert.equal(exported.comments[0].closedBy, user.name); assert.equal(exported.comments[0].closedById, user.sub);
+  apply(data, [status('open', 3)], next, 4);
+  assert.equal(Object.hasOwn(c, 'closedBy'), false); assert.equal(Object.hasOwn(c, 'closedById'), false);
+  apply(data, [status('closed', 4)], next, 5); assert.equal(c.closedBy, next.name); assert.equal(c.closedById, next.sub);
+  const invalid = structuredClone(exported); invalid.comments[0].closedBy = {};
+  assert.throws(() => validateJSON(invalid), /closedBy: expected text/);
+});
+
+test('legacy closure uses the editor nickname, not a submitted closer identity', () => {
+  const data = fixture(); applyOps(data, [{ type: 'comment.add', id: 'c1', roundIdNew: 'r1' }], client, 2);
+  applyOps(data, [{ type: 'comment.status', commentId: 'c1', value: 'closed', baseRev: 0, closedBy: 'Forged', closedById: 'forged' }], client, 3);
+  assert.equal(data.comments[0].closedBy, client.clientName); assert.equal(data.comments[0].closedById, undefined);
+});
+
 test('legacy creation keeps previous names and does not create identity fields', () => {
   const data = fixture();
   applyOps(data, [{ type: 'comment.add', id: 'c1', roundIdNew: 'r1' }], client, 2);

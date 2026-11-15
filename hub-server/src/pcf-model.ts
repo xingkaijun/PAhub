@@ -194,8 +194,20 @@ export function applyOps(d: PcfData, ops: Op[], actor: Actor, rev: number, reque
       }
       case 'content.set':
         if (!['owner', 'reply'].includes(op.side)) fail('Invalid side'); r[op.side] = cleanContent(op.value); r[op.side + 'Rev'] = rev; break;
-      case 'comment.status':
-        if (!['open', 'closed'].includes(op.value)) fail('Invalid status'); c.status = op.value; c.statusRev = rev; break;
+      case 'comment.status': {
+        if (!['open', 'closed'].includes(op.value)) fail('Invalid status');
+        if (c.status === op.value) continue;
+        c.status = op.value; c.statusRev = rev;
+        if (op.value === 'closed') {
+          const closer = requestActor ? requestActor.name : (actor.clientName.trim().slice(0, 100) || 'Editor-' + actor.clientId.slice(0, 4));
+          if (closer) c.closedBy = closer; else delete c.closedBy;
+          if (requestActor?.sub) c.closedById = requestActor.sub; else delete c.closedById;
+        } else {
+          delete c.closedBy;
+          delete c.closedById;
+        }
+        break;
+      }
       case 'comment.meta':
         if (!op.value || Object.keys(op.value).some(k => !['page', 'tags'].includes(k))) fail('Invalid comment field');
         if (op.value.page !== undefined) c.page = String(op.value.page);

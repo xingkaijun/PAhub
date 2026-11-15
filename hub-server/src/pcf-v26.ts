@@ -116,7 +116,7 @@ export function validateJSON(data: PcfData){
     obj(c,path);id(c.id,path+'.id');integer(c.number,path+'.number');str(c.page,path+'.page');
     if(!['open','closed'].includes(c.status))fail(path+'.status','expected open or closed');
     arr(c.tags,path+'.tags');c.tags.forEach((t: string,i: number)=>str(t,path+'.tags['+i+']'));arr(c.rounds,path+'.rounds');
-    optionalText(c,['createdAt','updatedAt'],path);const nums=new Set();
+    optionalText(c,['createdAt','updatedAt','closedBy','closedById'],path);const nums=new Set();
     for(const [i,r]of c.rounds.entries()){round(r,path+'.rounds['+i+']');if(nums.has(r.number))fail(path+'.rounds','duplicate round number');nums.add(r.number);}
     parents.set(c.id,c);roundNumbers.set(c.id,nums);
   }
