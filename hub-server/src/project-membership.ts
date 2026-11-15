@@ -52,3 +52,9 @@ export function saveProjectRoster(db: DatabaseSync, project: string, reviewers: 
   }
   writeAudit(db,{table:'project_team_reviewers',projectId:project,action:'TEAM_SETUP',detail:{before,after:reviewers.map(person=>person.id)}});
 }
+
+// Resolve only IDs assigned inside this already-authorized project. No directory
+// permission or upstream call is needed for read-only display snapshots.
+export function projectAssigneeNames(db: DatabaseSync, project: string): Record<string,string> {
+ return Object.fromEntries(db.prepare(`SELECT DISTINCT a.reviewer_id AS id,COALESCE(NULLIF(r.display_name,''),u.name) AS name FROM drawing_assignees a JOIN drawings d ON d.id=a.drawing_id LEFT JOIN reviewers r ON r.id=a.reviewer_id LEFT JOIN kjx_users u ON u.id=a.reviewer_id WHERE d.project_id=? AND COALESCE(d._deleted,0)=0`).all(project).filter(row=>row.name).map(row=>[String(row.id),String(row.name)]));
+}

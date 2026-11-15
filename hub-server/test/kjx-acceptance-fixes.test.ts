@@ -35,7 +35,7 @@ function storeFixture(mode:'kjx'|'legacy'='kjx') {
 
 test('T7 D1: viewer controls are capability-gated and PCF gates use actual IDs',async()=>{
  const row=await readFile('components/DrawingRow.tsx','utf8');
- assert.match(row,/!canWrite \? drawing\.status/);assert.match(row,/!kjx \|\| canDelete/);
+ assert.match(row,/StatusBadge readOnly=\{!canWrite\}/);assert.match(row,/!kjx \|\| canDelete/);
  assert.match(KJX_PCF_ADAPTER,/'add-btn':'pcf.comment.create'/);assert.match(KJX_PCF_ADAPTER,/'save-btn':'pcf.comment.create'/);assert.match(KJX_PCF_ADAPTER,/display:none!important/);
 });
 
@@ -50,7 +50,7 @@ test('T7 D2: manager no-op tracker/config fields are omitted, real tracker chang
   for(const tracker of [{[D]:{unassigned:{done:true,doneAt:null}}},{[D]:{A:{done:true,doneAt:null,unknown:'x'}}}]){
    const response=await f.request('/api/projects/'+P,'manager',{updatedDrawings:[{id:D,changes:{title:'Must not land'}}],reviewTracker:tracker});assert.equal(response.status,tracker[D].unassigned?403:400);assert.deepEqual(f.hub.db.prepare('SELECT title FROM drawings WHERE id=?').get(D),before);
   }
-  assert.equal((await f.request('/api/projects/'+P,'manager',{conf:{holidays:['2030-01-01']}})).status,403);
+  assert.equal((await f.request('/api/projects/'+P,'manager',{conf:{password:'unauthorized-change'}})).status,403);
  }finally{await f.close();}
 });
 
@@ -59,8 +59,8 @@ test('T7 D2: assignee edit does not dirty tracker in kjx and denied saves provid
  projectsApi.saveDelta=async(_id,body)=>{calls++;payload=body;return {success:true} as any;};
  try{
   store.getState().updateDrawing('d',{assignees:['A']});assert.equal(store.getState()._dirtyTracker,false);await store.getState().saveProject('p');assert.equal(payload.reviewTracker,undefined);
-  store.getState().updateDrawing('d',{title:'Denied'});projectsApi.saveDelta=async()=>{calls++;throw new ApiError('forbidden',403);};assert.equal(await store.getState().saveProject('p'),false);assert.equal(store.getState().projectNotice?.requiresReload,true);assert.match(store.getState().error!,/Reload/);
-  const count=calls;assert.equal(await store.getState().saveProject('p'),false);assert.equal(calls,count);
+  store.getState().updateDrawing('d',{title:'Denied'});projectsApi.saveDelta=async()=>{calls++;throw new ApiError('forbidden',403);};assert.equal(await store.getState().saveProject('p'),false);assert.equal(store.getState().hasUnsavedChanges(),false);assert.match(store.getState().error!,/permission/);assert.notEqual(store.getState().data.projects[0].drawings[0].title,'Denied');
+  const count=calls;assert.equal(await store.getState().saveProject('p'),true);assert.equal(calls,count);
   const legacy=storeFixture('legacy');legacy.getState().updateDrawing('d',{assignees:['A']});assert.equal(legacy.getState()._dirtyTracker,true);
  }finally{projectsApi.saveDelta=save;}
 });

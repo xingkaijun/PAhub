@@ -658,7 +658,7 @@ export const DrawingList: React.FC = () => {
                   updateDrawing={updateDrawing}
                   deleteDrawing={deleteDrawing}
                   toggleRemarkStatus={toggleRemarkStatus}
-                  reviewers={reviewers}
+                  reviewers={session?.mode==='kjx' ? [...reviewers,...Object.entries(project?.assigneeNames || {}).filter(([id])=>!reviewers.some(person=>person.id===id)).map(([id,name])=>({id,name}))] : reviewers}
                   derivedDisciplines={derivedDisciplines}
                 />
               ))}

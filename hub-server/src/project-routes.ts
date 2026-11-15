@@ -5,7 +5,7 @@ import { getProjectDetail, getProjectDrawings, getProjectList, MAX_DRAWING_IDS }
 import { conditionalJson } from './etag.ts';
 import type { ProjectWriter } from './project-write.ts';
 import { requestUser } from './identity.ts';
-import {canAccessProject,projectRoster} from './project-membership.ts';
+import {canAccessProject,projectRoster,projectAssigneeNames} from './project-membership.ts';
 
 export function registerProjectRoutes(router: Router, writer: ProjectWriter) {
   router.add({pattern:/^\/api\/projects\/([^/]+)\/unlock$/,methods:['POST'],policies:[{method:'POST',capability:'view'}],handle:ctx => router.options.projectSession ? router.options.projectSession.unlock(ctx.request,safeId(ctx.params[0])) : errorResponse('Project sessions unavailable',503)});
@@ -21,7 +21,7 @@ export function registerProjectRoutes(router: Router, writer: ProjectWriter) {
       const project = getProjectDetail(writer.storage.db,p);
       if (!project) return errorResponse('Project not found: ' + p,404);
       // ETag + 304: a refresh that finds nothing new costs a header instead of the whole project.
-      if (router.kjx) { (project as any).passwordProtected=false; Object.assign(project.conf,{reviewers:projectRoster(writer.storage.db,p),passwordSet:false}); }
+      if (router.kjx) { (project as any).passwordProtected=false;(project as any).assigneeNames=projectAssigneeNames(writer.storage.db,p); Object.assign(project.conf,{reviewers:projectRoster(writer.storage.db,p),passwordSet:false}); }
       return conditionalJson(ctx.request,project);
     }
     if (!router.kjx && router.options.adminSession && !router.options.adminSession.isAdmin(ctx.request)) return errorResponse('Administrator permission required',403);
@@ -37,6 +37,6 @@ export function registerProjectRoutes(router: Router, writer: ProjectWriter) {
     const db = writer.storage.db;
     const result = getProjectDrawings(db,p,ids);
     if (!result) return errorResponse('Project not found: ' + p,404);
-    return conditionalJson(ctx.request,result);
+    return conditionalJson(ctx.request,router.kjx ? {...result,assigneeNames:projectAssigneeNames(db,p)} : result);
   }});
 }

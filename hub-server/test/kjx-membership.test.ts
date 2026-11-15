@@ -130,3 +130,38 @@ test('reviewer deletion cleans project references atomically and retains tracker
   assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action='REVIEWER_DELETE' AND actor_id='manager'").get());
  }finally{await f.close();}
 });
+
+test('reviewer view: member manager can write regular project Config but cannot write global/admin settings',async()=>{
+ const f=await fixture();try{
+  await f.team(['reviewer','manager']);
+  const conf={displayName:'Manager report',holidays:['2030-01-01'],roundACycle:12,otherRoundsCycle:6,autoSyncInterval:2};
+  assert.equal((await f.request('/api/projects/'+P,'manager',{conf},'PATCH')).status,200);
+  const stored=await(await f.request('/api/projects/'+P,'manager',{})).json();assert.equal(stored.conf.displayName,conf.displayName);assert.equal(stored.conf.roundACycle,12);
+  assert.equal((await f.request('/api/projects/secret','manager',{conf},'PATCH')).status,403);
+  assert.equal((await f.request('/api/projects/'+P,'reviewer',{conf:{displayName:'Forbidden'}},'PATCH')).status,403);
+  assert.equal((await f.request('/api/projects/'+P,'manager',{conf:{password:'forbidden'}},'PATCH')).status,403);
+  assert.equal((await f.request('/api/projects/'+P,'manager',{deletedDrawingIds:[D]},'PATCH')).status,403);
+ }finally{await f.close();}
+});
+
+test('reviewer view: member read supplies names for drawing-only assigned IDs without directory privilege',async()=>{
+ const f=await fixture();try{
+  await f.team(['reviewer']);const id='569b807f-73c4-4ba2-9623-818be3e97523';
+  f.hub.db.prepare('INSERT INTO reviewers VALUES(?,?)').run(id,'Assigned Snapshot');f.hub.db.prepare('INSERT INTO drawing_assignees VALUES(?,?)').run(D,id);
+  const project=await(await f.request('/api/projects/'+P,'reviewer',{})).json();assert.equal(project.assigneeNames[id],'Assigned Snapshot');assert.equal(project.conf.reviewers.some((p:any)=>p.id===id),false);
+  const subset=await(await f.request('/api/projects/'+P+'/drawings?ids='+D)).json();assert.equal(subset.assigneeNames[id],'Assigned Snapshot');
+ }finally{await f.close();}
+});
+
+test('reviewer view: unauthorized store edits never create dirty state; manager 403 restores snapshot offline',async()=>{
+ const {ApiError}=await import('../../services/api/apiClient');
+ const store=createStore<AppState>()((...args)=>({...createProjectSlice(...args),...createReviewTrackerSlice(...args),...createUiSlice(...args),...createPresenceSlice(...args)}));
+ const project={id:'p',name:'Project',conf:store.getState().data.settings,drawings:[{id:'d',title:'Original',assignees:[],remarks:[],statusHistory:[],status:'Reviewing',rev:'old'}]} as any;
+ store.setState({activeProjectId:'p',data:{...store.getState().data,projects:[project]},session:{mode:'kjx',admin:false,requiresPassword:false,permissions:['view']}});
+ store.getState().updateDrawing('d',{title:'Forbidden'});store.getState().addRemark('d','Forbidden');store.getState().updateProjectConfig('p',{displayName:'Forbidden'});
+ assert.equal(store.getState().hasUnsavedChanges(),false);assert.equal(store.getState().data.projects[0].drawings[0].title,'Original');
+ store.setState({session:{mode:'kjx',admin:false,requiresPassword:false,permissions:['drawing.update','project.settings']}});
+ store.getState().updateDrawing('d',{title:'Optimistic'});store.getState().updateProjectConfig('p',{displayName:'Optimistic'});
+ const save=projectsApi.saveDelta,load=projectsApi.loadProject;projectsApi.saveDelta=async()=>{throw new ApiError('forbidden',403);};projectsApi.loadProject=async()=>{throw Error('offline');};
+ try{assert.equal(await store.getState().saveProject('p'),false);assert.equal(store.getState().hasUnsavedChanges(),false);assert.equal(store.getState().data.projects[0].drawings[0].title,'Original');assert.equal(store.getState().data.projects[0].conf.displayName,undefined);assert.match(store.getState().error!,/permission/);}finally{projectsApi.saveDelta=save;projectsApi.loadProject=load;}
+});

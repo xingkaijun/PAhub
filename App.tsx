@@ -63,7 +63,7 @@ const App: React.FC = () => {
   const fetchGlobalSettings = useStore(state => state.fetchGlobalSettings);
   const isEditMode = useStore(state => state.isEditMode);
   const session = useStore(state => state.session);
-  const canConfigure = useStore(state => state.can('settings.write'));
+  const canConfigure = useStore(state => state.session?.mode==='kjx' ? state.can('project.settings') : state.can('settings.write'));
   const refreshSession = useStore(state => state.refreshSession);
   const logoutAdmin = useStore(state => state.logoutAdmin);
   const hasUnsavedChanges = useStore(state => state.hasUnsavedChanges());
