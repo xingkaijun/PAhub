@@ -220,7 +220,7 @@ export const Settings: React.FC = () => {
 
 
 
-                <div className="grid grid-cols-2 gap-2">
+                {!kjx && <div className="grid grid-cols-2 gap-2">
                   <button
                     onClick={handleExecutePush}
                     disabled={isLoading || !project}
@@ -245,7 +245,7 @@ export const Settings: React.FC = () => {
                   >
                     <Download size={12} /> Cloud Fetch
                   </button>
-                </div>
+                </div>}
 
                 <div className="h-px bg-slate-100 my-1" />
 
@@ -263,14 +263,14 @@ export const Settings: React.FC = () => {
                 )}
 
                 <div className="grid grid-cols-2 gap-2">
-                  <button
+                  {(!kjx || isAdmin) && <button
                     onClick={handleLocalBackup}
                     disabled={!project}
                     className="p-3 bg-white border border-teal-100 text-teal-700 rounded-full text-[9px] font-black uppercase tracking-[0.18em] hover:bg-teal-50 transition-all active:scale-95 flex items-center justify-center gap-2 shadow-sm"
                   >
                     <Save size={12} /> Local Backup
-                  </button>
-                  <button
+                  </button>}
+                  {!kjx && <><button
                     onClick={() => fileInputRef.current?.click()}
                     className="p-3 bg-[linear-gradient(135deg,#005c55_0%,#0f766e_100%)] text-white rounded-full text-[9px] font-black uppercase tracking-[0.18em] hover:brightness-105 transition-all active:scale-95 flex items-center justify-center gap-2 border border-transparent shadow-[0_12px_24px_-16px_rgba(13,148,136,0.45)]"
                   >
@@ -282,20 +282,20 @@ export const Settings: React.FC = () => {
                     onChange={handleLocalRestore}
                     accept=".json"
                     className="hidden"
-                  />
+                  /></>}
                 </div>
 
                 <div className="h-px bg-slate-100 my-1" />
 
                 {/* Fix Deadline Button */}
-                <button
+                {(!kjx || isAdmin) && <button
                   onClick={() => {
                     if (!project) return;
                     const confirmed = window.confirm(
                       '🔧 Fix Deadline\n\n' +
                       'This recalculates the deadline of every drawing in Reviewing,\n' +
                       'based on when it last entered Reviewing.\n\n' +
-                      '⚠️ Note: after the fix, click "Save to Cloud" to save it to the server.\n\n' +
+                      (kjx ? 'Changes will be saved automatically.\n\n' : '⚠️ Note: after the fix, click "Save to Cloud" to save it to the server.\n\n') +
                       'Continue?'
                     );
                     if (!confirmed) return;
@@ -327,13 +327,13 @@ export const Settings: React.FC = () => {
                       }
                     });
 
-                    alert(`✅ Fix complete.\n\nFixed the deadline of ${fixedCount} drawing(s).\n\nClick "Save to Cloud" to save it to the server.`);
+                    alert(kjx ? `Updated ${fixedCount} drawing(s). Changes are saving automatically.` : `✅ Fix complete.\n\nFixed the deadline of ${fixedCount} drawing(s).\n\nClick "Save to Cloud" to save it to the server.`);
                   }}
                   disabled={!project}
                   className="w-full p-3 bg-amber-500 text-white rounded-full text-[9px] font-black uppercase tracking-[0.18em] hover:bg-amber-600 disabled:opacity-50 flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg"
                 >
                   <RefreshCw size={12} /> Fix Deadline
-                </button>
+                </button>}
               </div>
             </div>
           </section>
@@ -360,7 +360,7 @@ export const Settings: React.FC = () => {
                   return (
                     <div key={rId} className="flex items-center justify-between p-1.5 bg-white border border-slate-100 rounded-lg group hover:border-teal-400 transition-all shrink-0">
                       <span className="text-[10px] font-black text-slate-700 uppercase">{rName}</span>
-                      <button onClick={() => removeItem('reviewers', rId)} className="text-slate-200 hover:text-red-500 transition-colors"><Trash2 size={12} /></button>
+                      <button onClick={async () => { if(!kjx){removeItem('reviewers',rId);return;} if(!project||!window.confirm('Remove '+rName+' from this project and clear their drawing assignments and defaults?'))return; try{await projectsApi.deleteReviewer(project.id,rId);await loadProject(project.id);}catch(error){alert('Unable to remove reviewer: '+String(error));} }} className="text-slate-200 hover:text-red-500 transition-colors"><Trash2 size={12} /></button>
                     </div>
                   );
                 })}
@@ -375,23 +375,15 @@ export const Settings: React.FC = () => {
               <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-800">Default Leads</h2>
             </div>
             <div className="p-3 flex-1 flex flex-col gap-2 min-h-0">
-              <div className="grid grid-cols-1 gap-1 overflow-y-auto pr-1 scrollbar-thin flex-1">
+              <div className={kjx ? "grid grid-cols-1 auto-rows-min content-start gap-1 overflow-y-auto pr-1 scrollbar-thin max-h-80" : "grid grid-cols-1 gap-1 overflow-y-auto pr-1 scrollbar-thin flex-1"}>
                 {activeDisciplines.map(d => (
                   <div key={d} className="flex items-center justify-between p-1 px-2 rounded-lg bg-slate-50/50 border border-slate-100 hover:border-indigo-200 transition-colors shrink-0">
                     <span className="text-[9px] font-black uppercase text-slate-500 tracking-widest flex-1 truncate py-1" title={d}>{d}</span>
-                    {kjx && <DirectoryPicker discipline={d} label={'Select ' + d + ' lead'} onSelect={person => addDirectoryReviewer(person, d)} />}
-                    <select
+                    {kjx ? <DirectoryPicker discipline={d} label={'Select ' + d + ' lead'} value={(activeSettings.disciplineDefaults || {})[d] || ''} currentName={(activeSettings.reviewers || []).find(r=>r.id === activeSettings.disciplineDefaults[d])?.name} onClear={()=>updateDisciplineDefault(d,'')} onSelect={person => addDirectoryReviewer(person, d)} /> : <select
                       value={(activeSettings.disciplineDefaults || {})[d] || ''}
                       onChange={(e) => updateDisciplineDefault(d, e.target.value)}
                       className="w-24 p-1 py-0.5 bg-white border border-slate-200 rounded text-[10px] font-black outline-none uppercase tracking-tight ml-2 h-6"
-                    >
-                      <option value="">No Default</option>
-                      {(activeSettings.reviewers || []).map(r => {
-                        const rName = typeof r === 'string' ? r : r.name;
-                        const rId = typeof r === 'string' ? r : r.id;
-                        return <option key={rId} value={kjx ? rId : rName}>{rName}</option>;
-                      })}
-                    </select>
+                    ><option value="">No Default</option>{(activeSettings.reviewers || []).map(r => { const rName = typeof r === 'string' ? r : r.name; const rId = typeof r === 'string' ? r : r.id; return <option key={rId} value={rName}>{rName}</option>; })}</select>}
                   </div>
                 ))}
                 {activeDisciplines.length === 0 && (

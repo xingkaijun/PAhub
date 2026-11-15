@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import type { RequestUser } from './identity.ts';
 import { hasPermission, type Capability } from './capabilities.ts';
+import {authorizeTracker} from './tracker-auth.ts';
 import { DRAWING_COLUMNS } from './drawing-revision.ts';
 
 // Check the complete request under the PATCH transaction, before even implicit creation.
@@ -42,7 +43,7 @@ export function authorizeProjectPatch(db: DatabaseSync, project: string, body: R
         for (const field of Object.keys(value || {})) if (!Object.hasOwn(body.conf || {},field)) require('admin.only');
         break;
       case 'reviewTracker':
-        for (const _entry of Object.entries(value || {})) require('admin.only');
+        authorizeTracker(db,project,value,user,false);
         break;
       default: require('admin.only');
     }

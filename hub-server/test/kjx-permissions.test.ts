@@ -129,6 +129,7 @@ test('kjx: identity failure cases, health-only exemption, session and throttled 
 type RouteExample = readonly [method: string, path: string, capability: Capability | 'route.unregistered', minimum: RequestUser['role'] | null];
 const ROUTE_EXAMPLES: readonly RouteExample[] = [
   ['GET','/api/team/directory?projectId=proj-test-001','team.setup','manager'],
+  ['DELETE','/api/projects/proj-test-001/reviewers/test-user','team.setup','manager'],
   ['GET','/api/pcf/proj-test-001/dwg-001/initiators','pcf.comment.edit_any','manager'],
   ['GET','/api/session','view','viewer'],
   ['POST','/api/session','view','viewer'],
@@ -147,7 +148,7 @@ const ROUTE_EXAMPLES: readonly RouteExample[] = [
   ['GET','/api/projects/proj-test-001/comments.xlsx','view','viewer'],
   ['GET','/api/projects/proj-test-001/events','view','viewer'],
   ['GET','/api/projects/proj-test-001/review-tracker','view','viewer'],
-  ['PUT','/api/projects/proj-test-001/review-tracker','admin.only','admin'],
+  ['PUT','/api/projects/proj-test-001/review-tracker','tracker.edit','reviewer'],
   ['GET','/api/projects/proj-test-001/audit','view','viewer'],
   ['GET','/api/projects/proj-test-001/heartbeat','view','viewer'],
   ['PUT','/api/projects/proj-test-001/heartbeat','admin.only','admin'],
@@ -287,7 +288,7 @@ test('kjx: PATCH authorization is per-entry and atomically rejects mixed/unknown
       {updatedDrawings:[{id:DRAWING,changes:{title:'Forbidden batch'}}],conf:{holidays:[]}},
       {updatedDrawings:[{id:DRAWING,changes:{title:'Forbidden batch',unknown:'x'}}]},
       {updatedDrawings:[{id:DRAWING,changes:{title:'Forbidden batch'}}],deletedDrawingIds:['dwg-002']},
-      {updatedDrawings:[{id:DRAWING,changes:{title:'Forbidden batch'}}],reviewTracker:{[DRAWING]:{}}},
+      {updatedDrawings:[{id:DRAWING,changes:{title:'Forbidden batch'}}],reviewTracker:{[DRAWING]:{unassigned:{done:true}}}},
       {updatedDrawings:[{id:DRAWING,changes:{title:'Forbidden batch'}}],unknown:'x'},
     ]) {
       const response=await f.request('/api/projects/'+PROJECT,'manager',f.json(body,'PATCH'));

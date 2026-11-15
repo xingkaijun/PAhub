@@ -10,6 +10,7 @@ import { setProjectPassword } from './project-password.ts';
 import { authorizeProjectPatch } from './project-patch-auth.ts';
 import { changedProjectPatch } from './project-patch-changes.ts';
 import type { RequestUser } from './identity.ts';
+import {auditTracker} from './tracker-auth.ts';
 import {requireProjectAccess,saveProjectRoster,projectRoster} from './project-membership.ts';
 
 export type RecordValue = Record<string, any>;
@@ -194,7 +195,7 @@ export class ProjectWriter {
       }
       if(user) this.realtime.recheckProject(projectId);
       const written: RecordValue[] = updates.map(drawing => writeDrawingLocked(this.storage,this.realtime,projectId,drawing));
-      if (body.reviewTracker && typeof body.reviewTracker === 'object') statements += writeTracker(db,projectId,body.reviewTracker,true,this.realtime);
+      if (body.reviewTracker && typeof body.reviewTracker === 'object') { statements += writeTracker(db,projectId,body.reviewTracker,!user,this.realtime); if(user)auditTracker(db,projectId,body.reviewTracker,user); }
       db.prepare("UPDATE projects SET last_updated=datetime('now') WHERE id=?").run(projectId); statements++;
       return { success: true, mode: 'delta', statements, verification: verifyProjectWrite(db,projectId,written,body.reviewTracker || null), drawings: written.map(({ __expected, ...drawing }) => drawing), ...(config || user && creating ? { conf: user ? {...getProjectConfiguration(db,projectId),reviewers:projectRoster(db,projectId),passwordSet:false} : getProjectConfiguration(db,projectId) } : {}) };
     }));

@@ -27,9 +27,22 @@ export const createReviewTrackerSlice: SliceCreator<ReviewTrackerSlice> = (set, 
     }
   },
   toggleAssigneeDone: (drawingId: string, assignee: string) => {
+    const session=get().session;
+    if(session?.mode==='kjx') {
+      const drawing=get().data.projects.find(p=>p.id===get().activeProjectId)?.drawings.find(d=>d.id===drawingId);
+      const elevated=session.user?.role==='admin'||session.user?.role==='manager';
+      if(!drawing || (assignee!=='__approved__' && !drawing.assignees.includes(assignee)) || (!elevated && (session.user?.role!=='reviewer'||session.user.id!==assignee))) return;
+    }
     const current = get().reviewTracker[drawingId]?.[assignee];
     const newDone = !current?.done;
     const doneAt = newDone ? new Date().toISOString() : undefined;
+    if(session?.mode==='kjx') {
+      const projectId=get().activeProjectId;if(!projectId)return;
+      void projectsApi.saveReviewTracker(projectId,{[drawingId]:{[assignee]:{done:newDone,doneAt}}}).then(()=>{
+        set(state=>({reviewTracker:{...state.reviewTracker,[drawingId]:{...(state.reviewTracker[drawingId]||{}),[assignee]:{done:newDone,doneAt}}}}));
+      }).catch(error=>set({error:'Tracker save failed: '+String(error)}));
+      return;
+    }
     // 1. 立即更新本地状态，并标记 tracker 为脏数据
     const newDirtyTrackerIds = new Set(get()._dirtyTrackerDrawingIds);
     newDirtyTrackerIds.add(drawingId);

@@ -34,5 +34,34 @@ try{
   await pcf.close();await page.close();
  }
  assert.equal((await(await contexts.admin.request.get(origin+'/api/projects')).json()).length,2);
+ // A–D UI regression: real project-member IDs, compact lead control, and auto-save.
+ const db=hub.db;
+ db.prepare('UPDATE drawings SET discipline=?,status=? WHERE id=?').run('Hull','Reviewing',D);
+ for(const id of ['admin','manager','reviewer','other']){db.prepare('INSERT OR REPLACE INTO reviewers VALUES(?,?)').run(id,'Person '+id);db.prepare('INSERT OR IGNORE INTO project_team_reviewers VALUES(?,?)').run(P,id);}
+ for(const id of ['reviewer','other'])db.prepare('INSERT OR IGNORE INTO drawing_assignees VALUES(?,?)').run(D,id);
+ db.prepare('INSERT OR REPLACE INTO discipline_defaults VALUES(?,?,?)').run(P,'Hull','reviewer');
+ db.prepare('INSERT OR IGNORE INTO discipline_default_assignees VALUES(?,?,?)').run(P,'Hull','engineer_a');
+ const leadPage=await contexts.admin.newPage();leadPage.on('dialog',dialog=>dialog.accept());await leadPage.goto(origin+'/?project='+P);await leadPage.locator('[data-drawing-list-root]').waitFor();
+ await leadPage.locator('button[title="Configuration"]').click();
+ const leadCard=leadPage.locator('section').filter({has:leadPage.getByText('Default Leads',{exact:true})});
+ await leadCard.getByLabel('Select Hull lead',{exact:true}).waitFor();
+ assert.equal(await leadCard.getByLabel('Select Hull lead',{exact:true}).locator('..').locator('select').count(),1);assert.equal(await leadCard.getByLabel('Select Hull lead',{exact:true}).inputValue(),'reviewer');
+ const box=await leadCard.getByLabel('Select Hull lead',{exact:true}).boundingBox();assert.ok(box.height<100);
+ await leadCard.screenshot({path:'hub-server/test/artifacts/membership-default-leads-after.png'});
+ await leadPage.getByRole('button',{name:'Inventory',exact:true}).click();await leadPage.getByRole('button',{name:'Team Setup',exact:true}).click();await leadPage.locator('[aria-labelledby="team-setup-title"]').screenshot({path:'hub-server/test/artifacts/membership-default-assignees-after.png'});await leadPage.getByRole('button',{name:'Close',exact:true}).click();await leadPage.locator('button[title="Configuration"]').click();
+ assert.equal(await leadPage.getByRole('button',{name:'Save to Cloud'}).count(),0);assert.equal(await leadPage.getByRole('button',{name:'Cloud Fetch'}).count(),0);assert.equal(await leadPage.getByRole('button',{name:'Local Restore'}).count(),0);
+ assert.equal(await leadPage.getByRole('button',{name:'Local Backup'}).count(),1);
+ const deadline=leadPage.waitForResponse(r=>r.request().method()==='PATCH'&&r.status()===200,{timeout:15000});await leadPage.getByRole('button',{name:'Fix Deadline'}).click();await deadline;
+ await leadPage.getByRole('button',{name:'Inventory',exact:true}).click();await leadPage.getByRole('button',{name:'Team Setup',exact:true}).click();
+ const deletion=leadPage.waitForResponse(r=>r.request().method()==='DELETE'&&r.status()===200);await leadPage.getByRole('button',{name:'Remove member Engineer A'}).click();await deletion;
+ assert.equal(db.prepare('SELECT COUNT(*) AS n FROM drawing_assignees WHERE reviewer_id=? AND drawing_id IN (SELECT id FROM drawings WHERE project_id=?)').get('engineer_a',P).n,0);
+ const reviewer=await contexts.reviewer.newPage();await reviewer.goto(origin+'/?project='+P);await reviewer.locator('[data-drawing-list-root]').waitFor();await reviewer.getByRole('button',{name:'Tracker',exact:true}).click();
+ const mine=reviewer.getByRole('button',{name:'Person reviewer',exact:true}).first(),other=reviewer.getByRole('button',{name:'Person other',exact:true}).first();await mine.waitFor();assert.equal(await mine.isEnabled(),true);assert.equal(await other.isDisabled(),true);
+ const marked=reviewer.waitForResponse(r=>r.request().method()==='PUT'&&r.url().endsWith('/review-tracker')&&r.status()===200);await mine.click();await marked;
+ const manager=await contexts.manager.newPage();await manager.goto(origin+'/?project='+P);await manager.locator('[data-drawing-list-root]').waitFor();await manager.getByRole('button',{name:'Tracker',exact:true}).click();
+ const delegated=manager.getByRole('button',{name:'Person other',exact:true}).first();await delegated.waitFor();assert.equal(await delegated.isEnabled(),true);const delegatedSave=manager.waitForResponse(r=>r.request().method()==='PUT'&&r.status()===200);await delegated.click();await delegatedSave;
+ assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action='TRACKER' AND actor_id='manager' AND json_extract(detail,'$.subjectId')='other'").get());
+ await reviewer.close();await manager.close();await leadPage.close();
+
  console.log('membership browser: reviewer/manager hidden → Team Setup grant → password-free access → immediate revoke; admin sees all PASS');
 }finally{await browser?.close();await hub?.close();await rm(dir,{recursive:true,force:true});for(const[key,value]of Object.entries(prior))if(value===undefined)delete process.env[key];else process.env[key]=value;}

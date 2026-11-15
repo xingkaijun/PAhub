@@ -62,13 +62,13 @@ const StatusBadge = ({ drawing, onStatusChange, disabled }: { drawing: Drawing, 
     );
 };
 
-const MultiAssigneeDropdown = ({ drawing, reviewers, onUpdate, disabled }: { drawing: Drawing, reviewers: (string | { id: string, name: string })[], onUpdate: (ids: string[]) => void, disabled: boolean }) => {
+const MultiAssigneeDropdown = ({ drawing, reviewers, onUpdate, disabled, kjx }: { drawing: Drawing, reviewers: (string | { id: string, name: string })[], onUpdate: (ids: string[]) => void, disabled: boolean, kjx: boolean }) => {
     const [open, setOpen] = React.useState(false);
     const getRevId = (r: string | { id: string, name: string }) => typeof r === 'string' ? r : r.id;
     const getRevName = (r: string | { id: string, name: string }) => typeof r === 'string' ? r : r.name;
 
     const toggle = (r: string | { id: string, name: string }) => {
-        const val = getRevName(r);
+        const val = kjx ? getRevId(r) : getRevName(r);
         const current = drawing.assignees || [];
         const next = current.includes(val) ? current.filter(n => n !== val) : [...current, val];
         onUpdate(next);
@@ -83,11 +83,11 @@ const MultiAssigneeDropdown = ({ drawing, reviewers, onUpdate, disabled }: { dra
             >
                 <div className="flex -space-x-1.5 overflow-hidden flex-1">
                     {(drawing.assignees || []).length > 0 ? (
-                        drawing.assignees.map(a => (
-                            <div key={a} className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-[linear-gradient(135deg,#005c55_0%,#0f766e_100%)] text-white text-[7px] font-black border-2 border-white shadow-sm" title={a}>
-                                {a.charAt(0)}
+                        drawing.assignees.map(a => { const display = kjx ? reviewers.find(r => getRevId(r) === a) : undefined; const name = display ? getRevName(display) : a; return (
+                            <div key={a} className="inline-flex items-center justify-center w-4 h-4 rounded-full bg-[linear-gradient(135deg,#005c55_0%,#0f766e_100%)] text-white text-[7px] font-black border-2 border-white shadow-sm" title={name}>
+                                {name.charAt(0)}
                             </div>
-                        ))
+                        );})
                     ) : <span className="text-[8px] text-slate-300 font-black uppercase ml-1">Unset</span>}
                 </div>
                 <ChevronDown size={8} className="text-slate-400" />
@@ -105,7 +105,7 @@ const MultiAssigneeDropdown = ({ drawing, reviewers, onUpdate, disabled }: { dra
                                 <label key={id} className="flex items-center gap-2 px-2 py-1.5 hover:bg-teal-50 rounded-lg cursor-pointer transition-colors group">
                                     <input
                                         type="checkbox"
-                                        checked={drawing.assignees.includes(name)}
+                                        checked={drawing.assignees.includes(kjx ? id : name)}
                                         onChange={() => toggle(r)}
                                         className="w-3 h-3 rounded text-teal-600 focus:ring-teal-500 border-slate-200"
                                     />
@@ -295,7 +295,7 @@ export const DrawingRow = memo(({
                     })() : EMPTY_MARK}
                 </td>
                 <td className="px-1 py-2">
-                    {!canWrite ? drawing.assignees.join(', ') || EMPTY_MARK : <MultiAssigneeDropdown disabled={!isEditMode} drawing={drawing} reviewers={reviewers} onUpdate={(ids) => updateDrawing(drawing.id, { assignees: ids })} />}
+                    {!canWrite ? drawing.assignees.join(', ') || EMPTY_MARK : <MultiAssigneeDropdown kjx={kjx} disabled={!isEditMode} drawing={drawing} reviewers={reviewers} onUpdate={(ids) => updateDrawing(drawing.id, { assignees: ids })} />}
                 </td>
                 <td className="px-3 py-2 text-center">
                     {!canWrite ? drawing.status : <StatusBadge disabled={!isEditMode} drawing={drawing} onStatusChange={(s) => updateDrawing(drawing.id, { status: s })} />}

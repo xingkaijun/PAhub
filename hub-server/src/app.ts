@@ -20,6 +20,7 @@ import {createIdentity,createProductionVerifier,requestUser} from './identity.ts
 import type {KjxVerifier} from './kjx-auth-client.ts';
 import {ADMIN_POLICIES} from './capabilities.ts';
 import {KjxDirectory, type DirectoryOptions} from './kjx-directory.ts';
+import {registerReviewerRoutes} from './reviewer-routes.ts';
 import {registerTeamDirectoryRoutes} from './team-directory-routes.ts';
 import {canAccessProject,initializeMembershipSchema,projectRequestDenied} from './project-membership.ts';
 
@@ -41,6 +42,7 @@ export async function createHub(options: {middleware?: Middleware;host?: '127.0.
  registerAdminSessionRoutes(router,adminSession);
  registerPcfRoutes(router,pcf,config.env.ADMIN_PASSWORD);
  registerProjectRoutes(router,writer);
+ registerReviewerRoutes(router,writer);
  registerTrackerRoutes(router,writer);
  registerActivityRoutes(router,db);
  if(directory) registerTeamDirectoryRoutes(router,directory,db);

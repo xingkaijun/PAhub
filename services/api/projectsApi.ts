@@ -67,6 +67,7 @@ export function createProjectsApi(client: ApiClient) {
     loadDrawings: (projectId: string, ids: string[], _legacyPassword?: string | null, signal?: AbortSignal) => client.json<DrawingsByIdResult>(
       projectResource(projectId, 'drawings') + '?' + new URLSearchParams({ ids: ids.join(',') }),
       { cache: 'no-store', signal }),
+    deleteReviewer: (projectId: string, id: string) => client.json<{ok:boolean}>(projectResource(projectId, 'reviewers/' + encodeURIComponent(id)), {method:'DELETE'}),
     saveDelta: (projectId: string, payload: DeltaPayload, signal?: AbortSignal) => client.json<SaveResult>(projectResource(projectId), { method: 'PATCH', json: payload, signal }),
     loadReviewTracker: async (projectId: string, signal?: AbortSignal): Promise<ReviewTrackerData> => JSON.parse((await trackerRead(projectId, true, signal)).text),
     async loadReviewTrackerIfChanged(projectId: string): Promise<IfChanged<ReviewTrackerData>> {

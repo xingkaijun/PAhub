@@ -95,3 +95,38 @@ test('membership: open project and drawing SSE terminate immediately on Team Set
   for(const source of [reader,drawingReader]){let ended=false;for(let i=0;i<100;i++){if((await source.read()).done){ended=true;break;}}assert.equal(ended,true);}
  }finally{abort.abort();await f.close();}
 });
+
+test('tracker: reviewer own assigned sub only; manager/admin delegated writes are audited and atomic',async()=>{
+ const f=await fixture();try{
+  await f.team(['reviewer','manager','other']);
+  const db=f.hub.db;db.prepare('INSERT INTO drawing_assignees VALUES(?,?)').run(D,'reviewer');db.prepare('INSERT INTO drawing_assignees VALUES(?,?)').run(D,'other');
+  const url='/api/projects/'+P+'/review-tracker';
+  assert.equal((await f.request(url,'reviewer',{[D]:{reviewer:{done:true}}},'PUT')).status,200);
+  const row=db.prepare("SELECT actor_id,detail FROM audit_log WHERE action='TRACKER' ORDER BY id DESC LIMIT 1").get()!;assert.equal(row.actor_id,'reviewer');assert.equal(JSON.parse(String(row.detail)).subjectId,'reviewer');
+  assert.equal((await f.request(url,'reviewer',{[D]:{other:{done:true}}},'PUT')).status,403);
+  assert.equal((await f.request(url,'reviewer',{[D]:{reviewer:{done:false},other:{done:true}}},'PUT')).status,403);
+  assert.equal(db.prepare('SELECT done FROM review_tracker WHERE project_id=? AND drawing_id=? AND reviewer_id=?').get(P,D,'reviewer')!.done,1);
+  assert.equal((await f.request(url,'manager',{[D]:{other:{done:true}}},'PUT')).status,200);
+  const delegated=db.prepare("SELECT actor_id,detail FROM audit_log WHERE action='TRACKER' ORDER BY id DESC LIMIT 1").get()!;assert.equal(delegated.actor_id,'manager');assert.equal(JSON.parse(String(delegated.detail)).subjectId,'other');assert.equal(JSON.parse(String(delegated.detail)).delegated,true);
+  assert.equal((await f.request(url,'admin',{[D]:{other:{done:false}}},'PUT')).status,200);
+  assert.equal((await f.request(url,'reviewer',{[D]:{'manual-test':{done:true}}},'PUT','manual-test')).status,403);
+  assert.equal((await f.request('/api/projects/'+P,'reviewer',{reviewTracker:{[D]:{other:{done:true}}}},'PATCH')).status,403);
+ }finally{await f.close();}
+});
+
+test('reviewer deletion cleans project references atomically and retains tracker history and other projects',async()=>{
+ const f=await fixture();try{
+  await f.team(['manager','engineer_a']);const db=f.hub.db;
+  db.prepare('INSERT OR REPLACE INTO discipline_defaults VALUES(?,?,?)').run(P,'Hull','engineer_a');
+  db.prepare('INSERT OR IGNORE INTO discipline_default_assignees VALUES(?,?,?)').run(P,'Hull','engineer_a');
+  const oldTracker=Number(db.prepare('SELECT COUNT(*) AS n FROM review_tracker WHERE reviewer_id=?').get('engineer_a')!.n);
+  db.prepare('INSERT INTO discipline_defaults VALUES(?,?,?)').run('secret','Hull','engineer_a');
+  assert.equal((await f.request('/api/projects/'+P+'/reviewers/engineer_a','reviewer',undefined,'DELETE')).status,403);
+  assert.equal((await f.request('/api/projects/'+P+'/reviewers/engineer_a','manager',undefined,'DELETE')).status,200);
+  for(const table of ['project_team_reviewers','discipline_defaults','discipline_default_assignees'])assert.equal(db.prepare('SELECT COUNT(*) AS n FROM '+table+' WHERE project_id=? AND reviewer_id=?').get(P,'engineer_a')!.n,0);
+  assert.equal(db.prepare('SELECT COUNT(*) AS n FROM drawing_assignees WHERE reviewer_id=? AND drawing_id IN (SELECT id FROM drawings WHERE project_id=?)').get('engineer_a',P)!.n,0);
+  assert.equal(Number(db.prepare('SELECT COUNT(*) AS n FROM review_tracker WHERE reviewer_id=?').get('engineer_a')!.n),oldTracker);
+  assert.ok(db.prepare('SELECT 1 FROM discipline_defaults WHERE project_id=? AND reviewer_id=?').get('secret','engineer_a'));
+  assert.ok(db.prepare("SELECT 1 FROM audit_log WHERE action='REVIEWER_DELETE' AND actor_id='manager'").get());
+ }finally{await f.close();}
+});

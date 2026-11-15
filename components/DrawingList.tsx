@@ -12,6 +12,7 @@ import { BuilderRepliesImport, type BuilderRepliesImportHandle } from './Builder
 import { AdminLoginDialog } from './AdminLoginDialog';
 import { ModalOverlay } from './ModalOverlay';
 import { parseBulkLoadText } from '../lib/bulk-load';
+import { projectsApi } from '../services/api/projectsApi';
 import { DirectoryPicker } from './DirectoryPicker';
 
 const ADMIN_REQUIRED = 'Administrator permission required';
@@ -817,7 +818,7 @@ export const DrawingList: React.FC = () => {
             <div className="p-6 overflow-y-auto flex-1">
               <div className="space-y-4">
                 {session?.mode==='kjx' && project && <DirectoryPicker label="Add project member" onSelect={person=>useStore.getState().updateProjectConfig(project.id,{reviewers:[...project.conf.reviewers.filter(r=>r.id!==person.id),person]})} />}
-                {session?.mode==='kjx' && project && <section className="rounded-xl border p-3"><h4>Project members</h4>{project.conf.reviewers.map(person=><div key={person.id} className="flex justify-between py-1"><span>{person.name}</span><button className="text-red-700" aria-label={'Remove member '+person.name} onClick={()=>useStore.getState().updateProjectConfig(project.id,{reviewers:project.conf.reviewers.filter(r=>r.id!==person.id),disciplineDefaults:Object.fromEntries(Object.entries(project.conf.disciplineDefaults).filter(([,id])=>id!==person.id)),defaultAssignees:Object.fromEntries(Object.entries(project.conf.defaultAssignees || {}).map(([discipline,ids])=>[discipline,ids.filter(id=>id!==person.id)]))})}>Remove member</button></div>)}</section>}
+                {session?.mode==='kjx' && project && <section className="rounded-xl border p-3"><h4>Project members</h4>{project.conf.reviewers.map(person=><div key={person.id} className="flex justify-between py-1"><span>{person.name}</span><button className="text-red-700" aria-label={'Remove member '+person.name} onClick={async()=>{if(!window.confirm('Remove '+person.name+' from this project and clear their drawing assignments and defaults?'))return;try{await projectsApi.deleteReviewer(project.id,person.id);await useStore.getState().loadProject(project.id);}catch(error){alert('Unable to remove reviewer: '+String(error));}}}>Remove member</button></div>)}</section>}
                 {derivedDisciplines.map(discipline => {
                   const currentDefaults = project?.conf?.defaultAssignees?.[discipline] || [];
                   const availableReviewers = reviewers.map(r => session?.mode === 'kjx' ? r.id : typeof r === 'string' ? r : r.name);

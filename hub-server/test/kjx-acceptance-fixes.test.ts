@@ -47,8 +47,8 @@ test('T7 D2: manager no-op tracker/config fields are omitted, real tracker chang
   const body={updatedDrawings:[{id:D,changes:{assignees:['A']}}],reviewTracker:{[D]:{A:{done:true,doneAt:null}}},conf:{holidays:conf.holidays},confBase:{holidays:conf.holidays}};
   assert.equal((await f.request('/api/projects/'+P,'manager',body)).status,200);assert.equal(f.hub.db.prepare('SELECT reviewer_id FROM drawing_assignees WHERE drawing_id=?').all(D).some(row=>row.reviewer_id==='A'),true);
   const before=f.hub.db.prepare('SELECT title FROM drawings WHERE id=?').get(D);
-  for(const tracker of [{[D]:{A:{done:false,doneAt:null}}},{[D]:{}},{[D]:{A:{done:true,doneAt:null,unknown:'x'}}}]){
-   const response=await f.request('/api/projects/'+P,'manager',{updatedDrawings:[{id:D,changes:{title:'Must not land'}}],reviewTracker:tracker});assert.equal(response.status,403);assert.equal((await response.json()).capability,'admin.only');assert.deepEqual(f.hub.db.prepare('SELECT title FROM drawings WHERE id=?').get(D),before);
+  for(const tracker of [{[D]:{unassigned:{done:true,doneAt:null}}},{[D]:{A:{done:true,doneAt:null,unknown:'x'}}}]){
+   const response=await f.request('/api/projects/'+P,'manager',{updatedDrawings:[{id:D,changes:{title:'Must not land'}}],reviewTracker:tracker});assert.equal(response.status,tracker[D].unassigned?403:400);assert.deepEqual(f.hub.db.prepare('SELECT title FROM drawings WHERE id=?').get(D),before);
   }
   assert.equal((await f.request('/api/projects/'+P,'manager',{conf:{holidays:['2030-01-01']}})).status,403);
  }finally{await f.close();}
