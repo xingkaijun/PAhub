@@ -13,6 +13,8 @@ export const persistenceOptions: PersistOptions<AppState, any> = {
       projects: state.data.projects.map(project => stripProjectPayload(project, project.id === state.activeProjectId)),
     },
     membershipRecovery: state.membershipRecovery,
+    saveStatuses: Object.fromEntries(Object.entries(state.saveStatuses).map(([id,status])=>[id,status.phase==='saving'?{...status,phase:'failed',failure:'network',reason:'Save confirmation interrupted',retryAt:Date.now()+3000}:status])),
+    pendingSaves: withoutProjectSecrets(state.pendingSaves),
     activeProjectId: state.activeProjectId,
     reviewTracker: state.reviewTracker,
     _dirtyDrawingIds: [...state._dirtyDrawingIds],
@@ -54,6 +56,7 @@ export const persistenceOptions: PersistOptions<AppState, any> = {
           : currentState.data.projects,
       }
       : currentState.data,
+    pendingSaves: Object.fromEntries(Object.entries(persistedState?.pendingSaves || {}).map(([id,pending]:[string,any])=>[id,{...pending,project:normalizeProjectDrawingIds(pending.project,generateId)}])),
     _dirtyDrawingIds: new Set(persistedState?._dirtyDrawingIds || []),
     _deletedDrawingIds: new Set(persistedState?._deletedDrawingIds || []),
     _dirtyDrawingFields: Object.fromEntries(Object.entries(persistedState?._dirtyDrawingFields || {}).map(([id, fields]) => [id, new Set(fields as (keyof Drawing)[])])),

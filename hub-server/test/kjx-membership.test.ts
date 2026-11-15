@@ -165,3 +165,22 @@ test('reviewer view: unauthorized store edits never create dirty state; manager 
  const save=projectsApi.saveDelta,load=projectsApi.loadProject;projectsApi.saveDelta=async()=>{throw new ApiError('forbidden',403);};projectsApi.loadProject=async()=>{throw Error('offline');};
  try{assert.equal(await store.getState().saveProject('p'),false);assert.equal(store.getState().hasUnsavedChanges(),false);assert.equal(store.getState().data.projects[0].drawings[0].title,'Original');assert.equal(store.getState().data.projects[0].conf.displayName,undefined);assert.match(store.getState().error!,/permission/);}finally{projectsApi.saveDelta=save;projectsApi.loadProject=load;}
 });
+
+test('P0 frozen save receipt replays after timeout/newer edits without duplicate audit or lost update',async()=>{
+ const f=await fixture();try{
+  await f.team(['manager']);
+  const {randomUUID}=await import('node:crypto');const {readDrawing}=await import('../src/drawing-revision.ts');
+  const before=readDrawing(f.hub.db,P,D)!;
+  const body={saveRequestId:randomUUID(),projectName:'PG-VLEC-H2684',updatedDrawings:[{id:D,baseRev:before.rev,base:{title:before.title},changes:{title:'First acknowledged once'}}]};
+  const {withSaveTimeout}=await import('../../lib/save-control.ts');
+  let confirmed:any;
+  const committed=f.request('/api/projects/'+P,'manager',body,'PATCH').then(async first=>{assert.equal(first.status,200);confirmed=await first.json();});
+  await assert.rejects(withSaveTimeout(async()=>{await committed;return new Promise<never>(()=>{});},100),{name:'TimeoutError'});
+  await committed;
+  const count=f.hub.db.prepare('SELECT COUNT(*) AS n FROM audit_log').get()!.n;
+  assert.equal((await f.request('/api/projects/'+P,'manager',{updatedDrawings:[{id:D,changes:{title:'Later editor'}}]},'PATCH')).status,200);
+  const replay=await f.request('/api/projects/'+P,'manager',body,'PATCH');assert.equal(replay.status,200);assert.deepEqual(await replay.json(),confirmed);
+  assert.equal(f.hub.db.prepare('SELECT title FROM drawings WHERE id=?').get(D)!.title,'Later editor');assert.equal(f.hub.db.prepare('SELECT COUNT(*) AS n FROM audit_log').get()!.n,count);
+  assert.equal((await f.request('/api/projects/'+P,'manager',{...body,projectName:'Changed envelope'},'PATCH')).status,409);
+ }finally{await f.close();}
+});
