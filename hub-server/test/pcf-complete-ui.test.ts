@@ -47,6 +47,39 @@ test('standalone complete copy keeps history, exposes working external edition a
   } finally { b.dom.window.close(); }
 });
 
+test('closed-by label is escaped, immediately left of the toggle and retained in offline copies', async () => {
+  const b = browser(replaceData(template, data()), { projectId: 'p', drawingId: 'd', rev: 1, apiBase: '/api', user: { id: 'closer', name: 'Name <script> & "quote"' } });
+  let offline: ReturnType<typeof browser> | undefined;
+  try {
+    b.w.eval('addComment();setCommentStatus(state.comments[0],"closed")');
+    const label = b.w.document.querySelector('.closed-by')!;
+    assert.equal(label.textContent, 'Closed by Name <script> & "quote"');
+    assert.equal(label.nextElementSibling?.classList.contains('status-drag'), true); assert.equal(label.querySelector('script'), null);
+    const value = JSON.parse(String(b.w.eval('JSON.stringify(state)'))); assert.equal(value.comments[0].closedById, 'closer');
+    offline = browser(standaloneHTML(completeData(value))); assert.equal(offline.w.document.querySelector('.closed-by')!.textContent, label.textContent);
+    offline.w.eval('validateJSON(state);setCommentStatus(state.comments[0],"open")'); assert.equal(offline.w.document.querySelector('.closed-by'), null);
+    b.w.eval('setCommentStatus(state.comments[0],"open")'); assert.equal(b.w.document.querySelector('.closed-by'), null);
+    assert.deepEqual(b.errors, []); assert.deepEqual(offline.errors, []);
+  } finally { b.w.close(); offline?.w.close(); }
+});
+
+test('status synchronization keeps closure attribution atomic across reopen and concurrent closes', () => {
+  const b = browser(replaceData(template, data()), { projectId:'p', drawingId:'d', rev:1, apiBase:'/api' });
+  try {
+    const base = { id:'C', status:'closed', closedBy:'Alice', closedById:'alice', page:'', rounds:[] };
+    const local = structuredClone(base); local.status='open'; delete (local as any).closedBy; delete (local as any).closedById;
+    const remote = { ...base, page:'Remote page' };
+    Object.assign(b.w, { mergeBase:base, mergeLocal:local, mergeRemote:remote });
+    let result = JSON.parse(String(b.w.eval('JSON.stringify(hubMerge(mergeBase,mergeLocal,mergeRemote))')));
+    assert.equal(result.status,'open'); assert.equal(result.closedBy,undefined); assert.equal(result.closedById,undefined); assert.equal(result.page,'Remote page');
+    Object.assign(b.w, { mergeBase:{...base,status:'open',closedBy:undefined,closedById:undefined}, mergeLocal:{...base,closedBy:'Bob',closedById:'bob'}, mergeRemote:base });
+    result = JSON.parse(String(b.w.eval('JSON.stringify(hubMerge(mergeBase,mergeLocal,mergeRemote))')));
+    assert.equal(result.closedBy,'Alice'); assert.equal(result.closedById,'alice');
+    b.w.eval('hubUseServer({comments:[mergeLocal]}, {comments:[mergeRemote],project:{},settings:{},roundRegister:[],circulation:[],approvalHistory:[]}, {type:"comment.status",commentId:"C"})');
+    assert.equal((b.w as any).mergeLocal.closedBy,'Alice'); assert.deepEqual(b.errors,[]);
+  } finally { b.w.close(); }
+});
+
 test('hosted complete preview guards newer local edits and sends scalar manual merge values as strings', async () => {
   const value = data(), b = browser(replaceData(template, value), { projectId: 'p', drawingId: 'd', rev: 1, apiBase: '/api' });
   try {

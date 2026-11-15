@@ -99,6 +99,25 @@ test('T6 initiator: spoofed creator ignored, resolved manager assignment works, 
   }finally{await f.cleanup();}
 });
 
+test('PCF close/reopen stores the authenticated user and survives reload and export', async () => {
+  const f = await fixture();
+  try {
+    await f.ops('reviewer', [{ type: 'comment.add', id: 'C', roundIdNew: 'R' }]);
+    const close = await f.ops('manager', [{ type: 'comment.status', commentId: 'C', value: 'closed', baseRev: 0, closedBy: 'Forged', closedById: 'forged' }], { sub: 'closer', name: 'Actual Closer' });
+    assert.equal(close.status, 200);
+    let result = await close.json(); assert.equal(result.data.comments[0].closedBy, 'Actual Closer'); assert.equal(result.data.comments[0].closedById, 'closer');
+    const loaded = await (await f.request(base + '/data')).json(); assert.equal(loaded.data.comments[0].closedBy, 'Actual Closer');
+    const html = await (await f.request('/pcf/' + P + '/' + D)).text(); assert.equal(parseHTML(html).comments[0].closedById, 'closer');
+    const exported = await (await f.request(base + '/exports', 'manager', {})).json();
+    const copy = parseHTML(await (await f.request(base + '/exports/' + exported.exportId + '/download', 'manager')).text());
+    assert.equal(copy.comments[0].closedBy, 'Actual Closer');
+    const reopen = await f.ops('manager', [{ type: 'comment.status', commentId: 'C', value: 'open', baseRev: loaded.data.hub.entities['comment:C:status'].rev }]);
+    assert.equal(reopen.status, 200); result = await reopen.json(); assert.equal(result.data.comments[0].closedBy, undefined);
+    const reclose = await f.ops('manager', [{ type: 'comment.status', commentId: 'C', value: 'closed', baseRev: result.data.hub.entities['comment:C:status'].rev }], { sub: 'second', name: 'Second Closer' });
+    assert.equal(reclose.status, 200); assert.equal((await reclose.json()).data.comments[0].closedBy, 'Second Closer');
+  } finally { await f.cleanup(); }
+});
+
 test('T6 initiator: directory outage permits a validated project-team snapshot, never manual identities',async()=>{
   const f=await fixture();
   try {

@@ -24,6 +24,7 @@ export function externalData(source: PcfData): PcfData {
     schemaVersion: source.schemaVersion, appVersion: '2.6', documentId: source.documentId, updatedAt: source.updatedAt,
     project: { ...pick(source.project, ['name','planTitle','planNo','revision','approval','currentRound']), folder: '' },
     comments: source.comments.map((c: any) => ({ ...pick(c, ['id','number','page','tags','status','createdAt','updatedAt']),
+      ...Object.fromEntries(['closedBy','closedById'].filter(k => c[k] !== undefined).map(k => [k, structuredClone(c[k])])),
       rounds: c.rounds.map((r: any) => ({ ...pick(r, ['id','number','initiator','responder','minHeight','createdAt','updatedAt']), ...Object.fromEntries(['initiatorId','responderId'].filter(k => r[k] !== undefined).map(k => [k, structuredClone(r[k])])), owner: cleanContent(r.owner), reply: cleanContent(r.reply) })) })),
     nextCommentNumber: source.nextCommentNumber, deleted: [], circulation: [], approvalHistory: [],
     roundRegister: source.roundRegister.map((r: any) => pick(r, ['id','round','revision','ownerRef','ownerDate','replyRef','replyDate'])),
@@ -35,12 +36,27 @@ export function standaloneHTML(data: PcfData) {
   const start = html.indexOf('if(hubMode){data=hubExternal(data);'), end = html.indexOf("root.querySelector('#pcf-data')", start);
   return start < 0 ? html : html.slice(0,start) + html.slice(end);
 }
+function hasReplyContent(r: any): boolean {
+  const text = String(r?.reply?.text || '').replace(/[\s​-‍﻿]/g, '');
+  const htmlText = cleanContent(r.reply).html.replace(/<[^>]*>/g, '')
+    .replace(/&nbsp;|&#(?:160|8203|8204|8205|65279);|&#x(?:a0|200b|200c|200d|feff);/gi, '')
+    .replace(/[\s​-‍﻿]/g, '');
+  return Boolean(text || htmlText || r.reply.images.length);
+}
+function unansweredPastRounds(data: PcfData, round: number): string[] {
+  return data.comments.filter((c: any) => c.status === 'open').flatMap((c: any) =>
+    c.rounds.filter((r: any) => r.number < round && !hasReplyContent(r)).map((r: any) => r.id));
+}
 function readonlyPart(data: PcfData, round: number) {
   const copy = structuredClone(data); delete copy.updatedAt;
+  const writable = new Set<string>(Array.isArray(copy.export?.writableRounds) ? copy.export.writableRounds : []);
   if (copy.export) delete copy.export.ownerHmac;
   for (const c of copy.comments || []) {
     delete c.updatedAt;
-    for (const r of c.rounds || []) { delete r.updatedAt; if (r.number === round && c.status === 'open') delete r.reply; }
+    for (const r of c.rounds || []) {
+      delete r.updatedAt;
+      if (c.status === 'open' && (r.number === round || writable.has(r.id))) delete r.reply;
+    }
   }
   return copy;
 }
@@ -86,7 +102,8 @@ export class PcfExchange {
     // Offline copies are self-contained: image references are re-inlined as data URLs.
     const { data, rev } = this.storage.loadHydrated(p, d), exportedAt = new Date().toISOString(), round = data.project.currentRound;
     const external = externalData(data);
-    external.export = { exportId, documentId: data.documentId, baseRev: rev, round, exportedAt, mode: 'builder' };
+    const writableRounds = unansweredPastRounds(external, round);
+    external.export = { exportId, documentId: data.documentId, baseRev: rev, round, exportedAt, mode: 'builder', ...(writableRounds.length ? { writableRounds } : {}) };
     external.export.ownerHmac = this.mac(readonlyPart(external, round));
     // Remove the complete hosted adapter, not merely its live credential injection.
     const html = standaloneHTML(external);
@@ -215,8 +232,9 @@ export class PcfExchange {
     // Signatures above are over the offline (inline) form both copies share. Business comparisons with the
     // stored document use the reference form, so an inline image equals the stored reference of the same bytes.
     const baseRefs = comparableImages(base), returnedRefs = comparableImages(returned);
+    const writable = new Set<string>(Array.isArray(base.export?.writableRounds) ? base.export.writableRounds : []);
     for (const bc of baseRefs.comments) for (const br of bc.rounds) {
-      if (br.number !== round || bc.status !== 'open') continue;
+      if (bc.status !== 'open' || (br.number !== round && !writable.has(br.id))) continue;
       const rr = returnedRefs.comments.find((c: any) => c.id === bc.id)?.rounds.find((r: any) => r.id === br.id);
       if (!rr) continue;
       const builder = cleanContent(rr.reply), sc = live.data.comments.find((c: any) => c.id === bc.id), sr = sc?.rounds.find((r: any) => r.id === br.id);
