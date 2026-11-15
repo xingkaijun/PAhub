@@ -285,7 +285,7 @@ test('kjx: PATCH authorization is per-entry and atomically rejects mixed/unknown
   try {
     const before=f.hub.db.prepare('SELECT * FROM drawings WHERE id=?').get(DRAWING);
     for (const body of [
-      {updatedDrawings:[{id:DRAWING,changes:{title:'Forbidden batch'}}],conf:{holidays:[]}},
+      {updatedDrawings:[{id:DRAWING,changes:{title:'Forbidden batch'}}],conf:{password:'unauthorized-change'}},
       {updatedDrawings:[{id:DRAWING,changes:{title:'Forbidden batch',unknown:'x'}}]},
       {updatedDrawings:[{id:DRAWING,changes:{title:'Forbidden batch'}}],deletedDrawingIds:['dwg-002']},
       {updatedDrawings:[{id:DRAWING,changes:{title:'Forbidden batch'}}],reviewTracker:{[DRAWING]:{unassigned:{done:true}}}},

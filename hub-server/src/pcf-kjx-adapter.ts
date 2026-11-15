@@ -11,7 +11,7 @@ export const KJX_PCF_ADAPTER = `<script id="pahub-kjx-permissions">
    if(response.status===401&&body.login){const login=new URL(body.login);login.searchParams.set('app','pahub');login.searchParams.set('path',location.pathname+location.search);location.assign(login.toString());}
    else if(response.status===403&&body.denied)location.assign(body.denied);
    else if(response.status===403&&body.capability==='project.member'){notice('You no longer have access to this workspace. Ask to be added to Team Setup.');setTimeout(()=>location.assign('/'),1000);}
-   else if(response.status===403&&body.error==='forbidden')notice("You don't have permission to do this.");
+   else if(response.status===403&&body.error==='forbidden'){notice("You don't have permission to do this.");if(String(args[0]).endsWith('/ops')){Object.assign(state,structuredClone(hubBase));hubQueue=[];hubDirty.clear();hubBlocked=false;hubConflictItems=[];savedRevision=editRevision;await hubPersist();render();}}
    else if(response.status===503&&body.error==='auth_unavailable')notice('Sign-in service is temporarily unavailable. Try again in a minute.');
   }catch{}
   return response;
@@ -27,6 +27,22 @@ export const KJX_PCF_ADAPTER = `<script id="pahub-kjx-permissions">
   deny('[data-action="delete-comment"],[data-action="delete-round"],[data-action="delete-image"]','pcf.comment.edit_any');
   deny('[data-action="import-json"],#import-json-btn','pcf.replace');
   deny('#more-btn', 'pcf.comment.create');
+  if(!can('pcf.comment.edit_any')){
+   for(const comment of state.comments){
+    const owns=comment.rounds.length&&comment.rounds.every(round=>round.initiatorId===ctx.user.id);
+    const node=document.querySelector('[data-cid="'+comment.id+'"].comment');if(!node)continue;
+    if(!owns){node.querySelectorAll('.page-field,.tag-toggle,.status-drag').forEach(hide);}
+    for(const round of comment.rounds){
+     const row=document.getElementById('round-'+round.id);if(!row)continue;
+     for(const side of ['owner','reply'])if(side==='reply'||round.initiatorId!==ctx.user.id){
+      const editor=row.querySelector('.editor[data-side="'+side+'"]');if(editor){editor.contentEditable='false';editor.setAttribute('aria-readonly','true');}
+      row.querySelectorAll('[data-action="attach"][data-side="'+side+'"],[data-action="delete-image"][data-side="'+side+'"]').forEach(hide);
+     }
+     if(round.initiatorId!==ctx.user.id)row.querySelectorAll('.resize-handle').forEach(hide);
+    }
+   }
+   document.querySelectorAll('[data-name-field="responder"],.pcf-date').forEach(node=>{node.disabled=true;});
+  }
   if(!writer){
    document.querySelectorAll('[contenteditable="true"]').forEach(node=>{node.contentEditable='false';node.setAttribute('aria-readonly','true');});
    document.querySelectorAll('.page-field,.person-input,.tag-toggle,.resize-handle,.status-drag,.attach-button,.pcf-date,#format-bar,#format-tools,#font-family,#bold-btn,#italic-btn,#underline-btn').forEach(hide);
@@ -38,6 +54,13 @@ export const KJX_PCF_ADAPTER = `<script id="pahub-kjx-permissions">
   const ctx=context();if(!ctx||ctx.mode!=='kjx')return;
   const privileged=['admin','manager'].includes(ctx.user.role);
   let candidates=[ctx.user],directoryAvailable=false;
+  const nativeEditable=editable;
+  editable=function(comment,quiet=false,round=null,side=null){
+    if(!privileged && (ctx.user.role!=='reviewer' || round && (round.initiatorId!==ctx.user.id || side==='reply'))){if(!quiet)notice("You don't have permission to do this.");return false;}
+    return nativeEditable(comment,quiet,round,side);
+  };
+  const nativeSave=hubSave;
+  hubSave=async function(...args){await nativeSave(...args);if(!hubQueue.length&&!hubDirty.size)await hubPersist();};
   const nativeRound=makeRound;
   makeRound=function(...args){const round=nativeRound(...args);round.initiator=ctx.user.name;round.initiatorId=ctx.user.id;return round;};
   const nativeOps=hubOps;

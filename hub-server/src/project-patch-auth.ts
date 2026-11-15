@@ -36,7 +36,7 @@ export function authorizeProjectPatch(db: DatabaseSync, project: string, body: R
         for (const _id of value || []) require('drawing.void');
         break;
       case 'conf':
-        for (const field of Object.keys(value || {})) require(!existingProject && ['reviewers','disciplineDefaults','defaultAssignees','holidays','roundACycle','otherRoundsCycle','displayName','autoSyncInterval','projectSummary'].includes(field) ? 'project.create' : ['reviewers','disciplineDefaults','defaultAssignees'].includes(field) ? 'team.setup' : 'settings.write');
+        for (const field of Object.keys(value || {})) require(!existingProject && ['reviewers','disciplineDefaults','defaultAssignees','holidays','roundACycle','otherRoundsCycle','displayName','autoSyncInterval','projectSummary'].includes(field) ? 'project.create' : ['reviewers','disciplineDefaults','defaultAssignees'].includes(field) ? 'team.setup' : ['holidays','roundACycle','otherRoundsCycle','displayName','autoSyncInterval','projectSummary'].includes(field) ? 'project.settings' : 'settings.write');
         break;
       case 'confBase':
         // Conflict baselines are not persisted, but unknown keys still fail closed.

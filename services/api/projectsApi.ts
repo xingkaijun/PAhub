@@ -4,7 +4,7 @@ import { apiClient, ApiError, type ApiClient, type ApiRequestOptions } from './a
 export interface ProjectListItem { id: string; name: string; storagePath?: string; passwordProtected?: boolean }
 export interface AuditLogPage { entries: AuditEntry[]; truncated: boolean }
 export const projectResource = (projectId: string, resource = '') => 'projects/' + encodeURIComponent(projectId) + (resource ? '/' + resource : '');
-export interface DrawingsByIdResult { drawings: Drawing[]; missing: string[]; reviewTracker: ReviewTrackerData }
+export interface DrawingsByIdResult { assigneeNames?: Record<string,string>; drawings: Drawing[]; missing: string[]; reviewTracker: ReviewTrackerData }
 /** null when the server answered 304: nothing changed since the copy this client already holds. */
 export type IfChanged<T> = T | null;
 /** The server has no project with this id (404): it was deleted, or never reached the server. */

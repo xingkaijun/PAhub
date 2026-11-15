@@ -10,6 +10,14 @@ import { ensureDrawingHasId, normalizeProjectDrawingIds, stripProjectPayload, re
 import { editableDrawingUpdates, applyDrawingUpdates } from '../lib/drawing-edit';
 import { describeVerification } from '../lib/project-save';
 import type { AuditLogResult, ProjectSlice, SliceCreator } from './types';
+const editSnapshots = new WeakMap<Function, Map<string, Project>>();
+function rememberProject(get: Function, state: any, id: string | null) {
+  if(state.session?.mode!=='kjx'||!id)return;
+  const project=state.data.projects.find((p:Project)=>p.id===id);if(!project)return;
+  let snapshots=editSnapshots.get(get);if(!snapshots){snapshots=new Map();editSnapshots.set(get,snapshots);}
+  if(!snapshots.has(id))snapshots.set(id,structuredClone(project));
+}
+const allowedEdit=(state:any,capability:string)=>state.session?.mode!=='kjx'||state.session.permissions?.includes(capability);
 const generateId = () => Math.random().toString(36).substr(2, 9);
 const DEFAULT_DATA: AppData = {
   lastUpdated: new Date().toISOString(),
@@ -115,7 +123,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
         if (result.reviewTracker?.[id]) remoteTracker[id] = result.reviewTracker[id];
         else delete remoteTracker[id];
       }
-      const merged = mergeProjectPreservingDirty(local, { ...local, drawings }, state._dirtyDrawingIds, state._deletedDrawingIds, state._dirtyConfKeys.size ? state._dirtyConfKeys : state._dirtyConf, state.reviewTracker, remoteTracker, state._dirtyTrackerDrawingIds, state._dirtyTracker, state._dirtyDrawingFields);
+      const merged = mergeProjectPreservingDirty(local, { ...local, drawings, ...(result.assigneeNames ? {assigneeNames:result.assigneeNames} : {}) }, state._dirtyDrawingIds, state._deletedDrawingIds, state._dirtyConfKeys.size ? state._dirtyConfKeys : state._dirtyConf, state.reviewTracker, remoteTracker, state._dirtyTrackerDrawingIds, state._dirtyTracker, state._dirtyDrawingFields);
       changed = merged.changedDrawings;
       return {
         data: { ...state.data, projects: state.data.projects.map(p => p.id === projectId ? merged.project : p) },
@@ -165,10 +173,12 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     },
     activeProjectId: state.activeProjectId === projectId ? null : state.activeProjectId,
   })),
-  updateSettings: (newSettings) => set((state) => ({
+  updateSettings: (newSettings) => set((state) => !allowedEdit(state,'settings.write') ? state : ({
     data: { ...state.data, settings: { ...state.data.settings, ...newSettings } },
   })),
   addDrawing: (drawing) => set((state) => {
+    if(!allowedEdit(state,'bulk.import'))return state;
+    rememberProject(get,state,state.activeProjectId);
     const { activeProjectId, data } = state;
     if (!activeProjectId)
       return state;
@@ -201,6 +211,8 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     };
   }),
   updateDrawing: (id, updates) => set((state) => {
+    if(!allowedEdit(state,'drawing.update'))return state;
+    rememberProject(get,state,state.activeProjectId);
     const { activeProjectId } = state;
     if (!activeProjectId)
       return state;
@@ -240,6 +252,8 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     };
   }),
   deleteDrawing: (id) => set((state) => {
+    if(!allowedEdit(state,'drawing.void'))return state;
+    rememberProject(get,state,state.activeProjectId);
     const { activeProjectId } = state;
     if (!activeProjectId)
       return state;
@@ -257,6 +271,8 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     };
   }),
   addRemark: (drawingId, content) => set((state) => {
+    if(!allowedEdit(state,'drawing.update'))return state;
+    rememberProject(get,state,state.activeProjectId);
     const { activeProjectId } = state;
     if (!activeProjectId)
       return state;
@@ -287,6 +303,8 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     };
   }),
   deleteRemark: (drawingId, remarkId) => set((state) => {
+    if(!allowedEdit(state,'drawing.update'))return state;
+    rememberProject(get,state,state.activeProjectId);
     const { activeProjectId } = state;
     if (!activeProjectId)
       return state;
@@ -316,6 +334,8 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
       get().updateDrawing(update.id, update.changes);
   },
   resetAllAssignees: () => set((state) => {
+    if(!allowedEdit(state,'team.setup'))return state;
+    rememberProject(get,state,state.activeProjectId);
     const { activeProjectId, data } = state;
     if (!activeProjectId)
       return state;
@@ -344,6 +364,8 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     };
   }),
   bulkImportDrawings: (drawings) => set((state) => {
+    if(!allowedEdit(state,'bulk.import'))return state;
+    rememberProject(get,state,state.activeProjectId);
     const { activeProjectId } = state;
     if (!activeProjectId)
       return state;
@@ -537,6 +559,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
           const { localOnly: _localOnly, ...rest } = p;
           return rest;
         }) } }));
+      if(!get().hasUnsavedChanges())editSnapshots.get(get)?.delete(projectId);
       return unverifiedIds.size === 0;
     }
     catch (err: any) {
@@ -592,8 +615,21 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
         return false;
       }
       if (get().session?.mode === 'kjx' && err instanceof ApiError && err.status === 403) {
-        const message = 'Save was denied and nothing was written. Reload this workspace to discard unsaved changes before continuing.';
-        set({ isLoading: false, error: message, projectNotice: { message, projectId, at: Date.now(), requiresReload: true } });
+        const message = 'You do not have permission. Unsaved changes were rolled back.';
+        let restored=editSnapshots.get(get)?.get(projectId);
+        let tracker=reviewTracker;
+        try { restored=await projectsApi.loadProject(project); tracker=await projectsApi.loadReviewTracker(projectId); } catch { /* The pre-edit copy also works offline or after access revocation. */ }
+        if(!restored){
+          restored=structuredClone(project);
+          for(const drawing of restored.drawings)for(const [field,value]of Object.entries(_dirtyDrawingBase[drawing.id]?.values || {}))(drawing as any)[field]=value;
+          for(const [key,value]of Object.entries(_dirtyConfBase))(restored.conf as any)[key]=value;
+          restored.drawings=restored.drawings.filter(d=>!!d.rev);
+        }
+        const rollback=restored;
+        set(current=>({data:{...current.data,projects:current.data.projects.map(p=>p.id===projectId?rollback:p)},
+          ...(current.activeProjectId===projectId ? {reviewTracker:tracker,_dirtyDrawingIds:new Set<string>(),_dirtyDrawingFields:{},_dirtyDrawingBase:{},_deletedDrawingIds:new Set<string>(),_dirtyConf:false,_dirtyConfKeys:new Set<keyof ProjectConfig>(),_dirtyConfBase:{},_dirtyTracker:false,_dirtyTrackerDrawingIds:new Set<string>()} : {}),
+          isLoading:false,error:message,projectNotice:{message,projectId,at:Date.now()}}));
+        editSnapshots.get(get)?.delete(projectId);
         return false;
       }
       console.error("Push failed", err);
@@ -741,6 +777,8 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
   },
   testConnection: async () => projectsApi.testConnection(),
   updateProjectConfig: (projectId, updates) => set((state) => {
+    if(!allowedEdit(state,'project.settings'))return state;
+    rememberProject(get,state,projectId);
     // Passwords have a separate write-only settings flow; never put a draft in the persisted store.
     updates = withoutProjectSecrets(updates);
     const shouldRecalculateDeadlines = updates.holidays !== undefined ||
@@ -779,6 +817,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     };
   }),
   restoreProject: (project) => set((state) => {
+    if(state.session?.mode==='kjx')return state;
     const restoredProject = withoutProjectSecrets(project);
     // 恢复后标记所有 drawing 为脏，确保用户手动保存时同步到云端
     const newDirty = new Set(state._dirtyDrawingIds);
@@ -804,6 +843,8 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => ({
     };
   }),
   toggleRemarkStatus: (drawingId, remarkId) => set((state) => {
+    if(!allowedEdit(state,'drawing.update'))return state;
+    rememberProject(get,state,state.activeProjectId);
     const { activeProjectId } = state;
     if (!activeProjectId)
       return state;

@@ -80,6 +80,7 @@ export interface ProjectConfig {
 }
 
 export interface Project {
+  assigneeNames?: Record<string,string>;
   id: string;
   /** Set by "New project" until the server has the project; a 404 then opens the local copy instead of "project does not exist". */
   localOnly?: boolean;
