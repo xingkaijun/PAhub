@@ -1,5 +1,7 @@
 # 未保存数据提示功能
 
+> **2026-11-15 用户说明：** 当前 GUIDE / [MANUAL.md](../MANUAL.md) 按 kjx 与 legacy 分开说明。kjx 未授权字段源头只读，保存 403 会回滚乐观修改并清除待同步标记；不会保留被拒内容供下一次重试。常规配置自动保存，Data Management 不再提供 Save to Cloud / Cloud Fetch / Local Restore；Local Backup 与 Fix Deadline 仅 admin。下面保留早期功能说明，Edit Mode / 共享密码等术语仅为 legacy 参考。
+
 ## 功能概述
 
 为了防止用户忘记保存数据到数据库，系统现在会在有未保存更改时提供多重提示。

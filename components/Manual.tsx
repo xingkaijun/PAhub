@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import {useStore} from '../store';
+import {KjxManual} from './KjxManual';
 import {
   BookOpen, Terminal, Cloud, FileText, Settings,
   HelpCircle, ChevronRight, Info, AlertCircle, Send,
@@ -34,7 +35,8 @@ const TipBadge = ({ label }: { label: string }) => (
 );
 
 // The full Chinese manual is a static page (public/manual/index.html, screenshots in public/manual/img/),
-// so it can also be opened on its own at /manual/. The English quick guide below is the original English Guide.
+// so it can also be opened on its own at /manual/. English content follows the session mode;
+// the original quick guide below is retained for legacy installations.
 const EnglishGuide: React.FC = () => {
   return (
     <div data-testid="english-guide" className="flex-1 min-h-0 overflow-y-auto scrollbar-thin scrollbar-thumb-slate-200 bg-white p-4 sm:p-8">
@@ -153,7 +155,7 @@ export const Manual: React.FC = () => {
       <div className="shrink-0 flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 bg-slate-50/80 px-4 py-2">
         <div className="flex items-center gap-2 min-w-0">
           <BookOpen size={16} className="shrink-0 text-teal-600" />
-          <span className="text-[12px] font-black text-slate-800 truncate">{language === 'zh' ? 'PAhub 操作手册' : 'Operation Manual & Tips'}</span>
+          <span className="text-[12px] font-black text-slate-800 truncate">{language === 'zh' ? 'PAhub 操作手册' : 'Operation Manual & Tips'} · {kjx ? 'kjx' : 'legacy'}</span>
         </div>
         <div className="flex items-center gap-2">
           <div role="tablist" aria-label="Guide language" className="flex items-center gap-1 rounded-full border border-slate-200 bg-slate-100/70 p-0.5">
@@ -168,7 +170,7 @@ export const Manual: React.FC = () => {
       {kjx && <p className="shrink-0 px-4 py-2 text-xs text-teal-800 bg-teal-50">{language==='zh' ? '保存状态显示待同步项、保存中、上次成功时间或持续失败原因；临时错误退避重试，登录／权限／数据过大需处理。未同步修改保存失败时会阻止切换项目。' : 'Save status shows pending, saving, saved time or a persistent failure. Temporary failures retry with backoff; sign-in, permission and oversized-data errors require attention. A workspace switch is blocked until pending changes are saved.'}</p>}
       {language === 'zh'
         ? <iframe data-testid="manual-frame" title="PAhub 中文操作手册" src="/manual/" className="flex-1 w-full min-h-[480px] border-0 bg-white" />
-        : <EnglishGuide />}
+        : kjx ? <KjxManual /> : <EnglishGuide />}
     </div>
   );
 };
