@@ -8,12 +8,18 @@ export function registerActivityRoutes(router: Router, db: DatabaseSync) {
     const p=safeId(ctx.params[0]),from=ctx.url.searchParams.get('from') || '',to=ctx.url.searchParams.get('to') || '';
     if (!from || !to) return errorResponse('Both `from` and `to` (ISO timestamps) are required.',400);
     const actorColumns=router.kjx ? ',actor_id,actor_name' : '';
-    const rows=db.prepare("SELECT id,row_id,action,detail,created_at"+actorColumns+" FROM audit_log WHERE project_id=? AND action IN ('STATUS','COMMENTS','BUILDER_REPLY') AND created_at>=? AND created_at<? ORDER BY created_at DESC,id DESC LIMIT 2000").all(p,from,to);
+    // Keyset pagination avoids skipped rows when new records arrive.
+    const cursor=ctx.url.searchParams.get('cursor');
+    let before: [string,string] | undefined;
+    if(cursor) { try { const value=JSON.parse(cursor); if(!Array.isArray(value)||value.length!==2||value.some(v=>typeof v!=='string'))throw Error(); before=value as [string,string]; } catch { return errorResponse('Invalid audit cursor',400); } }
+    const rows=db.prepare("SELECT id,row_id,action,detail,created_at"+actorColumns+" FROM audit_log WHERE project_id=? AND action IN ('STATUS','COMMENTS','BUILDER_REPLY') AND created_at>=? AND created_at<?"+(before?" AND (created_at<? OR (created_at=? AND id<?))":"")+" ORDER BY created_at DESC,id DESC LIMIT 501").all(p,from,to,...(before?[before[0],before[0],before[1]]:[]));
+    const more=rows.length>500; if(more)rows.pop();
+    const last=rows.at(-1);
     const entries=rows.map(row => {
       let detail: Record<string,unknown> = {}; try {detail=JSON.parse(String(row.detail || '{}'));} catch {}
       return {id:String(row.id || ''),drawingId:String(row.row_id || ''),action:String(row.action || ''),createdAt:String(row.created_at || ''),customId:String(detail.customId || ''),drawingNo:String(detail.drawingNo || ''),source:String(detail.source || 'app'),...(router.kjx ? {actorId:row.actor_id ?? null,actorName:row.actor_name ?? null} : {}),detail};
     });
-    return Response.json({entries,truncated:rows.length>=2000});
+    return Response.json({entries,truncated:more,nextCursor:more&&last?JSON.stringify([String(last.created_at),String(last.id)]):undefined});
   }});
   // Last-seen is an administrative presence marker: recording it is reserved for administrators.
   router.add({pattern:/^\/api\/projects\/([^/]+)\/heartbeat$/,methods:['GET','PUT'],policies:[{method:'GET',capability:'view'},{method:'PUT',capability:'admin.only'}],handle:ctx => {

@@ -23,3 +23,19 @@ test('P0 hosted PCF member rejection deletes IndexedDB batch and permanently sto
   assert.equal(w.pahubPendingIsRejected('another-document'),true,'project marker refuses recovery of older queues even without a registry entry');
  }finally{w.dispatchEvent(new w.Event('pagehide'));dom.window.close();}
 });
+
+test('P1 hosted PCF timer is fixed at fifteen minutes; edits/manual saves do not shift it',async()=>{
+ const dom=new JSDOM('<body></body>',{url:'http://hub.test/pcf/p/d',runScripts:'outside-only'});const w=dom.window as any;
+ w.Response=Response;w.structuredClone=structuredClone;w.AbortController=AbortController;
+ w.fetch=async()=>Response.json({ok:true});
+ w.eval(`window.PAHUB={mode:'kjx',projectId:'p',user:{id:'owner'}};var state={documentId:'doc'},hubBase={},hubQueue=[],hubDirty=new Set(),hubBlocked=false,hubConflictItems=[],savedRevision=0,editRevision=0,writeBusy=false,autoPaused=false,pendingImages=0,autoTimer,hubRecovery=Promise.resolve(),calls=0,intervals=[];
+ function hubURL(tail){return 'http://hub.test/'+tail;}function hubOps(){return [];}function render(){}function dirty(){return editRevision!==savedRevision;}function touch(){editRevision++;}async function hubPersist(){}async function hubSave(){calls++;savedRevision=editRevision;}function restartAutoSave(){};
+ window.setInterval=(fn,ms)=>{intervals.push({fn,ms});return intervals.length;};window.clearInterval=()=>{};`);
+ try{
+  w.eval(KJX_SAVE_STATUS.replace(/^<script[^>]*>|<\/script>$/g,''));w.document.dispatchEvent(new w.Event('DOMContentLoaded'));
+  assert.equal(w.eval('intervals[0].ms'),900000);assert.match(w.document.getElementById('pahub-save-status').textContent,/Next autosave:/);
+  w.eval('touch();touch()');assert.equal(w.eval('calls'),0);await w.eval('hubSave(false)');assert.equal(w.eval('calls'),1);
+  w.eval('intervals[0].fn()');assert.equal(w.eval('calls'),1,'clean cadence tick sends nothing');w.eval('touch();intervals[0].fn()');await Promise.resolve();assert.equal(w.eval('calls'),2);
+  assert.equal(w.eval('intervals.filter(x=>x.ms===900000).length'),1,'touch/manual save do not restart schedule');
+ }finally{w.dispatchEvent(new w.Event('pagehide'));dom.window.close();}
+});

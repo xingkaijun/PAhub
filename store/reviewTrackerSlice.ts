@@ -1,3 +1,4 @@
+import {withSaveTimeout} from '../lib/save-control';
 import type { Project, ReviewTrackerData } from '../types';
 import { isProjectNotFound, projectsApi } from '../services/api/projectsApi';
 import { mergeReviewTracker, clearReviewTracker, verifySentState, type SentDrawingExpectation, type SendVerification } from '../lib/review-tracker';
@@ -6,6 +7,29 @@ import type { ReviewTrackerSlice, SliceCreator } from './types';
 let trackerLoadedFor: string | null = null;
 
 export const createReviewTrackerSlice: SliceCreator<ReviewTrackerSlice> = (set, get) => ({
+  trackerWrites: {},
+  retryTrackerWrite: async (key: string) => {
+    const intent = get().trackerWrites[key];
+    if (!intent || intent.phase === 'saving') return false;
+    const session = get().session;
+    if (intent.actorId && intent.actorId !== session?.user?.id) return false;
+    const update = (phase: 'saving' | 'failed', reason?: string) => set(state => ({trackerWrites:{...state.trackerWrites,[key]:{...intent,phase,reason}}}));
+    update('saving');
+    let writeError: unknown;
+    try { await withSaveTimeout(signal => projectsApi.saveReviewTracker(intent.projectId, {[intent.drawingId]:{[intent.assignee]:{done:intent.done,doneAt:intent.doneAt}}}, signal)); }
+    catch (error) { writeError = error; }
+    // The PUT may have committed even when its response was lost. A fresh read is authoritative.
+    try {
+      const remote = await withSaveTimeout(signal => projectsApi.loadReviewTracker(intent.projectId, signal));
+      const mark = remote[intent.drawingId]?.[intent.assignee];
+      if (!!mark?.done !== intent.done) throw Error('Read-back does not confirm the requested mark');
+      set(state => {
+        const trackerWrites = {...state.trackerWrites}; delete trackerWrites[key];
+        return {trackerWrites, ...(state.activeProjectId === intent.projectId ? {reviewTracker:{...state.reviewTracker,[intent.drawingId]:{...state.reviewTracker[intent.drawingId],[intent.assignee]:mark || {done:false}}}} : {})};
+      });
+      return true;
+    } catch (error) { update('failed', 'Awaiting confirmation: '+String(writeError || error)); return false; }
+  },
   reviewTracker: {},
   loadReviewTracker: async (projectId: string, force = false) => {
     // In the hub build the project's live stream keeps the tracker current after the first load, so a tab
@@ -36,53 +60,11 @@ export const createReviewTrackerSlice: SliceCreator<ReviewTrackerSlice> = (set, 
     const current = get().reviewTracker[drawingId]?.[assignee];
     const newDone = !current?.done;
     const doneAt = newDone ? new Date().toISOString() : undefined;
-    if(session?.mode==='kjx') {
-      const projectId=get().activeProjectId;if(!projectId)return;
-      void projectsApi.saveReviewTracker(projectId,{[drawingId]:{[assignee]:{done:newDone,doneAt}}}).then(()=>{
-        set(state=>({reviewTracker:{...state.reviewTracker,[drawingId]:{...(state.reviewTracker[drawingId]||{}),[assignee]:{done:newDone,doneAt}}}}));
-      }).catch(error=>set({error:'Tracker save failed: '+String(error)}));
-      return;
-    }
-    // 1. 立即更新本地状态，并标记 tracker 为脏数据
-    const newDirtyTrackerIds = new Set(get()._dirtyTrackerDrawingIds);
-    newDirtyTrackerIds.add(drawingId);
-    set(state => ({
-      _dirtyTracker: true,
-      _dirtyTrackerDrawingIds: newDirtyTrackerIds,
-      reviewTracker: {
-        ...state.reviewTracker,
-        [drawingId]: {
-          ...(state.reviewTracker[drawingId] || {}),
-          [assignee]: { done: newDone, doneAt }
-        }
-      }
-    }));
-    // 2. 异步保存到服务端（fire-and-forget，但失败时脏标记已保留可供手动重试）
-    const { data, activeProjectId } = get();
-    if (activeProjectId) {
-      const project = data.projects.find(p => p.id === activeProjectId);
-      if (project) {
-        const singleUpdate = { [drawingId]: { [assignee]: { done: newDone, doneAt } } };
-        projectsApi.saveReviewTracker(project.id, singleUpdate)
-          .then(result => {
-          // 回读校验说没落库时保留脏标记，下次手动/自动保存兜底重试。
-          // 校验查询自身失败（result.verification.error）只说明无法确认，按成功处理
-          const verification = result?.verification;
-          if (verification && !verification.ok && !verification.error) {
-            console.error(`[Tracker] Not persisted: ${drawingId}/${assignee}, staying dirty for retry`);
-            return;
-          }
-          if (verification?.error) {
-            console.warn(`[Tracker] Verification unavailable: ${verification.error}`);
-          }
-          console.log(`[Tracker] Saved: ${drawingId}/${assignee} = ${newDone}`);
-        })
-          .catch(err => {
-          console.error('[Tracker] Save failed (will retry on next manual/auto save):', err);
-          // 不恢复本地状态，脏标记已保留，下次手动/自动保存时会兜底
-        });
-      }
-    }
+    const projectId=get().activeProjectId;if(!projectId)return;
+    const key=JSON.stringify([projectId,drawingId,assignee]);
+    if(get().trackerWrites[key])return;
+    set(state=>({trackerWrites:{...state.trackerWrites,[key]:{projectId,drawingId,assignee,done:newDone,doneAt,actorId:session?.user?.id,phase:'failed'}}}));
+    void get().retryTrackerWrite(key);
   },
   clearTrackerForDrawings: (drawingIds: string[]) => {
     if (!drawingIds || drawingIds.length === 0)
@@ -117,6 +99,7 @@ export const createReviewTrackerSlice: SliceCreator<ReviewTrackerSlice> = (set, 
       ]);
     }
     catch (err: any) {
+      set(state=>({_dirtyDrawingIds:new Set([...state._dirtyDrawingIds,...expected.map(item=>item.id)]),_dirtyTracker:true,_dirtyTrackerDrawingIds:new Set([...state._dirtyTrackerDrawingIds,...expected.map(item=>item.id)])}));
       // loadProject 在服务器 404 时抛 ProjectNotFoundError
       if (isProjectNotFound(err))
         return { ...empty, ok: false, error: 'Project missing on server' };

@@ -46,17 +46,20 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => {
  return ({
   saveStatuses:{},pendingSaves:{},
   saveProject:(id,options={})=>lock.run(id,async()=>{
+    const intents=Object.entries(get().trackerWrites).filter(([,intent])=>intent.projectId===id);
+    for(const [key] of intents) if(!await get().retryTrackerWrite(key))return false;
     const status=get().saveStatuses[id];
     if(!get().hasUnsavedChanges()&&!get().pendingSaves[id]&&!get().data.projects.find(p=>p.id===id)?.localOnly)return true;
     if(status?.failure==='forbidden' && get().hasUnsavedChanges() && !get().pendingSaves[id]){set(current=>({saveStatuses:{...current.saveStatuses,[id]:{phase:'saved',attempts:0,lastSuccess:status.lastSuccess}}}));return get().saveProjectAttempt(id);}
-    if(get().session?.mode!=='kjx')return get().saveProjectAttempt(id);
-    if(!options.manual && status?.phase==='failed' && (!status.retryAt || status.retryAt>Date.now()))return false;
+    if(get().session?.mode!=='kjx' && status?.phase!=='unconfirmed' && (!status?.failure || !retryable(status.failure)))return get().saveProjectAttempt(id);
+    if(!options.manual && (status?.phase==='failed'||status?.phase==='unconfirmed') && (!status.retryAt || status.retryAt>Date.now()))return false;
     if(status?.failure==='login'||status?.failure==='oversize')return false;
     if(status?.failure==='forbidden' && !get().hasUnsavedChanges())return false;
     return get().saveProjectAttempt(id);
   }),
   membershipRecovery: {},
   data: { ...DEFAULT_DATA, projects: [], settings: { ...DEFAULT_DATA.settings } },
+  nextAutosaveAt: 0,
   isLoading: false,
   error: null,
   activeProjectId: null,
@@ -148,14 +151,14 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => {
   },
   hasUnsavedChanges: () => {
     const state = get();
-    return state._dirtyDrawingIds.size > 0 ||
+    return Object.values(state.trackerWrites).some(intent=>intent.projectId===state.activeProjectId) || state._dirtyDrawingIds.size > 0 ||
       state._deletedDrawingIds.size > 0 ||
       state._dirtyConf ||
       state._dirtyTracker;
   },
   getUnsavedChangesCount: () => {
     const state = get();
-    return state._dirtyDrawingIds.size + state._deletedDrawingIds.size +
+    return Object.values(state.trackerWrites).filter(intent=>intent.projectId===state.activeProjectId).length + state._dirtyDrawingIds.size + state._deletedDrawingIds.size +
       (state._dirtyConf ? 1 : 0) + (state._dirtyTracker ? 1 : 0);
   },
   setActiveProject: (projectId) => set({ activeProjectId: projectId }),
@@ -430,7 +433,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => {
     const previousStatus=get().saveStatuses[projectId];
     const status=(value:any)=>set(current=>({saveStatuses:{...current.saveStatuses,[projectId]:value}}));
     status({...previousStatus,phase:'saving',attempts:previousStatus?.attempts || 0,retryAt:undefined});
-    set({ isLoading: true, error: null });
+    set({ error: null });
     try {
       // 只发改过的字段，并带上开始修改时的版本和旧值，服务端据此判断是否被别人先改了
       const updatedDrawings = project.drawings.filter(d => dirtyDrawingSnapshot.has(d.id)).map(d => {
@@ -472,18 +475,20 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => {
       const saveResult = state.session?.mode==='kjx' ? await withSaveTimeout(signal=>projectsApi.saveDelta(projectId,request,signal)) : await projectsApi.saveDelta(projectId,request);
       // 服务端回读校验：没落库的图纸不清脏标记，交给下次保存重试
       const verification = saveResult?.verification;
+      if (verification?.error) {
+        const attempts = (previousStatus?.attempts || 0) + 1;
+        status({phase:'unconfirmed',failure:'network',reason:verification.error,attempts,lastSuccess:previousStatus?.lastSuccess,retryAt:Date.now()+retryDelay(attempts)});
+        return false;
+      }
       const unverifiedIds = new Set(verification && !verification.ok && !verification.error
         ? verification.mismatched.map(m => m.id)
         : []);
-      if (verification?.error) {
-        console.warn(`[Save] Write verification unavailable: ${verification.error}`);
-      }
       const verificationMessage = describeVerification(verification);
       if (verificationMessage)
         console.error(`[Save] ${verificationMessage}`);
       // 保存期间可能发生新修改：只清理本次 payload 中已发送且未再次改变的脏标记
       set(state => {
-        if (project.localOnly && state.activeProjectId !== projectId) return { isLoading: false };
+        if (project.localOnly && state.activeProjectId !== projectId) return {};
         const currentProject = state.data.projects.find(p => p.id === projectId);
         const nextDirtyDrawingIds = new Set(state._dirtyDrawingIds);
         const nextFields = { ...state._dirtyDrawingFields };
@@ -560,7 +565,6 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => {
           ? !confKeySnapshot.size && !sameValue(currentProject?.conf,project.conf) && state._dirtyConf
           : state._dirtyConf);
         return {
-          isLoading: false,
           error: verificationMessage ?? state.error,
           _dirtyDrawingIds: nextDirtyDrawingIds,
           _dirtyDrawingFields: nextFields,
@@ -583,7 +587,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => {
         }) } }));
       if(!get().hasUnsavedChanges())editSnapshots.get(get)?.delete(projectId);
       set(current=>{const pendingSaves={...current.pendingSaves};delete pendingSaves[projectId];return{pendingSaves};});
-      status({phase:'saved',lastSuccess:Date.now(),attempts:0});
+      status(unverifiedIds.size ? {phase:'unconfirmed',failure:'network',reason:'Read-back mismatch; pending sync retained',attempts:1,lastSuccess:previousStatus?.lastSuccess,retryAt:Date.now()+retryDelay(1)} : {phase:'saved',lastSuccess:Date.now(),attempts:0});
       return unverifiedIds.size === 0;
     }
     catch (err: any) {
@@ -627,7 +631,6 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => {
           const currentConf = state.data.projects.find(p => p.id === projectId)?.conf;
           const conf = confConflicts.length && currentConf ? applyConfigConflicts(currentConf, confConflicts, state._dirtyConfKeys, state._dirtyConfBase) : null;
           return {
-            isLoading: false,
             error: message,
             saveConflict: { message, drawingIds: conflicts.map(c => c.id), at: Date.now() },
             _dirtyDrawingIds: nextDirtyDrawingIds,
@@ -656,12 +659,12 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => {
         const rollback=restored;
         set(current=>({data:{...current.data,projects:current.data.projects.map(p=>p.id===projectId?rollback:p)},
           ...(current.activeProjectId===projectId ? {reviewTracker:tracker,_dirtyDrawingIds:new Set<string>(),_dirtyDrawingFields:{},_dirtyDrawingBase:{},_deletedDrawingIds:new Set<string>(),_dirtyConf:false,_dirtyConfKeys:new Set<keyof ProjectConfig>(),_dirtyConfBase:{},_dirtyTracker:false,_dirtyTrackerDrawingIds:new Set<string>()} : {}),
-          isLoading:false,error:message,projectNotice:{message,projectId,at:Date.now()}}));
+          error:message,projectNotice:{message,projectId,at:Date.now()}}));
         editSnapshots.get(get)?.delete(projectId);
         return false;
       }
       console.error("Push failed", err);
-      set({ isLoading: false, error: err.message });
+      set({ error: err.message });
       return false;
     }
   },
@@ -785,6 +788,7 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => {
             : stripProjectPayload(p, false))
         },
         activeProjectId: projectId,
+        trackerWrites: state.session?.mode==='kjx'?state.trackerWrites:Object.fromEntries(Object.entries(state.trackerWrites).filter(([,intent])=>intent.projectId===projectId)),
         isLoading: false,
         _dirtyDrawingIds: new Set<string>(),
         _dirtyDrawingFields: {},
@@ -902,14 +906,14 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => {
       }
     };
   }),
-  loadAuditLog: async (projectId: string, fromISO: string, toISO: string): Promise<AuditLogResult> => {
+  loadAuditLog: async (projectId: string, fromISO: string, toISO: string, cursor?: string): Promise<AuditLogResult> => {
     const { data } = get();
     const project = data.projects.find(p => p.id === projectId);
     if (!project)
       return { entries: [], truncated: false, error: 'Project not found locally' };
     try {
-      const page = await projectsApi.loadAuditLog(project.id, fromISO, toISO);
-      return { entries: page?.entries || [], truncated: Boolean(page?.truncated) };
+      const page = await projectsApi.loadAuditLog(project.id, fromISO, toISO, undefined, cursor);
+      return { entries: page?.entries || [], truncated: Boolean(page?.truncated), nextCursor: page?.nextCursor };
     }
     catch (err: any) {
       return { entries: [], truncated: false, error: err?.message || 'Audit log request failed' };

@@ -1,3 +1,4 @@
+import {AUTOSAVE_INTERVAL_MS} from '../../lib/auto-save';
 // Hosted kjx page only; the persisted PCF schema/template and existing receipt
 // protocol stay unchanged. Template bindings are available after DOMContentLoaded.
 export const KJX_SAVE_STATUS = `<script id="pahub-save-control">
@@ -8,6 +9,17 @@ export const KJX_SAVE_STATUS = `<script id="pahub-save-control">
  window.pahubRemoveRejectedPending=async documentId=>{if(!window.indexedDB)return;await new Promise((resolve,reject)=>{const request=indexedDB.open('pahub-pcf-offline',1);request.onupgradeneeded=()=>request.result.createObjectStore('documents');request.onerror=()=>reject(request.error);request.onsuccess=()=>{const db=request.result,tx=db.transaction('documents','readwrite');tx.objectStore('documents').delete(documentId);tx.oncomplete=()=>{db.close();resolve();};tx.onerror=()=>{db.close();reject(tx.error);};};});};
  document.addEventListener('DOMContentLoaded',()=>{
   if(window.PAHUB?.mode!=='kjx')return;
+  const AUTOSAVE_INTERVAL_MS=${AUTOSAVE_INTERVAL_MS};
+  let nextAutosaveAt=Date.now()+AUTOSAVE_INTERVAL_MS,storageWarning='';
+  // Override only hosted scheduling; persisted/exported settings and legacy templates stay unchanged.
+  const nativeRestart=typeof restartAutoSave==='function'?restartAutoSave:null;
+  if(nativeRestart){restartAutoSave=function(){clearInterval(autoTimer);nextAutosaveAt=Date.now()+AUTOSAVE_INTERVAL_MS;autoTimer=setInterval(()=>{nextAutosaveAt=Date.now()+AUTOSAVE_INTERVAL_MS;if(dirty()&&!autoPaused&&!writeBusy&&!pendingImages)void hubSave(true);},AUTOSAVE_INTERVAL_MS);};restartAutoSave();}
+  const nativeSaveStatus=typeof hubSaveStatus==='function'?hubSaveStatus:null;
+  if(nativeSaveStatus)hubSaveStatus=function(){nativeSaveStatus();const label=document.getElementById('save-state');if(label)label.textContent=label.textContent.replace(/ · Auto-save.*$/,' · Auto-save 15 minutes (hosted kjx)');};
+  const nativeFileOptions=typeof hubFileOptions==='function'?hubFileOptions:null;
+  if(nativeFileOptions)hubFileOptions=function(){nativeFileOptions();const select=document.getElementById('autosave-setting');if(select){select.innerHTML='<option value="900">15 minutes (hosted kjx)</option>';select.value='900';select.disabled=true;}};
+  const hidden=()=>{if(document.hidden)void hubSave(true);};
+  document.addEventListener('visibilitychange',hidden);
   const rejectedKey='pahub.rejected-save:'+state.documentId;
   const registryKey='pahub.pcf-project-documents:'+projectId;
   try{const documents=JSON.parse(localStorage.getItem(registryKey)||'[]');if(!documents.includes(state.documentId))localStorage.setItem(registryKey,JSON.stringify([...documents,state.documentId]));}catch{}
@@ -18,11 +30,11 @@ export const KJX_SAVE_STATUS = `<script id="pahub-save-control">
   const texts={login:'Sign in again to continue saving',forbidden:'No permission. Unsaved changes were rolled back',oversize:'Data is too large. Contact an administrator',conflict:'Version conflict. Review the conflict dialog',network:'Network unavailable',timeout:'Save request timed out; confirmation is unknown',server:'Server error; confirmation is unknown',invalid:'Save rejected. Review the error'};
   function draw(){
    const pending=Math.max(hubOps(hubBase,state).length,hubQueue.reduce((n,item)=>n+item.body.ops.length,0));
-   box.replaceChildren();const label=document.createElement('span');label.textContent=status.phase==='saving'?'Saving…':status.phase==='failed'?'Save failed: '+status.reason:pending?'Pending sync: '+pending+' items':status.lastSuccess?'Saved · '+new Date(status.lastSuccess).toLocaleTimeString():'No pending changes';box.append(label);
+   box.replaceChildren();const label=document.createElement('span');label.textContent=status.phase==='saving'?'Saving…':status.phase==='failed'?'Save failed: '+status.reason:pending?'Pending sync: '+pending+' items':status.lastSuccess?'Saved · '+new Date(status.lastSuccess).toLocaleTimeString():'No pending changes';box.append(label);const next=document.createElement('span');next.textContent=' · Next autosave: '+new Date(nextAutosaveAt).toLocaleTimeString()+' (15 min)'+(storageWarning?' · '+storageWarning:'');box.append(next);
    if(status.retryAt){const time=document.createElement('span');time.textContent=' · Retry in '+Math.max(0,Math.ceil((status.retryAt-Date.now())/1000))+'s ('+new Date(status.retryAt).toLocaleTimeString()+')';box.append(time);}
    if(status.phase!=='saving' && (pending||status.phase==='failed')){const button=document.createElement('button');button.textContent=status.failure==='login'?'Sign in / check session':'Retry now';button.disabled=['forbidden','oversize'].includes(status.failure);button.style.marginLeft='12px';button.onclick=()=>status.failure==='login'?void window.fetch('/api/session',{cache:'no-store'}).then(r=>{if(r.ok){status={...status,failure:'network',retryAt:Date.now()};saveStatus();void hubSave(false);}}):void hubSave(false);box.append(button);}
   }
-  function saveStatus(){try{localStorage.setItem(key,JSON.stringify(status));}catch{}draw();clearTimeout(retryTimer);if(status.retryAt)retryTimer=setTimeout(()=>void hubSave(true),Math.max(0,status.retryAt-Date.now()));}
+  function saveStatus(){try{localStorage.setItem(key,JSON.stringify(status));}catch{storageWarning='Local status recovery unavailable (storage full or disabled); keep this page open. IndexedDB recovery is separate.';}draw();clearTimeout(retryTimer);if(status.retryAt)retryTimer=setTimeout(()=>void hubSave(true),Math.max(0,status.retryAt-Date.now()));}
   window.pahubRejectPendingSave=async(member=false)=>{
    let documents=[state.documentId];
    if(member)try{localStorage.setItem(projectKey,String(Date.now()));documents=[...new Set([...documents,...JSON.parse(localStorage.getItem(registryKey)||'[]')])];for(const id of documents)localStorage.setItem('pahub.rejected-save:'+id,'rejected');}catch{}
@@ -64,7 +76,7 @@ export const KJX_SAVE_STATUS = `<script id="pahub-save-control">
   };
   try{if(window.pahubPendingIsRejected(state.documentId)){hubRecovery=Promise.resolve(hubRecovery);void window.pahubRejectPendingSave();}}catch{}
   const revoked=event=>{if(event.key===projectKey || event.key===rejectedKey)void window.pahubRejectPendingSave();};window.addEventListener('storage',revoked);
-  renderTimer=setInterval(draw,1000);window.addEventListener('pagehide',()=>{clearInterval(renderTimer);clearTimeout(retryTimer);window.removeEventListener('storage',revoked);});saveStatus();
+  renderTimer=setInterval(draw,1000);window.addEventListener('pagehide',()=>{void hubSave(true);document.removeEventListener('visibilitychange',hidden);if(nativeRestart)clearInterval(autoTimer);clearInterval(renderTimer);clearTimeout(retryTimer);window.removeEventListener('storage',revoked);});saveStatus();
  });
 })();
 </script>`;

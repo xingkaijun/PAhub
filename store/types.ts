@@ -8,10 +8,12 @@ import type { SentDrawingExpectation, SendVerification } from '../lib/review-tra
 export interface AuditLogResult {
   entries: AuditEntry[];
   truncated: boolean;
+  nextCursor?: string;
   error?: string;
 }
 export interface ProjectSlice {
   data: AppData;
+  nextAutosaveAt: number;
   saveStatuses: Record<string,SaveStatus>;
   pendingSaves: Record<string,any>;
   saveProjectAttempt: (projectId:string)=>Promise<boolean>;
@@ -52,7 +54,7 @@ export interface ProjectSlice {
   updateProjectConfig: (projectId: string, updates: Partial<ProjectConfig>) => void;
   restoreProject: (project: Project) => void;
   toggleRemarkStatus: (drawingId: string, remarkId: string) => void;
-  loadAuditLog: (projectId: string, fromISO: string, toISO: string) => Promise<AuditLogResult>;
+  loadAuditLog: (projectId: string, fromISO: string, toISO: string, cursor?: string) => Promise<AuditLogResult>;
   _dirtyDrawingIds: Set<string>;
   _dirtyDrawingFields: DirtyDrawingFields;
   _dirtyDrawingBase: DirtyDrawingBase;
@@ -67,6 +69,8 @@ export interface ProjectSlice {
   _dirtyConfBase: DirtyConfBase;
 }
 export interface ReviewTrackerSlice {
+  trackerWrites: Record<string, {projectId:string; drawingId:string; assignee:string; actorId?:string; done:boolean; doneAt?:string; phase:'saving'|'failed'; reason?:string}>;
+  retryTrackerWrite: (key:string) => Promise<boolean>;
   reviewTracker: ReviewTrackerData;
   /** force: read even if this page already loaded the tracker for this project (manual refresh). */
   loadReviewTracker: (projectId: string, force?: boolean) => Promise<void>;

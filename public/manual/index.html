@@ -110,9 +110,9 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 <li><div><h3>删除项目 reviewer</h3><p>使用 Remove member／Roster 删除按钮并确认。服务端事务清理<b>本项目</b>图纸负责人、Default Leads、Default Assignees 和 roster 引用并写审计；其他项目引用保留，<b>Tracker 历史不删除</b>。不能通过此入口删除自己的成员关系以免误锁出项目；失败会显示明确错误，不要把按钮点击当作保存成功。</p></div></li>
 </ol>
 <h3 id="kjx-saving">自动保存、权限拒绝和 Daily Log</h3>
-<p>常规项目修改停止输入约 3 秒后自动保存，另有定时刷新／同步。Data Management 在 kjx 不再显示 Save to Cloud、Cloud Fetch、Local Restore。不要把输入完成或“正在自动保存”当作服务器已确认；查看待同步提示、成功结果或重新读取。</p>
+<p>常规项目脏数据每 15 分钟自动保存一次，状态栏显示下次自动保存时间，Save Now 立即保存；保存不遮挡或打断编辑。隐藏页面/pagehide 尽力保存，保留关闭提醒与切换项目前先保存的阻止策略。失败以 3–60 秒退避独立重试；回读失败标“待确认”并保留待同步。本地存储满/禁用会告警，请保持页面打开并 Save Now。kjx 托管 PCF 同为 15 分钟，保留手动保存、离开提醒及 IndexedDB 恢复。Data Management 在 kjx 不再显示 Save to Cloud、Cloud Fetch、Local Restore。不要把输入完成或“正在自动保存”当作服务器已确认；查看待同步提示、成功结果或重新读取。</p>
 <p>无权限字段从一开始只读，不应产生本地修改。如果权限在编辑后变化、服务端返回 403，项目乐观修改会回滚到服务器值或编辑前快照、清除待同步标记，并提示无权限；<b>这次未获准的修改不会保留在浏览器待提交队列</b>。网络故障和 409 并发冲突另按页面提示处理，不等同于权限拒绝。</p>
-<p>Daily Log 选 Server 查看实际落库记录；Actor 可选 All 或操作人，Copy／CSV／PDF 包含 Actor。旧日志、legacy 或没有请求用户的系统记录显示 “—”。导入船厂回复记 Builder Reply 行，计数没变也有记录。</p>
+<p>kjx Daily Log 只保留 Server，默认 Raw entries；Refresh 手动刷新，本项目 SSE 变更节流刷新；Load more 每页 500 条，不再 2000 条截断（导出仅含已加载记录）。Merged consecutive 只合并同日同一人同一图纸的相邻意见事件，中间其他人/图纸/状态修改会断开，未知操作人不合并。Server 查看实际落库记录；Actor 可选 All 或操作人，Copy／CSV／PDF 包含 Actor。旧日志、legacy 或没有请求用户的系统记录显示 “—”。导入船厂回复记 Builder Reply 行，计数没变也有记录。Tracker 勾选显示 In progress，Failed — Retry 保留原意图；回执丢失时以回读结果为准。</p>
 <h3 id="kjx-backup">Data Management、备份与项目删除</h3>
 <ul>
 <li><b>Local Backup：</b>仅 admin，下载当前单项目离线备份（包括项目数据与 Tracker）；不是完整服务器灾备，也不包含全部 PCF 文件、历史和交换基线。</li>
@@ -200,7 +200,7 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 </tbody></table></div>
 <ul>
 <li><b>切换项目时有没保存的改动：</b>先问是否保存再切换（确定＝保存并切换）；点取消会再问一次是否放弃改动。</li>
-<li><b>保存方式（管理员）：</b>改动后 3 秒自动保存，另外每隔几分钟定时同步一次（默认 3 分钟，Config 里可改，设 0 关闭）。有未保存的改动时，右下角会浮出 Unsaved Changes 卡片，显示待保存的条数，点上面的 Save Now 立刻保存。原来主表和 Tracker 上的 Sync to Cloud 按钮已经去掉，不需要再手动同步。没保存就关页面，浏览器会提醒。</li>
+<li><b>保存方式（管理员）：</b>主应用有脏数据时每 15 分钟自动保存一次（固定节拍，不再使用 Config 旧间隔），状态栏显示下次时间；保存不遮挡编辑，失败单独退避重试。有未保存的改动时，右下角会浮出 Unsaved Changes 卡片，显示待保存的条数，点上面的 Save Now 立刻保存。原来主表和 Tracker 上的 Sync to Cloud 按钮已经去掉，不需要再手动同步。没保存就关页面，浏览器会提醒。</li>
 <li><b>访客看到的数据：</b>定时从服务器静默刷新；别人改了图纸，实时推送只取变了的那几张。</li>
 </ul>
 
@@ -324,7 +324,7 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 <li><div><h3>发邮件</h3><p>把压缩包发给船厂。压缩包没保存好，点顶部的 Download Again 重新生成。</p></div></li>
 </ol>
 <ul>
-<li><b>“Statuses were updated locally, but saving to the server failed. Click Save Now to retry.”：</b>状态只改在本地，没存到服务器。点右下角 Unsaved Changes 卡片上的 Save Now 重试（3 秒后也会自动再存）。</li>
+<li><b>“Statuses were updated locally, but saving to the server failed. Click Save Now to retry.”：</b>状态只改在本地，没存到服务器。点右下角 Unsaved Changes 卡片上的 Save Now 重试（失败后按 3–60 秒退避重试；正常自动保存仍是 15 分钟）。</li>
 <li><b>“Saved, but the server write check failed …”：</b>点 Refresh 核对状态，需要时再点 Save Now。</li>
 <li><b>“Statuses were sent, but the archive download failed …”：</b>状态已经改了，点 Download Again 再下一次，或点 Dismiss 关掉提示。</li>
 <li><b>没有 PCF 的图纸：</b>状态照改，但不进压缩包。</li>
@@ -363,7 +363,7 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 <tbody>
 <tr><td>From / To</td><td>日期范围，默认今天</td></tr>
 <tr><td>Local / Server</td><td>Local 用项目数据里的状态历史；Server 用服务器的操作日志，还包含意见数变化、船厂回复导回（Builder Reply）和来源（pcf、hub、import 等）</td></tr>
-<tr><td>Merged by day / Raw entries</td><td>Server 模式下，把同一张图纸同一天的意见数变化合成一条（例如 Comments: 0/0 → 15/15），或显示原始每条</td></tr>
+<tr><td>Raw entries / Merged consecutive</td><td>Server 默认原始每条；可选合并仅限同日同人同图纸的相邻意见事件，中途其他人/图纸/状态事件会断开。Refresh 手动或本项目实时推送节流刷新，Load more 每页 500 条，导出包含已加载记录。legacy 保留 Local/Server，kjx 仅 Server。</td></tr>
 <tr><td>流转筛选</td><td>Pending → Review、Review → Sent Out（发给船厂）、Sent Out → Review（船厂回复后）、Approved、Builder reply（只看船厂回复导回记录，Server 模式下有）</td></tr>
 <tr><td>Copy</td><td>把记录以文字复制到剪贴板</td></tr>
 <tr><td>CSV</td><td>导出 CSV</td></tr>
@@ -474,7 +474,7 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 <h3>保存</h3>
 <ul>
 <li><b>手动：</b>点 SAVE。</li>
-<li><b>自动：</b>默认每 60 秒；在 FILE OPTIONS 里可改成 Off、30、60、120、300 秒。页面休眠时自动保存不保证触发，关页前手动存一下。</li>
+<li><b>自动：</b>独立/legacy PCF 默认每 60 秒；在 FILE OPTIONS 里可改成 Off、30、60、120、300 秒。kjx 托管 PCF 固定每 15 分钟，原 autoSaveSeconds 仅保留供导出/legacy 使用。页面休眠时自动保存不保证触发，关页前手动存一下。</li>
 <li><b>多人同时编辑：</b>平台只发改动。别人保存后你这边会收到更新；两人改了同一处会弹冲突窗口（见下文）。</li>
 </ul>
 <h3>导出和可携带副本</h3>
@@ -702,7 +702,7 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 <thead><tr><th>原来的问题</th><th>现在</th></tr></thead>
 <tbody>
 <tr><td><code>scripts/seed-test-project.mjs</code> 调用已删的整项目 PUT，返回 405</td><td><b>已修复：</b>改走按字段保存的 PATCH 接口，PCF 照旧用导入接口。服务器设了 ADMIN_PASSWORD 时这样运行：<code>ADMIN_PASSWORD=&lt;管理员密码&gt; node scripts/seed-test-project.mjs [地址]</code>。可以重复运行；演示图纸的 id 改成了 demo2684-dwg-001 这样</td></tr>
-<tr><td>Guide 页写着“编辑模式锁”“没有手动保存按钮”等</td><td><b>已修复：</b>中英文重写成访客 / 管理员两种身份、ADMIN_PASSWORD 登录、停 3 秒自动保存 + 定时同步 + Save Now、实时推送、冲突提示条，指令栏、状态流转、Tracker 的说法也一起改了</td></tr>
+<tr><td>Guide 页写着“编辑模式锁”“没有手动保存按钮”等</td><td><b>已修复：</b>中英文重写成访客 / 管理员两种身份、ADMIN_PASSWORD 登录、15 分钟自动保存 + Save Now + 独立失败重试、实时推送、冲突提示条，指令栏、状态流转、Tracker 的说法也一起改了</td></tr>
 <tr><td>Bulk Load 标题含逗号会被截断</td><td><b>已修复：</b>第三个分隔符后面的内容全部算标题；也认中文逗号、带引号的 CSV 写法和从 Excel 复制的制表符；不足四段的行会弹提示列出来</td></tr>
 <tr><td>主表删图纸不弹确认</td><td><b>已修复：</b>点垃圾桶先弹确认，写明图号、标题和 ID，点取消就不删。主表没有批量删除</td></tr>
 <tr><td>Log 页 Export PDF 要从外网 CDN 加载组件</td><td><b>已修复：</b>组件已经打包进平台，点导出时才加载，纯内网也能用；页头和 PDF 里的 PG 标志也改成本地文件</td></tr>

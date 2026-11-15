@@ -35,7 +35,7 @@ Remove member/删除 reviewer 要确认。服务端单事务清理本项目 draw
 
 ### 自动保存、权限拒绝与 Data Management
 
-常规改动停止输入约 3 秒后自动保存，另有定时同步；等待回执或重新读取，不把输入完成当作落库。无权字段源头只读；服务端 403 会回滚项目乐观修改、清除待同步标记并提示无权限，不保留被拒改动。网络错误、409 冲突按各自提示处理。
+常规改动每 15 分钟自动保存一次（仅发送脏数据），状态栏显示下次自动保存时间；Save Now 立即保存，保存不遮挡编辑。隐藏页面/pagehide 尽力保存，关闭提醒与切换项目前先确认保存保留；网络失败按 3–60 秒退避独立重试，不改变 15 分钟节拍。回读失败标“待确认”，保留待同步；localStorage 满/禁用会明确告警，此时请保持页面打开并手动保存。kjx 托管 PCF 同样每 15 分钟保存，保留手动保存、离开提醒与 IndexedDB 本地持久化。等待回执或重新读取，不把输入完成当作落库。无权字段源头只读；服务端 403 会回滚项目乐观修改、清除待同步标记并提示无权限，不保留被拒改动。网络错误、409 冲突按各自提示处理。
 
 kjx Data Management 无 Save to Cloud、Cloud Fetch、Local Restore。仅 admin 可用：
 - **Local Backup**：当前单项目离线 JSON（项目和 Tracker）。不等于全部 PCF/历史/交换文件的灾备。
@@ -43,7 +43,7 @@ kjx Data Management 无 Save to Cloud、Cloud Fetch、Local Restore。仅 admin 
 
 全项目 JSON 可由 admin 在 **管理后台（实际入口 /api/admin，常称“/admin 后台”）导出**，范围是后台支持的项目数据；不是完整 SQLite/PCF 数据目录快照。完整备份/恢复联系运维；不要使用 legacy Local Restore 操作线上项目。**当前没有正式的项目删除功能，请联系管理员。**
 
-Daily Log → Server 显示实际落库记录；Actor 支持 All/按人筛选，Copy/CSV/PDF 含 Actor，旧记录/legacy/无用户系统记录显示 “—”。
+kjx Daily Log 只显示 Server，默认 Raw entries；Refresh 手动刷新，本项目 SSE 变更每秒最多触发一次刷新；Load more 按 500 条游标分页，无 2000 条截断，导出包含已加载记录。Merged consecutive 只合并同日、同一人、同一图纸的连续意见事件，其他人/图纸/状态事件会断开；未知操作人不合并。Server 显示实际落库记录；Actor 支持 All/按人筛选，Copy/CSV/PDF 含 Actor，旧记录/legacy/无用户系统记录显示 “—”。
 
 ## legacy 模式参考（下列旧操作章节）
 
@@ -106,7 +106,7 @@ Daily Log → Server 显示实际落库记录；Actor 支持 All/按人筛选，
 
 ## 图纸列表
 
-维护图号、标题、专业、责任人、版本、轮次、期限与状态；支持过滤、排序和历史记录。PCF 会同步总意见数、未关闭意见数、轮次、版本及项目更新时间，不直接覆盖图纸工作流状态。管理员的改动停止编辑约 3 秒后自动保存，另有定时同步；有未保存改动时右下角出现 Unsaved Changes 卡片，点 Save Now 立即保存（已没有单独的 Sync to Cloud 按钮）。
+维护图号、标题、专业、责任人、版本、轮次、期限与状态；支持过滤、排序和历史记录。PCF 会同步总意见数、未关闭意见数、轮次、版本及项目更新时间，不直接覆盖图纸工作流状态。管理员的脏数据每 15 分钟自动保存一次，状态栏显示下次保存时间，不再停输 3 秒即保存，也不再使用旧 Config 间隔；有未保存改动时右下角出现 Unsaved Changes 卡片，点 Save Now 立即保存（已没有单独的 Sync to Cloud 按钮）。
 
 ## Review Tracker 与 Send All
 
@@ -143,3 +143,7 @@ PCF 的 Download HTML copy 与 Export JSON 用于自己的完整离线副本：�
 ## 从旧 HTML 存储迁移
 
 先停止 Hub，复制整个 data 到新的目录（含 DB/WAL、历史、往来基线和密钥）。先对副本执行 `npm run hub:migrate-pcf-json -- --data-dir <副本目录> --dry-run`，再加 `--hub-stopped` 实跑。查看文档/快照数及字节统计；检查页面、编辑、导出和船厂回复。原 HTML 目录保留为 `pcf-html-backup-*`，整体 data 备份位于数据目录同级。正式切换和回滚步骤见 [迁移说明](docs/PCF_JSON_MIGRATION.md)。站点认证开关仍默认关闭；不设置 API_TOKEN/Basic Auth 时无需站点共享凭据，但已设置项目密码的项目仍受项目解锁保护。
+
+### P1 保存与 Daily Log 补充（legacy）
+
+主应用同样固定 15 分钟自动保存，Save Now、关闭提醒、原有切换项目保存/放弃提示保留。失败重试独立于正常节拍。Daily Log 保留 Local/Server；Server 默认原始记录，提供 Refresh、本项目实时刷新、500 条游标 Load more，导出仅含已加载条目。独立/legacy PCF 的 autoSaveSeconds 默认 60 秒，可选择 Off/30/60/120/300 秒；只有 kjx 托管页覆盖为 15 分钟，不改导出文件/持久化设置。Tracker 每次勾选显示进行中，回读确认后才成功；失败保留意图并提供重试。

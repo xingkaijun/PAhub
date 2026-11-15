@@ -66,11 +66,13 @@ try {
   // 1. Same field.
   const holdA = await holdNextSave(a);
   await row(a, 'DW-A-001').locator('input[type=text]').first().fill('A-edit');
+  await a.getByRole('button',{name:'Save Now',exact:true}).click();
   const sentByA = await holdA.held;
   // A version edit also appends a statusHistory entry (updateDrawing); nothing else of the drawing is sent.
   assert.deepEqual(Object.keys(sentByA.updatedDrawings[0].changes).sort(), ['statusHistory', 'version'], 'A sends only the changed fields');
   const bSaved = nextSaveResponse(b);
   await row(b, 'DW-A-001').locator('input[type=text]').first().fill('B-edit');
+  await b.getByRole('button',{name:'Save Now',exact:true}).click();
   assert.equal((await bSaved).status(), 200);
   assert.equal(stored('dwg-001').version, 'B-edit');
   const aSaved = nextSaveResponse(a); holdA.release();
@@ -98,10 +100,12 @@ try {
   const newDiscipline = before2.discipline === 'Piping' ? 'Structure' : 'Piping';
   const holdA2 = await holdNextSave(a);
   await row(a, 'DW-B-002').locator('input[type=text]').first().fill('A-version');
+  await a.getByRole('button',{name:'Save Now',exact:true}).click();
   const sent2 = await holdA2.held;
   assert.deepEqual(Object.keys(sent2.updatedDrawings.find(d => d.id === 'dwg-002').changes).sort(), ['statusHistory', 'version']);
   const bSaved2 = nextSaveResponse(b);
   await row(b, 'DW-B-002').locator('select').first().selectOption(newDiscipline);
+  await b.getByRole('button',{name:'Save Now',exact:true}).click();
   assert.equal((await bSaved2).status(), 200);
   const aSaved2 = nextSaveResponse(a); holdA2.release();
   assert.equal((await aSaved2).status(), 200, 'different fields merge');

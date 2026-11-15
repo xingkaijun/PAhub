@@ -289,7 +289,7 @@ export const Settings: React.FC = () => {
 
                 {/* Fix Deadline Button */}
                 {(!kjx || isAdmin) && <button
-                  onClick={() => {
+                  onClick={async () => {
                     if (!project) return;
                     const confirmed = window.confirm(
                       '🔧 Fix Deadline\n\n' +
@@ -327,7 +327,8 @@ export const Settings: React.FC = () => {
                       }
                     });
 
-                    alert(kjx ? `Updated ${fixedCount} drawing(s). Changes are saving automatically.` : `✅ Fix complete.\n\nFixed the deadline of ${fixedCount} drawing(s).\n\nClick "Save to Cloud" to save it to the server.`);
+                    const saved=kjx ? await useStore.getState().saveProject(project.id,{manual:true}) : false;
+                    alert(kjx ? (saved ? `Updated ${fixedCount} drawing(s). Changes saved.` : `Updated ${fixedCount} drawing(s). Save failed or awaits confirmation; use Save Now to retry.`) : `✅ Fix complete.\n\nFixed the deadline of ${fixedCount} drawing(s).\n\nClick "Save to Cloud" to save it to the server.`);
                   }}
                   disabled={!project}
                   className="w-full p-3 bg-amber-500 text-white rounded-full text-[9px] font-black uppercase tracking-[0.18em] hover:bg-amber-600 disabled:opacity-50 flex items-center justify-center gap-2 transition-all active:scale-95 shadow-lg"
@@ -550,25 +551,10 @@ export const Settings: React.FC = () => {
                     <Clock size={10} /> Auto-Sync Interval
                   </label>
                   <span className="text-[9px] font-[1000] text-teal-600 bg-teal-50 px-2 py-1 rounded-md">
-                    {project?.conf?.autoSyncInterval ?? data.settings.autoSyncInterval ?? 3} min
+                    15 min
                   </span>
                 </div>
-                <input
-                  type="range" min="0" max="60" step="1"
-                  value={project?.conf?.autoSyncInterval ?? data.settings.autoSyncInterval ?? 3}
-                  onChange={(e) => {
-                    const val = parseInt(e.target.value);
-                    if (project) {
-                      updateProjectConfig(project.id, { autoSyncInterval: val });
-                    } else {
-                      updateSettings({ autoSyncInterval: val });
-                    }
-                  }}
-                  className="w-full h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-teal-500"
-                />
-                <p className="text-[8px] font-bold text-slate-300 uppercase tracking-tight text-center">
-                  0 = Disabled (Manual Only)
-                </p>
+                <p className="text-xs text-slate-500">Fixed 15-minute autosave while editing; only pending changes are sent. Save Now remains available.</p>
               </div>
             </div>
           </section>

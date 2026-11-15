@@ -1,6 +1,6 @@
 export const SAVE_TIMEOUT_MS = 15000;
 export type SaveFailure = 'network' | 'timeout' | 'server' | 'login' | 'forbidden' | 'oversize' | 'conflict' | 'invalid';
-export type SaveStatus = { phase: 'saving' | 'saved' | 'failed'; lastSuccess?: number; reason?: string; failure?: SaveFailure; retryAt?: number; attempts: number };
+export type SaveStatus = { phase: 'saving' | 'saved' | 'failed' | 'unconfirmed'; lastSuccess?: number; reason?: string; failure?: SaveFailure; retryAt?: number; attempts: number };
 export const retryDelay = (attempt: number) => Math.min(60000, 3000 * 2 ** Math.min(Math.max(0, attempt - 1), 5));
 export function saveFailure(error: unknown): SaveFailure {
   const e = error as {status?: number; name?: string};

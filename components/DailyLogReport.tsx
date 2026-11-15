@@ -1,4 +1,5 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import {mergeContinuousComments} from '../lib/audit-merge';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useStore } from '../store';
 import { describeAuditEntry } from '../lib/auditLogDescribe';
 import type { AuditEntry } from '../types';
@@ -17,6 +18,7 @@ const TRANSITION_FILTERS = [
 
 // 本地日志与服务端写入日志统一成同一行形状，表格 / CSV / Copy / PDF 全部复用
 interface ChangeRow {
+    eventId?: number;
     actorId?: string | null;
     actorName?: string | null;
     date: string;
@@ -30,39 +32,6 @@ interface ChangeRow {
     detail: string;
     note: string;
 }
-
-// 按「本地日 + 图纸」合并意见变化为净变化：自动保存每 3 分钟一次，
-// 边填边存会产生 0→2、2→8、8→15… 一串中间行，不合并很难读
-const mergeCommentsByDay = (rows: ChangeRow[]): ChangeRow[] => {
-    const merged: ChangeRow[] = [];
-    const seen = new Map<string, ChangeRow>();
-
-    rows.forEach(row => {
-        if (row.eventType !== 'Comments') {
-            merged.push(row);
-            return;
-        }
-
-        const key = `${row.date}|${row.drawingId}|${row.actorId || ''}`;
-        const existing = seen.get(key);
-        if (!existing) {
-            const copy = { ...row };
-            seen.set(key, copy);
-            merged.push(copy);
-            return;
-        }
-
-        // 保留最早的起点与最晚的终点
-        const start = existing.detail.match(/Comments:\s*([\d/]+)\s*->/)?.[1];
-        const end = row.detail.match(/->\s*([\d/]+)\s*$/)?.[1];
-        if (start && end) existing.detail = `Comments: ${start} -> ${end}`;
-        existing.time = row.time;
-        existing.occurredAt = row.occurredAt;
-        existing.note = row.note;
-    });
-
-    return merged;
-};
 
 export const DailyLogReport: React.FC = () => {
     const { data, activeProjectId, loadAuditLog } = useStore();
@@ -81,18 +50,40 @@ export const DailyLogReport: React.FC = () => {
     const [selectedTransitions, setSelectedTransitions] = useState<Set<string>>(new Set());
 
     // 数据源：local = 客户端 statusHistory 快照，server = 真正落库的写入日志
-    const [logSource, setLogSource] = useState<'local' | 'server'>(kjx ? 'server' : 'local');
+    const [source, setLogSource] = useState<'local' | 'server'>(kjx ? 'server' : 'local');
+    const logSource=kjx?'server':source;
     const [serverEntries, setServerEntries] = useState<AuditEntry[]>([]);
     const [serverLoading, setServerLoading] = useState(false);
     const [serverError, setServerError] = useState<string | null>(null);
     const [serverTruncated, setServerTruncated] = useState(false);
-    const [expandRaw, setExpandRaw] = useState(false);
+    const [expandRaw, setExpandRaw] = useState(true);
+    const [nextCursor,setNextCursor]=useState<string>();
+    const [refreshVersion,setRefreshVersion]=useState(0);
+    const generation=useRef(0), loadingMore=useRef(false);
+    useEffect(()=>{
+      let timer:ReturnType<typeof setTimeout>|undefined;
+      const changed=(event:Event)=>{if((event as CustomEvent).detail?.projectId!==activeProjectId||timer)return; timer=setTimeout(()=>{timer=undefined;setRefreshVersion(v=>v+1);},1000);};
+      window.addEventListener('pahub:project-changed',changed);
+      return()=>{clearTimeout(timer);window.removeEventListener('pahub:project-changed',changed);};
+    },[activeProjectId]);
+    const loadMore=async()=>{
+      if(!activeProjectId||!nextCursor||loadingMore.current||serverLoading)return;
+      const version=generation.current;loadingMore.current=true;setServerLoading(true);
+      const result=await loadAuditLog(activeProjectId,startOfDay(parseISO(startDate)).toISOString(),addDays(startOfDay(parseISO(endDate)),1).toISOString(),nextCursor);
+      loadingMore.current=false;
+      if(version!==generation.current)return;
+      if(!result.error){setServerEntries(entries=>{const ids=new Set(entries.map(e=>e.id));return [...entries,...result.entries.filter(e=>!ids.has(e.id))];});setNextCursor(result.nextCursor);setServerTruncated(result.truncated);}
+      setServerError(result.error||null);setServerLoading(false);
+    };
 
     // 把「本地日」边界折算成 UTC 时刻再请求：直接按 UTC 日分组会把 +08:00 的一天从早上 8 点切开
     useEffect(() => {
         if (logSource !== 'server' || !activeProjectId) return;
 
         let cancelled = false;
+        generation.current++;
+        setNextCursor(undefined);
+        setServerEntries([]);
         const fromISO = startOfDay(parseISO(startDate)).toISOString();
         const toISO = addDays(startOfDay(parseISO(endDate)), 1).toISOString();
 
@@ -102,12 +93,13 @@ export const DailyLogReport: React.FC = () => {
             if (cancelled) return;
             setServerEntries(result.entries);
             setServerTruncated(result.truncated);
+            setNextCursor(result.nextCursor);
             setServerError(result.error || null);
             setServerLoading(false);
         });
 
-        return () => { cancelled = true; };
-    }, [logSource, activeProjectId, startDate, endDate, loadAuditLog]);
+        return () => { cancelled = true; generation.current++; };
+    }, [logSource, activeProjectId, startDate, endDate, loadAuditLog, refreshVersion]);
 
     // 数据聚合引擎
     const unfilteredChanges = useMemo(() => {
@@ -122,6 +114,7 @@ export const DailyLogReport: React.FC = () => {
                     date: format(at, 'yyyy-MM-dd'),
                     time: format(at, 'HH:mm:ss'),
                     occurredAt: at.getTime(),
+                    eventId: Number(entry.id),
                     drawingId: entry.drawingId,
                     // 图纸已删除时回落到日志里冗余的快照值
                     drawingNo: drawing?.drawingNo || entry.drawingNo,
@@ -135,9 +128,9 @@ export const DailyLogReport: React.FC = () => {
             });
 
             // 合并需要从旧到新扫描，展示再倒序
-            const ascending = [...rows].sort((a, b) => a.occurredAt - b.occurredAt);
-            const shaped = expandRaw ? ascending : mergeCommentsByDay(ascending);
-            const sorted = shaped.sort((a, b) => b.occurredAt - a.occurredAt);
+            const ascending = [...rows].reverse().sort((a, b) => a.occurredAt - b.occurredAt);
+            const shaped = expandRaw ? rows : mergeContinuousComments(ascending);
+            const sorted = shaped.sort((a, b) => b.occurredAt - a.occurredAt || (b.eventId || 0) - (a.eventId || 0));
 
             if (selectedTransitions.size === 0) return sorted;
             return sorted.filter(change =>
@@ -542,7 +535,7 @@ export const DailyLogReport: React.FC = () => {
                             {([
                                 { key: 'local' as const, label: 'Local', icon: HardDrive, title: 'Change snapshots recorded in this browser, including unsaved local edits' },
                                 { key: 'server' as const, label: 'Server', icon: Database, title: 'Changes actually written to the database: status changes and comment count changes' },
-                            ]).map(({ key, label, icon: Icon, title }) => (
+                            ]).filter(item=>!kjx||item.key==='server').map(({ key, label, icon: Icon, title }) => (
                                 <button
                                     key={key}
                                     onClick={() => setLogSource(key)}
@@ -560,9 +553,10 @@ export const DailyLogReport: React.FC = () => {
 
                             {logSource === 'server' && (
                                 <>
+                                    <button className="px-3 py-1.5 rounded-lg border text-xs font-bold" disabled={serverLoading} onClick={()=>setRefreshVersion(v=>v+1)}>Refresh</button>
                                     <button
                                         onClick={() => setExpandRaw(!expandRaw)}
-                                        title="When expanded, comment changes are no longer merged per day; every database write is shown separately"
+                                        title="Raw by default. Optional merge combines only consecutive events by the same person and drawing on the same day"
                                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ml-2 ${
                                             expandRaw
                                                 ? 'bg-slate-700 text-white border-slate-700 shadow-sm'
@@ -570,7 +564,7 @@ export const DailyLogReport: React.FC = () => {
                                         }`}
                                     >
                                         <Layers size={12} strokeWidth={2.5} />
-                                        {expandRaw ? 'Raw entries' : 'Merged by day'}
+                                        {expandRaw ? 'Raw entries' : 'Merged consecutive'}
                                     </button>
 
                                     {serverLoading && (
@@ -581,9 +575,10 @@ export const DailyLogReport: React.FC = () => {
                                             ✕ Failed to load server log: {serverError}
                                         </span>
                                     )}
+                                    {nextCursor&&<button className="px-3 py-1.5 rounded-lg border text-xs font-bold" disabled={serverLoading} onClick={()=>void loadMore()}>Load more</button>}
                                     {!serverLoading && !serverError && serverTruncated && (
                                         <span className="text-xs font-bold text-amber-600 ml-1">
-                                            ⚠ Truncated at 2000 entries — narrow the date range
+                                            More records available — load more to include them in exports
                                         </span>
                                     )}
                                 </>

@@ -184,3 +184,18 @@ test('P0 frozen save receipt replays after timeout/newer edits without duplicate
   assert.equal((await f.request('/api/projects/'+P,'manager',{...body,projectName:'Changed envelope'},'PATCH')).status,409);
  }finally{await f.close();}
 });
+
+test('P1 replay rechecks a transient verification error without repeating the write or audit',async()=>{
+ const f=await fixture();try{
+  await f.team(['manager']);
+  const {randomUUID}=await import('node:crypto');const {readDrawing}=await import('../src/drawing-revision.ts');
+  const before=readDrawing(f.hub.db,P,D)!;
+  const body={saveRequestId:randomUUID(),updatedDrawings:[{id:D,baseRev:before.rev,base:{title:before.title},changes:{title:'Verify receipt recovery'}}]};
+  const first=await f.request('/api/projects/'+P,'manager',body,'PATCH');assert.equal(first.status,200);
+  const acknowledgement=await first.json() as any;
+  f.hub.db.prepare('UPDATE project_save_receipts SET result_json=? WHERE request_id=?').run(JSON.stringify({...acknowledgement,verification:{ok:false,checked:0,mismatched:[],error:'temporary verification query failure'}}),body.saveRequestId);
+  const count=f.hub.db.prepare('SELECT COUNT(*) AS n FROM audit_log').get()!.n;
+  const replay=await f.request('/api/projects/'+P,'manager',body,'PATCH');assert.equal(replay.status,200);assert.equal(((await replay.json()) as any).verification.ok,true);
+  assert.equal(f.hub.db.prepare('SELECT COUNT(*) AS n FROM audit_log').get()!.n,count);
+ }finally{await f.close();}
+});

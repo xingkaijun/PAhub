@@ -175,7 +175,7 @@ export class ProjectWriter {
       const creating=!db.prepare('SELECT 1 FROM projects WHERE id=?').get(projectId);
       if (user) {
         if(!creating) requireProjectAccess(db,projectId,user);
-        if(receipt){const replay=replaySave(db,projectId,user.id,receipt);if(replay)return replay;}
+        if(receipt){const replay=replaySave(db,projectId,user.id,receipt);if(replay){if(replay.verification && !replay.verification.ok)replay.verification=verifyProjectWrite(db,projectId,replay.drawings || [],body.reviewTracker || null);return replay;}}
         body = changedProjectPatch(db,projectId,{...body,updatedDrawings:updates});
         updates = body.updatedDrawings || [];
         authorizeProjectPatch(db,projectId,body,user);
