@@ -1,6 +1,53 @@
 # PAhub 使用手册
 
-> 完整的中文操作手册（19 节，带截图）已经放进平台：顶栏 Guide 默认显示，也可以直接打开 `/manual/`（源文件 `public/manual/index.html`，截图在 `public/manual/img/`）。本文件保留为部署和功能要点的简要说明。
+> 完整的中文操作手册（含 kjx 当前规则与 legacy 参考，带历史截图）已经放进平台：顶栏 Guide 默认显示，也可以直接打开 `/manual/`（源文件 `public/manual/index.html`，截图在 `public/manual/img/`）。本文件保留为部署和功能要点的简要说明。
+
+## kjx 模式：当前用户操作（main 97bf04f）
+
+GUIDE 的中文页是主要操作手册，English 提供对应快速说明。以下新规则只适用于 `AUTH_MODE=kjx`；本文件后面的 legacy 章节保留旧模式行为，不要把共享管理员密码、项目密码和恢复按钮的说明套用到 kjx。
+
+### 登录、项目与四种角色
+
+使用 kjx-auth 统一个人账号登录，不再输入 PAhub 的 ADMIN_PASSWORD，也不再需要项目密码。顶栏 Account 提供 Change password、My apps、Sign out；忘记密码联系账号管理员。退出会结束共享统一会话。
+
+非 admin 只能看到本人是成员的项目。成员是该项目 **Default Leads + Default Assignees + Team Setup roster** 中账号 ID 的并集；创建者自动加入。手填 `manual-` 人员不等于 kjx 用户；仅在图纸上分配了负责人，不自动获得项目成员权限。admin 全项目可见；成员移除后项目列表和后续接口访问即时失效。
+
+| 角色 | 常见操作 | 限制 |
+| --- | --- | --- |
+| admin | 全项目管理、成员授权、Config、图纸/PCF、Tracker 代勾、Local Backup、Fix Deadline、管理后台（/api/admin） | 删除/恢复等操作前仍须确认影响；当前无正式项目删除入口 |
+| manager | 成员项目的 Config、Team Setup、Default Leads/Assignees、审图周期/节假日/报告等常规配置；图纸负责人/状态/备注、PCF 他人意见和指定提出人、船厂往来、Tracker 代勾；可创建项目 | 非成员项目拒绝；Local Backup、Fix Deadline、全局设置、管理后台、图纸作废/历史恢复等仍为 admin 专属 |
+| reviewer | 成员项目 Inventory/报表只读；新增 PCF 意见/单条新轮、编辑本人轮次 Owner/行高，全部轮次本人时可改整条意见状态/页码/标签；本人 Tracker 勾选 | 无 Config；不能改他人 Owner、Reply、提出人或记录删除；不能代勾 |
+| viewer | 成员项目只读、浏览 PCF 和可用报表 | 无 Config、PCF 写入或 Tracker 勾选 |
+
+### Inventory、Assignees 与 Tracker
+
+reviewer/viewer 主表保持常规小字号、列样式、状态徽标，未授权字段不能进入编辑态。Assignees 使用同样头像圆点，悬停查看姓名；有权限时点击下拉勾选，纯只读时无勾选入口。ID 优先解析、唯一旧姓名兼容；不能解析的 UUID 显示 **Unknown reviewer**，请管理人员重新分配，不自动猜测重名身份。
+
+reviewer 只能勾/取消自己实际分配的账号 ID；其他栏置灰。项目成员 manager 与 admin 可代勾已分配人员，审计记录 Actor 和被操作人。旧姓名不是 kjx sub，须重新分配正确 ID 才可本人勾选。Ready 不是已发送；APR 是手动标记。单张导出不改状态，船厂回复导回仅 Waiting Reply → Reviewing。
+
+### Team Setup 与 Config
+
+人员从统一目录选择，选项包含开通 PAhub 的 admin/manager/reviewer，按专业映射筛选。目录不可用显示 **Directory unavailable, enter the name manually.**；手填只有姓名，不授予统一账号身份或成员资格。
+
+Default Leads 每专业一个紧凑下拉，显示当前姓名，未选时为 Select … lead，列可滚动。Default Assignees 是 Team Setup 的按专业多选名单（目录选人 + 切换名单），**不是 Leads 单选框**。Apply & Reset All 会按默认人员重设图纸负责人，确认后再执行。
+
+Remove member/删除 reviewer 要确认。服务端单事务清理本项目 drawing_assignees、Default Leads、Default Assignees 和 roster，写审计；其他项目关系及 **Tracker 历史保留**。该入口不允许删除自己以免误锁出项目；失败显示错误。
+
+### 自动保存、权限拒绝与 Data Management
+
+常规改动停止输入约 3 秒后自动保存，另有定时同步；等待回执或重新读取，不把输入完成当作落库。无权字段源头只读；服务端 403 会回滚项目乐观修改、清除待同步标记并提示无权限，不保留被拒改动。网络错误、409 冲突按各自提示处理。
+
+kjx Data Management 无 Save to Cloud、Cloud Fetch、Local Restore。仅 admin 可用：
+- **Local Backup**：当前单项目离线 JSON（项目和 Tracker）。不等于全部 PCF/历史/交换文件的灾备。
+- **Fix Deadline**：重算 Reviewing 期限并自动保存；提示正在保存后仍须检查成功，无需手动云保存。
+
+全项目 JSON 可由 admin 在 **管理后台（实际入口 /api/admin，常称“/admin 后台”）导出**，范围是后台支持的项目数据；不是完整 SQLite/PCF 数据目录快照。完整备份/恢复联系运维；不要使用 legacy Local Restore 操作线上项目。**当前没有正式的项目删除功能，请联系管理员。**
+
+Daily Log → Server 显示实际落库记录；Actor 支持 All/按人筛选，Copy/CSV/PDF 含 Actor，旧记录/legacy/无用户系统记录显示 “—”。
+
+## legacy 模式参考（下列旧操作章节）
+
+以下管理员共享密码、项目密码、手动同步、Local Restore 与部署变量说明仅适用于 legacy；通用报表、PCF 和船厂流程可参考，权限仍以当前模式为准。
 
 ## 启动
 

@@ -24,6 +24,7 @@ const TESTS = [
   'kjx-acceptance-fixes-browser-smoke.mjs',
   'kjx-membership-browser-smoke.mjs',
   'kjx-reviewer-view-browser-smoke.mjs',
+  'kjx-manual-browser-smoke.mjs',
 ];
 
 const run = (args, label) => new Promise(resolve => {

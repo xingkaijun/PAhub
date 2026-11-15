@@ -6,6 +6,9 @@
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <script>if (window.self !== window.top) document.documentElement.classList.add('embedded');</script>
 <style>
+html[data-auth-mode="kjx"] [data-manual-legacy]{display:none}
+.mode-note{padding:12px 16px;border:1px solid var(--teal-line);border-radius:12px;background:var(--teal-soft)}
+
 :root{--ink:#0f172a;--text:#334155;--muted:#64748b;--rule:#e2e8f0;--card:#f8fafc;--teal:#0f766e;--teal-soft:#f0fdfa;--teal-line:#99f6e4;--sans:-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei","Noto Sans CJK SC",sans-serif;--mono:ui-monospace,SFMono-Regular,Menlo,Consolas,"Liberation Mono",monospace}
 *,*::before,*::after{box-sizing:border-box}
 html{-webkit-text-size-adjust:100%;scroll-behavior:smooth;scroll-padding-top:72px}
@@ -64,45 +67,66 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 <main class="wrap" id="manual">
 <h1>PAhub 审图平台中文操作手册</h1>
 <p class="kicker">平台内置手册 · 顺栏 Guide 打开 · 地址 /manual/</p>
-<p class="updated">统一登录章节按 T6 提交 78177f8 核对，2026 年 11 月 14 日更新</p>
-<p class="lede">PAhub 的用法一句话：管理员在主表管图纸、人员和状态，审图人员在在线 PCF 里写意见，和船厂之间用离线 HTML 文件来回，导回时自动合并。</p>
+<p class="updated">按 main 97bf04f 的项目成员、权限与只读界面核对，2026 年 11 月 15 日更新</p>
+<p class="lede">先确认登录模式和角色：kjx 使用个人统一账号及项目成员权限；legacy 使用原有管理员登录及项目密码。管理员／主管维护图纸与项目团队，审图人员在授权范围内写 PCF 意见，船厂回复通过离线 HTML 导回合并。</p>
 <ul>
 <li>标 <span class="tag">看代码推断</span> 的部分是按代码写的，没有在浏览器里实际点过，用之前最好自己试一遍。</li>
 <li>界面上的按钮和提示文字大多是英文，本文照原样写出英文，方便你对着界面找。</li>
 </ul>
 
-<nav class="jump"><a href="#kjx">统一登录（kjx）</a><a href="#flow">整体流程</a><a href="#perm">权限</a><a href="#shell">项目选择与顶栏</a><a href="#inv">主表 Inventory</a><a href="#cmd">命令栏</a><a href="#tracker">Tracker</a><a href="#comments">Comments</a><a href="#activity">Activity</a><a href="#log">Log</a><a href="#config">Config</a><a href="#guide">Guide 手册页</a><a href="#pcf">在线 PCF</a><a href="#builder">船厂往来</a><a href="#io">导入导出总表</a><a href="#banner">提示条与冲突</a><a href="#ops">部署运维</a><a href="#admin">后台管理页</a><a href="#faq">小技巧与常见问题</a><a href="#known">已知问题</a></nav>
+<nav class="jump" data-manual-legacy><a href="#kjx">统一登录（kjx）</a><a data-manual-legacy href="#flow">legacy 操作详解</a><a href="#perm">权限</a><a href="#shell">项目选择与顶栏</a><a href="#inv">主表 Inventory</a><a href="#cmd">命令栏</a><a href="#tracker">Tracker</a><a href="#comments">Comments</a><a href="#activity">Activity</a><a href="#log">Log</a><a href="#config">Config</a><a href="#guide">Guide 手册页</a><a href="#pcf">在线 PCF</a><a href="#builder">船厂往来</a><a href="#io">导入导出总表</a><a href="#banner">提示条与冲突</a><a href="#ops">部署运维</a><a href="#admin">后台管理页</a><a href="#faq">小技巧与常见问题</a><a href="#known">已知问题</a></nav>
 
-<h2 id="kjx">统一登录（kjx）</h2>
-<p>本章适用于切换到统一登录后的平台；下文原有的访客／管理员操作说明和截图适用于尚未切换的 legacy 模式。统一登录的界面与权限按以下说明为准。</p>
-<h3>登录和退出</h3>
+<section data-manual-kjx>
+<h2 id="kjx">kjx 模式：统一账号与项目成员操作手册</h2>
+<p class="mode-note"><b>当前规则：</b>kjx 模式通过 kjx-auth 统一登录，不输入 ADMIN_PASSWORD，也不再用项目密码解锁。项目权限以 Team Setup 成员及账号角色为准。下方 legacy 章节仅供旧模式使用；切勿将旧截图中的密码、手动同步和恢复按钮套用到 kjx。</p>
+<nav class="jump"><a href="#kjx-login">登录与账户</a><a href="#kjx-roles">角色与项目可见性</a><a href="#kjx-inventory">只读主表与负责人</a><a href="#kjx-tracker">Tracker</a><a href="#kjx-team">Team Setup 与 Config</a><a href="#kjx-saving">保存与权限提示</a><a href="#kjx-backup">备份与后台</a><a href="#kjx-work">按角色的常见操作</a></nav>
+<h3 id="kjx-login">登录、账户菜单与项目入口</h3>
 <ol class="steps">
-<li><div><h3>登录</h3><p>打开 PAhub，按提示使用管理员分配的统一账号登录；登录后回到原来的页面。同一个账号可用于已开通的 PAhub 和 nbins，不代表自动开通两个系统。</p></div></li>
-<li><div><h3>修改密码</h3><p>首次登录或管理员重置密码后，按提示先修改密码；平时可在用户菜单点 Change password。忘记密码请联系管理员重置。</p></div></li>
-<li><div><h3>退出</h3><p>在用户菜单点 Sign out。统一会话会在所有接入该登录的系统同时退出；空闲 12 小时或会话最长 7 天后需要重新登录。</p></div></li>
+<li><div><h3>打开平台并统一登录</h3><p>未登录时按提示进入 kjx-auth，用分配的个人账号登录，再返回原页面。首次登录或重置密码后按中央登录页要求改密；忘记密码联系账号管理员。登录成功不代表开通了所有应用，也不代表能看所有项目。</p></div></li>
+<li><div><h3>检查 Account 菜单</h3><p>顶栏显示姓名与角色。Account 中的 Change password 修改统一密码，My apps 查看已开通应用，Sign out 退出统一会话。退出会影响同一统一登录会话下的其他接入应用；不要把关闭标签页当作退出。</p></div></li>
+<li><div><h3>从大厅或切换器选项目</h3><p>kjx 没有项目密码提示。若项目不在列表，先让项目 admin／manager 检查 Team Setup，不要尝试用旧共享密码解锁。被移出成员后，项目会从列表移除，后续访问拒绝，已打开的实时连接关闭。</p></div></li>
 </ol>
-<h3>四种角色能做什么</h3>
-<div class="tablewrap"><table>
-<thead><tr><th>角色</th><th>可以做什么</th><th>主要限制</th></tr></thead>
-<tbody>
-<tr><td>viewer（查看者）</td><td>查看项目、列表、报表、Daily Log 和 PCF。</td><td>不能写入或修改意见。</td></tr>
-<tr><td>reviewer（审图人）</td><td>新增意见和单条新轮；修改自己轮次的船东意见、意见状态、标签等属性及行高。</td><td>不能改他人意见、船厂回复或提出人，也不能删除或恢复记录；不能批量给所有意见开新轮。</td></tr>
-<tr><td>manager（主管）</td><td>包括审图人的工作；可改他人意见和船厂回复，修改图纸状态、负责人和备注，执行批量导入、批量命令及船厂文件导出和回复导回；可修改 PCF 文档及显示设置。</td><td>Team Setup、项目 Settings、创建项目、作废、历史恢复及管理控制台等仅 admin 可操作。</td></tr>
-<tr><td>admin（管理员）</td><td>具有上述全部能力，还可管理 Team Setup、项目设置和项目、作废、历史恢复及管理控制台。</td><td>进行替换、删除等操作前请先确认影响并备份。</td></tr>
+<h3 id="kjx-roles">四种角色、成员范围与限制</h3>
+<p><b>项目成员</b>是该项目 Default Leads、Default Assignees 与 Team Setup roster 中账号 ID 的并集；新项目的创建者自动加入。名单中手填的 <code>manual-</code> 人员只有姓名，不构成 kjx 成员。图纸上单独分配了负责人，也不等于加入 Team Setup。旧的全局 roster 无法自动判断项目归属，需要管理员把人加入正确项目。</p>
+<div class="tablewrap"><table><thead><tr><th>角色</th><th>项目范围与常见操作</th><th>不能做的事</th></tr></thead><tbody>
+<tr><td>admin 管理员</td><td>看到全部项目；管理项目团队及 Config、图纸与 PCF、代勾 Tracker、导入导出；可用 Local Backup、Fix Deadline 和管理后台（实际入口 /api/admin）。</td><td>破坏性操作前仍须确认与备份；当前没有正式的项目删除入口。</td></tr>
+<tr><td>manager 主管</td><td>仅进入本人为成员的项目；可创建项目、用 Config 管理 Team Setup、Default Leads／Default Assignees、常规审图周期、节假日、报告名称等项目配置；改图纸负责人、状态、备注，编辑他人 PCF、指定提出人、导出和导回船厂回复、代勾 Tracker。</td><td>不能进入非成员项目；不能用 Local Backup、Fix Deadline、全局设置、管理后台（/api/admin）、图纸作废或 PCF 历史恢复等仍为 admin 专属的动作。</td></tr>
+<tr><td>reviewer 审图人</td><td>成员项目内查看 Inventory、Comments、Activity、Log 和报表；新增 PCF 意见／单条新轮，编辑本人轮次 Owner 内容和行高；勾选自己的 Tracker 栏。</td><td>Inventory 只读，无 Config；不能改他人轮次、Reply 或提出人，不能替别人勾选。整条意见的状态／页码／标签仅在全部轮次均为本人时可改。</td></tr>
+<tr><td>viewer 查看者</td><td>成员项目内查看列表、PCF、Comments、Activity、Log 和可用报表。</td><td>无 Config；不能写 PCF 或勾 Tracker，也不能编辑图纸。</td></tr>
 </tbody></table></div>
-<h3>“只能改自己的意见”是什么意思？</h3>
-<p>按<b>每个轮次</b>判断：系统记录该轮次的提出人账号 ID，而不是只看显示的名字。新建意见或轮次时，服务端会忽略页面传来的身份并自动记录当前登录人；reviewer 看到只读提出人。reviewer 只能编辑属于自己的轮次的 Owner 内容和行高；整条意见的状态、页码或标签只有在所有轮次都属于自己时才能修改。reviewer 不能编辑 Reply、更改提出人或删除／恢复记录。旧轮次如果没有记录账号 ID，即使显示名字相同也不能认作自己的；请找 manager 或 admin 处理。admin／manager 可从当前图纸的提出人下拉选择经服务器验证的用户；目录不可用时只能选择自己，既有其他提出人仍以只读姓名显示。</p>
-<h3>为什么登录后还要输入项目密码？</h3>
-<p>统一账号证明你是谁；项目密码是受保护项目的第二道访问门槛。除 admin 可直接进入外，其他角色仍须输入该项目的密码解锁；解锁不会提高账号角色权限。没有项目密码请联系项目管理员。</p>
-<h3>日常使用与常见问题</h3>
+<p>“本人意见”按轮次保存的账号 ID 判断，不是按姓名。缺账号 ID 的旧轮次不会被认作本人；请 manager／admin 处理。admin／manager 的 Owner 下拉显示已存提出人，可选择服务器校验的候选；目录不可用时只能选择本人，原作者仍显示为只读姓名。</p>
+<h3 id="kjx-inventory">Inventory：相同列样式、只读控件与 Assignees</h3>
+<p>reviewer／viewer 的 VER、DISCIPLINE、STATUS、TOTAL CMT、OPEN CMT 等列与常规主表使用统一小字号和状态徽标，但不能点击进入编辑。ASSIGNEES 都用头像圆点表示，鼠标停留查看姓名；可编辑角色点击展开勾选，只有查看权限时不打开勾选列表。</p>
+<p>头像、姓名和下拉勾选来自同一解析结果：优先账号 ID，唯一姓名兼容旧数据；同一人的 ID／姓名不重复显示。无法解析的 UUID 显示 <b>Unknown reviewer</b>，请项目管理人员重新分配正确账号，不要把 UUID 当姓名或手工猜测重名身份。</p>
+<h3 id="kjx-tracker">Tracker：本人勾选与代勾审计</h3>
+<p>reviewer 只能勾／取消自己实际被分配的账号那一栏。无权栏位置灰并提示 Only this reviewer or a project manager can change this mark。项目成员 manager 和 admin 可替任一已分配人员勾／取消；服务端同时记录实际操作人 Actor 与被操作人员 subjectId。viewer 不能勾选。旧负责人若只存姓名，须先改为正确 kjx 账号 ID 才能本人勾选。</p>
+<p>Ready 表示各负责人都完成，不等于已发出。manager／admin 的 Send All 按确认流程更新状态并打包；APR 为手动标记，不从 PCF 自动继承。船厂导出本身不改变状态，导回回复仅将 Waiting Reply 转回 Reviewing，其他状态不自动改变。</p>
+<h3 id="kjx-team">Config、Team Setup 和专业默认人员</h3>
+<ol class="steps">
+<li><div><h3>进入成员项目的 Config 或 Team Setup</h3><p>manager／admin 可管理本项目人员。Config 可改常规项目设置；reviewer／viewer 看不到可编辑的 Config。Local Backup、Fix Deadline 及后台权限没有因此开放给 manager。</p></div></li>
+<li><div><h3>从目录选账号</h3><p>Team Setup 和 Default Leads 从 kjx 目录选择人员；目录列出已开通 PAhub 的 admin、manager、reviewer，按专业映射筛选。浏览器只请求 PAhub，不直接连接目录。目录不可用时显示 “Directory unavailable, enter the name manually.”；手填是本项目姓名，不会赋予统一账号成员权限。</p></div></li>
+<li><div><h3>设 Default Leads</h3><p>Config 的 Default Leads 每专业一条紧凑行、一个下拉，显示当前 lead 姓名；无 lead 时显示 Select … lead。整列可以滚动，目录不可用仍保留当前姓名，不是“没选上”。</p></div></li>
+<li><div><h3>设 Default Assignees</h3><p>Team Setup 按专业分组，使用 Select … reviewer 选人，并在下方名单切换默认负责人。这里可多选，<b>不是 Default Leads 的单选下拉</b>。Apply &amp; Reset All 会将专业默认负责人应用到图纸，请确认影响后执行。</p></div></li>
+<li><div><h3>删除项目 reviewer</h3><p>使用 Remove member／Roster 删除按钮并确认。服务端事务清理<b>本项目</b>图纸负责人、Default Leads、Default Assignees 和 roster 引用并写审计；其他项目引用保留，<b>Tracker 历史不删除</b>。不能通过此入口删除自己的成员关系以免误锁出项目；失败会显示明确错误，不要把按钮点击当作保存成功。</p></div></li>
+</ol>
+<h3 id="kjx-saving">自动保存、权限拒绝和 Daily Log</h3>
+<p>常规项目修改停止输入约 3 秒后自动保存，另有定时刷新／同步。Data Management 在 kjx 不再显示 Save to Cloud、Cloud Fetch、Local Restore。不要把输入完成或“正在自动保存”当作服务器已确认；查看待同步提示、成功结果或重新读取。</p>
+<p>无权限字段从一开始只读，不应产生本地修改。如果权限在编辑后变化、服务端返回 403，项目乐观修改会回滚到服务器值或编辑前快照、清除待同步标记，并提示无权限；<b>这次未获准的修改不会保留在浏览器待提交队列</b>。网络故障和 409 并发冲突另按页面提示处理，不等同于权限拒绝。</p>
+<p>Daily Log 选 Server 查看实际落库记录；Actor 可选 All 或操作人，Copy／CSV／PDF 包含 Actor。旧日志、legacy 或没有请求用户的系统记录显示 “—”。导入船厂回复记 Builder Reply 行，计数没变也有记录。</p>
+<h3 id="kjx-backup">Data Management、备份与项目删除</h3>
 <ul>
-<li><b>没有 PAhub 访问权限：</b>请管理员检查账号是否启用、是否已开通 PAhub 角色；登录成功不等于有所有应用的权限。</li>
-<li><b>按钮不可用或操作被拒绝：</b>先确认当前角色、项目是否解锁，以及意见轮次是否属于自己；仍需操作时联系 manager 或 admin。</li>
-<li><b>查看谁做了修改：</b>Daily Log 的 Actor 列显示操作人，可选 All 或按人筛选；Copy、CSV 和 PDF 都包含 Actor。旧记录和无登录人的后台操作显示 “—”。</li>
-<li><b>分配审图人：</b>admin 在 Team Setup 或 Config 从统一目录选择 admin、manager、reviewer；按专业选择时会筛选匹配专业。目录不可用时页面显示 “Directory unavailable, enter the name manually.”，可输入姓名点 Add。手填人员只是项目内姓名，不是统一登录身份，也不能指定为 PCF 提出人。</li>
-<li><b>登录服务暂不可用或图片显示异常：</b>稍后重试；会话过期时重新登录并刷新页面。持续失败请联系管理员。</li>
+<li><b>Local Backup：</b>仅 admin，下载当前单项目离线备份（包括项目数据与 Tracker）；不是完整服务器灾备，也不包含全部 PCF 文件、历史和交换基线。</li>
+<li><b>Fix Deadline：</b>仅 admin，确认后重算 Reviewing 图纸期限并走自动保存。提示正在保存后仍要等待成功；不需要再点已移除的 Save to Cloud。</li>
+<li><b>全库 JSON：</b>admin 可在管理后台（常称“/admin 后台”，PAhub 实际入口为 <a href="/api/admin"><code>/api/admin</code></a>）导出 JSON，包含该后台导出支持的全部项目数据；这不是 SQLite／PCF 全数据目录快照。完整灾备与恢复由运维按备份流程处理。</li>
+<li><b>Local Restore：</b>kjx 无此本地恢复入口；不要用旧截图里的按钮恢复线上项目。需要恢复时联系管理员核对备份和影响。</li>
+<li><b>删除项目：</b>当前没有正式的用户项目删除功能，请联系管理员，不要将删除 reviewer 或删除图纸误认为删除项目。</li>
 </ul>
-
+<h3 id="kjx-work">按角色的常见操作</h3>
+<ul><li><b>reviewer：</b>选成员项目 → 核对 Assignees 姓名 → 进入 PCF 新建本人意见／编辑本人 Owner → 检查保存结果 → Tracker 勾自己的完成栏。</li><li><b>manager：</b>选成员项目 → Config／Team Setup 调整人员和审图设置 → Inventory 改负责人／状态 → 处理意见、船厂往来及必要的 Tracker 代勾。</li><li><b>admin：</b>处理全项目成员授权、异常身份快照、Local Backup／Fix Deadline、后台导出和恢复请求。</li><li><b>viewer：</b>浏览授权项目和报表；需要修改请找项目负责人，不要尝试通过旧入口写入。</li></ul>
+<p>看不到项目：联系 admin／项目 manager 核对三处 Team Setup 来源；成员被移除后再次访问拒绝是正常保护。Unknown reviewer：请补人员快照或重新分配 ID。修改被回滚：先核对角色与成员权限，恢复权限后再重新输入。</p>
+</section>
+<div data-manual-legacy>
+<div class="mode-note"><b>以下章节和历史截图为 legacy 模式参考。</b>其中 ADMIN_PASSWORD、项目密码、管理员手动同步和 Local Restore 不适用于 kjx；统一账号请以上方 kjx 章节为准。通用 PCF、报表和船厂文件概念仍可参考，但权限以当前模式为准。</div>
 <h2 id="flow">平台概览和整体工作流</h2>
 <p>一张图纸从进平台到批准，会经过四个状态：<b>Pending</b>（待审）、<b>Reviewing</b>（审图中）、<b>Waiting Reply</b>（等船厂回复）、<b>Approved</b>（已批准）。每张图纸有一份在线 PCF，意见、回复、轮次都记在里面，平台数据库是唯一的数据来源。</p>
 <ol class="steps">
@@ -638,7 +662,7 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 
 <h2 id="admin">后台管理页 <span class="tag">看代码推断</span></h2>
 <ul>
-<li><b>入口：</b>在浏览器打开 <code>/admin</code>（例如 <code>http://服务器:8080/admin</code>），用 ADMIN_PASSWORD 登录。没设 ADMIN_PASSWORD 时这个页面返回 404。页面标题还是旧名字 “PAPC D1 Admin Console”，界面文字已改为英文。</li>
+<li><b>入口：</b>在浏览器打开 <code>/api/admin</code>（例如 <code>http://服务器:8080/api/admin</code>），用 ADMIN_PASSWORD 登录。没设 ADMIN_PASSWORD 时这个页面返回 404。页面标题还是旧名字 “PAPC D1 Admin Console”，界面文字已改为英文。</li>
 <li><b>Dashboard：</b>概览。</li>
 <li><b>D1 控制台：</b>按表浏览数据库，可以添加行、编辑、删（软删除），分页。直接改库绕过了前端的所有检查，尽量少用。</li>
 <li><b>SQL：</b>只能查询，每次用只读连接执行，写入和建表语句会被拒绝。</li>
@@ -688,5 +712,10 @@ pre.cmd{font-family:var(--mono);font-size:13px;line-height:1.6;background:#0f172
 <p>没有在浏览器里实际点过的部分：PCF 冲突弹窗、Send All 及压缩包、Local Restore、后台管理页、所有运维命令。另外真手机、Safari、用真的 Excel 或 WPS 打开导出文件也都没试过。</p>
 
 <div class="sources"><b>依据和核对方式</b><ul><li><a href="https://github.com/xingkaijun/PAhub">xingkaijun/PAhub</a> main 62ca2a5 与 66ebd15：前端组件、hub-server 代码、PCF 模板、README.md、hub-server/README.md、docs/</li><li>本机启动的测试服务（100 张图纸的测试数据）上实际操作和截图，2026 年 11 月 9 日</li></ul></div>
+</div>
 </main>
+<script>
+// Same-origin session decides presentation only; this page never authorizes writes.
+fetch('/api/session',{cache:'no-store'}).then(r=>r.ok?r.json():null).then(session=>{if(session?.mode==='kjx')document.documentElement.dataset.authMode='kjx';}).catch(()=>{});
+</script>
 </body></html>
