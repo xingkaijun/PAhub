@@ -1,3 +1,5 @@
+import {createJSONStorage} from 'zustand/middleware';
+import {recoveryStorage} from '../lib/local-storage';
 import type { PersistOptions } from 'zustand/middleware';
 import type { Drawing, Project } from '../types';
 import type { AppState } from './types';
@@ -7,6 +9,7 @@ const generateId = () => Math.random().toString(36).substr(2, 9);
 // Keep version 2 and its serialized Sets compatible with already-open/local pages.
 export const persistenceOptions: PersistOptions<AppState, any> = {
   name: 'pahub-storage',
+  storage: createJSONStorage(() => recoveryStorage),
   partialize: (state) => ({
     data: {
       ...state.data,
@@ -16,6 +19,7 @@ export const persistenceOptions: PersistOptions<AppState, any> = {
     saveStatuses: Object.fromEntries(Object.entries(state.saveStatuses).map(([id,status])=>[id,status.phase==='saving'?{...status,phase:'failed',failure:'network',reason:'Save confirmation interrupted',retryAt:Date.now()+3000}:status])),
     pendingSaves: withoutProjectSecrets(state.pendingSaves),
     activeProjectId: state.activeProjectId,
+    trackerWrites: Object.fromEntries(Object.entries(state.trackerWrites).map(([key,intent])=>[key,{...intent,phase:'failed',reason:intent.reason || 'Awaiting confirmation after reload'}])),
     reviewTracker: state.reviewTracker,
     _dirtyDrawingIds: [...state._dirtyDrawingIds],
     _deletedDrawingIds: [...state._deletedDrawingIds],

@@ -19,6 +19,8 @@ export const useStore = create<AppState>()(persist((...args) => ({
 
 // Track fields centrally so every mutation path participates; non-dirty server refreshes do not create edits.
 useStore.subscribe((state, previous) => {
+  // Save acknowledgements/conflict rollback update dirty fields themselves; never rediscover them as edits.
+  if (state._dirtyDrawingFields !== previous._dirtyDrawingFields) return;
   if (state.data === previous.data || state.activeProjectId !== previous.activeProjectId || state._dirtyDrawingIds === previous._dirtyDrawingIds || previous.isLoading && !state.isLoading) return;
   const project = state.data.projects.find(p => p.id === state.activeProjectId);
   const before = previous.data.projects.find(p => p.id === state.activeProjectId);

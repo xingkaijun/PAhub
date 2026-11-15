@@ -25,6 +25,7 @@ const TESTS = [
   'kjx-membership-browser-smoke.mjs',
   'kjx-reviewer-view-browser-smoke.mjs',
   'autosave-p0-browser-smoke.mjs',
+  'autosave-p1-browser-smoke.mjs',
   'kjx-manual-browser-smoke.mjs',
 ];
 

@@ -44,11 +44,11 @@ try{
  await pages.manager.getByText('Project Configuration',{exact:true}).waitFor();
  assert.equal(await pages.manager.getByRole('button',{name:'Local Backup'}).count(),0);assert.equal(await pages.manager.getByRole('button',{name:'Fix Deadline'}).count(),0);
  const saved=pages.manager.waitForResponse(response=>response.request().method()==='PATCH'&&response.status()===200);
- await pages.manager.getByPlaceholder('CUSTOM DISPLAY TITLE').fill('Manager Config saved');await saved;
+ await pages.manager.getByPlaceholder('CUSTOM DISPLAY TITLE').fill('Manager Config saved');await pages.manager.getByRole('button',{name:'Save Now',exact:true}).click();await saved;
  assert.equal(hub.db.prepare('SELECT setting_value FROM project_settings WHERE project_id=? AND setting_key=?').get(P,'displayName').setting_value,'Manager Config saved');
  await pages.manager.screenshot({path:'hub-server/test/artifacts/manager-project-config.png',fullPage:true});
  await pages.manager.route('**/api/projects/'+P,async route=>{if(route.request().method()==='PATCH')await route.fulfill({status:403,contentType:'application/json',body:JSON.stringify({ok:false,error:'forbidden',capability:'project.settings'})});else await route.continue();});
- await pages.manager.getByPlaceholder('CUSTOM DISPLAY TITLE').fill('Must roll back');
+ await pages.manager.getByPlaceholder('CUSTOM DISPLAY TITLE').fill('Must roll back');await pages.manager.getByRole('button',{name:'Save Now',exact:true}).click();
  await pages.manager.waitForFunction(()=>document.querySelector('input[placeholder="CUSTOM DISPLAY TITLE"]')?.value==='Manager Config saved');
  const cached=await pages.manager.evaluate(()=>JSON.parse(localStorage.getItem('pahub-storage')).state);
  assert.equal(cached._dirtyConf,false);assert.deepEqual(cached._dirtyDrawingIds,[]);assert.doesNotMatch(JSON.stringify(cached),/Must roll back/);

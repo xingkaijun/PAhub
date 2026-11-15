@@ -80,9 +80,9 @@ try {
   await page.getByRole('tab', { name: 'English' }).click();
   await page.getByText('1. Server Data, Saving & Sign-in').waitFor();
   const guide = await page.locator('main').innerText();
-  for (const needle of ['ADMIN_PASSWORD', 'Save Now', 'Live updates', 'Administrator', 'Reviewer', '3 seconds']) assert.ok(guide.includes(needle), 'Guide mentions ' + needle);
+  for (const needle of ['ADMIN_PASSWORD', 'Save Now', 'Live updates', 'Administrator', 'Reviewer', '15 minutes']) assert.ok(guide.includes(needle), 'Guide mentions ' + needle);
   for (const stale of [/edit[- ]mode lock/i, /no manual save/i, /Version 4\.0-Cloud/]) assert.doesNotMatch(guide, stale);
-  for (const needle of ['实时推送', '访客', '管理员', '停 3 秒', 'ADMIN_PASSWORD', 'Save Now']) assert.ok(manual.includes(needle), 'Chinese manual mentions ' + needle);
+  for (const needle of ['实时推送', '访客', '管理员', '15 分钟', 'ADMIN_PASSWORD', 'Save Now']) assert.ok(manual.includes(needle), 'Chinese manual mentions ' + needle);
   assert.doesNotMatch(manual, /无需寻找保存按钮/);
   await page.screenshot({ path: path.join(shots, 'known-issues-guide.png') });
   console.log('Guide: Chinese manual and English guide describe sign-in, auto-save + Save Now, live updates; no edit-mode lock / no-save-button text');
@@ -99,7 +99,8 @@ try {
   assert.match(await row101.innerText(), /Midship section, frames 50-80, rev\. A/);
   const row102 = page.locator('tr', { has: page.locator('td', { hasText: /^KI-102$/ }) }).first();
   assert.match(await row102.innerText(), /Fuel oil, "FO" transfer/);
-  // Wait for the auto-save and check the server copy.
+  // Save explicitly; normal cadence is fifteen minutes.
+  await page.getByRole('button',{name:'Save Now',exact:true}).click();
   let stored;
   for (let i = 0; i < 40; i++) {
     await sleep(250);
@@ -125,6 +126,7 @@ try {
   await trash.click();
   for (let i = 0; i < 40 && await page.locator('td', { hasText: /^KI-101$/ }).count() > 0; i++) await sleep(100);
   assert.equal(await page.locator('td', { hasText: /^KI-101$/ }).count(), 0, 'OK removes the row');
+  await page.getByRole('button',{name:'Save Now',exact:true}).click();
   let gone = false;
   for (let i = 0; i < 40 && !gone; i++) { await sleep(250); gone = !hub.db.prepare("SELECT 1 FROM drawings WHERE project_id=? AND custom_id='KI-101'").get(P); }
   assert.ok(gone, 'deleted on the server after confirming');

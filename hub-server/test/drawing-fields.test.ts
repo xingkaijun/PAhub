@@ -2,7 +2,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { projectsApi } from '../../services/api/projectsApi';
-import { createDebouncedSave, AUTO_SAVE_DELAY_MS } from '../../lib/auto-save';
+import { startAutosave, AUTOSAVE_INTERVAL_MS } from '../../lib/auto-save';
 import { mergeProjectPreservingDirty } from '../../lib/merge-project';
 import type { Drawing, Project } from '../../types';
 
@@ -91,10 +91,10 @@ test('store ignores manual PCF field edits and batch status changes use the same
   assert.equal(store.getState().data.projects[0].drawings[0].currentRound, 'AB');
 });
 
-test('auto-save debounces for three seconds after the last change and cancels on teardown', () => {
-  let now = 0, id = 0, saves = 0; const jobs = new Map<number, { fn: () => void; at: number }>();
-  const save = createDebouncedSave(() => saves++, AUTO_SAVE_DELAY_MS, (fn, ms) => { jobs.set(++id, { fn, at: now + ms }); return id; }, key => { jobs.delete(key); });
-  const tick = (ms: number) => { now += ms; for (const [key, job] of jobs) if (job.at <= now) { jobs.delete(key); job.fn(); } };
-  save.changed(); tick(2500); save.changed(); tick(2999); assert.equal(saves, 0); tick(1); assert.equal(saves, 1);
-  save.changed(); save.cancel(); tick(3000); assert.equal(saves, 1);
+test('auto-save uses fixed fifteen-minute cadence and cancels on teardown', () => {
+ let now=0,saves=0,interval=0,next=0,job:()=>void=()=>{},cancelled=false;
+ const stop=startAutosave(()=>saves++,at=>next=at,()=>now,((fn:any,ms:number)=>{job=fn;interval=ms;return 1;}) as any,(()=>{cancelled=true;}) as any);
+ assert.equal(interval,AUTOSAVE_INTERVAL_MS);assert.equal(next,900000);assert.equal(saves,0);
+ now=900000;job();assert.equal(saves,1);assert.equal(next,1800000);
+ stop();assert.equal(cancelled,true);assert.equal(next,0);
 });

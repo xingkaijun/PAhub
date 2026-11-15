@@ -1,6 +1,6 @@
 import { apiClient } from './services/api/apiClient';
 import { isProjectNotFound, projectsApi } from './services/api/projectsApi';
-import { createDebouncedSave } from './lib/auto-save';
+import { startAutosave } from './lib/auto-save';
 
 
 import React, { Suspense, lazy, useMemo, useState, useEffect } from 'react';
@@ -216,58 +216,20 @@ const App: React.FC = () => {
 
   // ... (handleProjectSwitch remains same)
 
-  // Save three seconds after the last local edit; the minute timer below remains a retry fallback.
-  useEffect(() => {
-    if (!activeProjectId || showProjectSelector || !isEditMode) return;
-    const projectId = activeProjectId;
-    const debounced = createDebouncedSave(() => {
-      const state = useStore.getState();
-      if (state.activeProjectId === projectId && state.isEditMode && state.hasUnsavedChanges() && !state.isLoading) void state.saveProject(projectId);
-    });
-    if (useStore.getState().hasUnsavedChanges()) debounced.changed();
-    const unsubscribe = useStore.subscribe((state, previous) => {
-      if (state.activeProjectId !== projectId || !state.isEditMode) return;
-      if (state._dirtyDrawingFields !== previous._dirtyDrawingFields || state._deletedDrawingIds !== previous._deletedDrawingIds ||
-          state._dirtyConf && state.data !== previous.data || state._dirtyTracker && state.reviewTracker !== previous.reviewTracker || previous.isLoading && !state.isLoading && state.hasUnsavedChanges()) debounced.changed();
-    });
-    return () => { unsubscribe(); debounced.cancel(); };
-  }, [activeProjectId, showProjectSelector, isEditMode]);
-
-  // 3. Auto-Save Logic (Configurable Interval)
+  // Fixed cadence, unaffected by keystrokes, server refreshes or manual saves.
   useEffect(() => {
     if (!activeProjectId || showProjectSelector) return;
-
-    const activeProject = data.projects.find(p => p.id === activeProjectId);
-    const configInterval = activeProject?.conf?.autoSyncInterval;
-    const globalInterval = data.settings.autoSyncInterval;
-    const intervalMinutes = configInterval ?? globalInterval ?? 3;
-
-    void useStore.getState().refreshPcfPresence(activeProjectId);
-    if (intervalMinutes <= 0) return; // Disable auto-sync if set to 0
-    const interval = setInterval(async () => {
-      void useStore.getState().refreshPcfPresence(activeProjectId);
-      // 只有拥有编辑权限 (isEditMode) 时，才将本地数据推送到服务端覆写
-      if (isEditMode) {
-        console.log(`[Edit Mode] Auto-saving current project to server (Interval: ${intervalMinutes}m)...`);
-        await saveProject(activeProjectId);
-      } else {
-        // 全局只读模式下，不仅禁止推送（避免覆盖），同时从服务端静默拉取最新数据
-        // 如果本地有任何待保存状态（drawing / conf / tracker），跳过拉取以避免覆盖
-        const state = useStore.getState();
-        const hasPending = state._dirtyDrawingIds.size > 0 || state._deletedDrawingIds.size > 0 || state._dirtyConf || state._dirtyTracker;
-        if (hasPending) {
-          console.log(`[Read-Only Mode] Skipping auto-fetch: local unsaved changes pending.`);
-          return;
-        }
-        console.log(`[Read-Only Mode] Auto-fetching latest data from server (Interval: ${intervalMinutes}m)...`);
-        await loadProject(activeProjectId).catch(e => {
-          console.warn('Auto-fetch in read-only mode failed:', e.message);
-        });
-      }
-    }, intervalMinutes * 60 * 1000);
-
-    return () => clearInterval(interval);
-  }, [activeProjectId, showProjectSelector, data.settings.autoSyncInterval, currentProject?.conf?.autoSyncInterval, currentProject?.conf?.passwordSet, isEditMode, loadProject, saveProject]);
+    const projectId = activeProjectId;
+    const save = () => {
+      const state = useStore.getState();
+      if (state.activeProjectId === projectId && state.isEditMode && state.hasUnsavedChanges() && !state.isLoading) void state.saveProject(projectId);
+    };
+    const stop = startAutosave(save, at => useStore.setState({nextAutosaveAt: at}));
+    const hidden = () => { if (document.hidden) save(); };
+    document.addEventListener('visibilitychange', hidden);
+    window.addEventListener('pagehide', save);
+    return () => { stop(); document.removeEventListener('visibilitychange', hidden); window.removeEventListener('pagehide', save); };
+  }, [activeProjectId, showProjectSelector]);
 
   useEffect(() => {
     // One stream per open project, kept across tab switches (switching tabs used to drop and reopen it, refetching everything).
@@ -286,6 +248,7 @@ const App: React.FC = () => {
     const stopPoll = () => { if (pollTimer) clearInterval(pollTimer); pollTimer = undefined; };
     // Conditional (ETag) read: when nothing changed the server answers 304 and nothing is merged.
     const fullRefresh = () => {
+      window.dispatchEvent(new CustomEvent('pahub:project-changed', {detail:{projectId}}));
       void useStore.getState().refreshProjectPreservingDirty(projectId).catch(() => {});
       refreshPresence();
     };
@@ -296,6 +259,7 @@ const App: React.FC = () => {
       if (name === 'presence' && data?.drawings) {
         if (useStore.getState().activeProjectId === projectId) useStore.setState({ pcfPresence: data.drawings });
       } else if (name === 'drawing-changed' && typeof data?.drawingId === 'string') {
+        window.dispatchEvent(new CustomEvent('pahub:project-changed', {detail:{projectId}}));
         changedIds.add(data.drawingId);
         if (!mergeTimer) mergeTimer = setTimeout(async () => {
           mergeTimer = undefined;

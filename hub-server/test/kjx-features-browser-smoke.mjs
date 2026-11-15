@@ -43,6 +43,7 @@ try {
  await admin.getByRole('button',{name:'Team Setup',exact:true}).click();
  const picker=admin.getByLabel('Select Hull reviewer');await picker.locator('option[value="other"]').waitFor({state:'attached'});await picker.selectOption('other');
  await admin.getByRole('button',{name:'Close',exact:true}).click();
+ {const saved=admin.waitForResponse(r=>r.request().method()==='PATCH'&&r.status()===200);await admin.getByRole('button',{name:'Save Now',exact:true}).click();await saved;}
  await admin.locator('button[title="Daily Change Log"]').click();
  await admin.getByLabel('Actor',{exact:true}).locator('option[value="manager"]').waitFor({state:'attached'});await admin.getByLabel('Actor',{exact:true}).selectOption('manager');
  const logTable=admin.locator('table').first();assert.match(await logTable.innerText(),/Actor/i);assert.match(await logTable.innerText(),/Logged manager/);assert.doesNotMatch(await logTable.innerText(),/Logged reviewer/);

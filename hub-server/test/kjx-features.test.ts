@@ -161,7 +161,7 @@ test('T6 Actor options, filtering, CSV/Copy and PDF report markup include identi
   assert.match(actorExport(['Detail'],rows,row=>[row.detail],true),/"Actor"/);
   assert.match(actorExport(['Detail'],rows,row=>[row.detail],true),/"B, ""Name"""/);
   assert.match(actorExport(['Detail'],rows,row=>[row.detail],false),/Actor/);
-  const source=await readFile('components/DailyLogReport.tsx','utf8');assert.match(source,/print-actor-log/);assert.match(source,/actorLabel\(row\)/);assert.match(source,/row\.actorId \|\| ''/);
+  const source=await readFile('components/DailyLogReport.tsx','utf8');assert.match(source,/print-actor-log/);assert.match(source,/actorLabel/);assert.match(source,/mergeContinuousComments/);const mergeSource=await readFile('lib/audit-merge.ts','utf8');assert.match(mergeSource,/row.actorId===previous.actorId/);
 });
 
 test('T6 template dry-run and fec6429 readers preserve IDs without a persistent template bump',async()=>{

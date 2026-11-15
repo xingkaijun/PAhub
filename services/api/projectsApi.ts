@@ -2,7 +2,7 @@ import type { AppSettings, AuditEntry, Drawing, Project, ReviewTrackerData, Delt
 import { apiClient, ApiError, type ApiClient, type ApiRequestOptions } from './apiClient';
 
 export interface ProjectListItem { id: string; name: string; storagePath?: string; passwordProtected?: boolean }
-export interface AuditLogPage { entries: AuditEntry[]; truncated: boolean }
+export interface AuditLogPage { entries: AuditEntry[]; truncated: boolean; nextCursor?: string }
 export const projectResource = (projectId: string, resource = '') => 'projects/' + encodeURIComponent(projectId) + (resource ? '/' + resource : '');
 export interface DrawingsByIdResult { assigneeNames?: Record<string,string>; drawings: Drawing[]; missing: string[]; reviewTracker: ReviewTrackerData }
 /** null when the server answered 304: nothing changed since the copy this client already holds. */
@@ -74,7 +74,7 @@ export function createProjectsApi(client: ApiClient) {
       const read = await trackerRead(projectId, false); return read.changed ? JSON.parse(read.text) : null;
     },
     saveReviewTracker: (projectId: string, data: ReviewTrackerData, signal?: AbortSignal) => client.json<SaveResult>(projectResource(projectId, 'review-tracker'), { method: 'PUT', json: data, signal }),
-    loadAuditLog: (projectId: string, fromISO: string, toISO: string, signal?: AbortSignal) => client.json<AuditLogPage>(projectResource(projectId, 'audit') + '?' + new URLSearchParams({ from: fromISO, to: toISO }), { signal }),
+    loadAuditLog: (projectId: string, fromISO: string, toISO: string, signal?: AbortSignal, cursor?: string) => client.json<AuditLogPage>(projectResource(projectId, 'audit') + '?' + new URLSearchParams({ from: fromISO, to: toISO, ...(cursor?{cursor}:{}) }), { signal }),
     async sendHeartbeat(projectId: string, signal?: AbortSignal): Promise<void> { await client.request(projectResource(projectId, 'heartbeat'), { method: 'PUT', signal }); },
     async getHeartbeat(projectId: string, signal?: AbortSignal): Promise<string | null> { return (await client.json<{ adminLastSeen: string | null }>(projectResource(projectId, 'heartbeat'), { signal })).adminLastSeen; },
     async testConnection(signal?: AbortSignal) { await client.request('health', { signal }); return { success: true, message: 'Connected to PAPC API' }; },

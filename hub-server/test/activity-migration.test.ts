@@ -9,7 +9,7 @@ const baselinePath=process.env.PAHUB_WORKER_BASELINE;
 const oldWorker=baselinePath?(await import(pathToFileURL(baselinePath).href)).default:undefined;
 const D1Adapter=baselinePath?(await import(new URL("d1.mjs",pathToFileURL(baselinePath)).href)).D1Adapter:class {constructor(..._args:unknown[]) {}};
 
-test('audit boundaries, invalid details, ordering and truncation preserve Worker behavior',async () => {
+test('audit boundaries, invalid details, ordering preserve Worker behavior; P1 replaces truncation with cursor pages',async () => {
   const db=new DatabaseSync(':memory:');
   try {
     initializeSchema(db);db.exec("INSERT INTO projects(id,name) VALUES('p','P')");
@@ -28,7 +28,7 @@ test('audit boundaries, invalid details, ordering and truncation preserve Worker
     const result=await compare('?from=2026-11-07T16:00:00Z&to=2026-11-08T16:00:00Z');assert.equal(result.entries.length,2);assert.deepEqual(result.entries[0].detail,{});assert.equal(result.truncated,false);
     assert.ok((await compare('')).error);
     for(let i=0;i<2001;i++)insert.run('p','drawings','d','STATUS','{}','2026-11-08T01:00:00Z');
-    const full=await compare('?from=2026-11-08T00:00:00Z&to=2026-11-08T16:00:00Z');assert.equal(full.entries.length,2000);assert.equal(full.truncated,true);
+    const response=await router.handle(new Request('http://local/api/projects/p/audit?from=2026-11-08T00:00:00Z&to=2026-11-08T16:00:00Z'));const full=await response.json();assert.equal(full.entries.length,500);assert.equal(full.truncated,true);assert.ok(full.nextCursor);let page=full,total=full.entries.length;while(page.nextCursor){page=await(await router.handle(new Request('http://local/api/projects/p/audit?from=2026-11-08T00:00:00Z&to=2026-11-08T16:00:00Z&cursor='+encodeURIComponent(page.nextCursor)))).json();total+=page.entries.length;}assert.equal(total,2002);
   }finally{db.close();}
 });
 test('heartbeat reads and writes match Worker and persist only project setting',async () => {

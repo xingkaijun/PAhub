@@ -33,11 +33,11 @@ try{for(const mode of ['kjx','legacy']){
    const row=manager.locator('tbody tr').filter({has:manager.getByText('DW-A-001',{exact:true})}).first();await row.waitFor();
    const patches=[];manager.on('request',request=>{if(request.method()==='PATCH')patches.push(request.postDataJSON());});
    await row.locator('td').nth(11).getByRole('button').click();await row.getByText('Engineer B',{exact:true}).click();
-   await manager.waitForResponse(response=>response.request().method()==='PATCH'&&response.status()===200);
+   {const saved=manager.waitForResponse(response=>response.request().method()==='PATCH'&&response.status()===200);await manager.getByRole('button',{name:'Save Now',exact:true}).click();await saved;}
    assert.ok(hub.db.prepare('SELECT reviewer_id FROM drawing_assignees WHERE drawing_id=?').all(D).some(row=>row.reviewer_id==='engineer_b'));
    assert.ok(patches.length);assert.equal(patches[0].reviewTracker,undefined);
    const command=manager.locator('input[placeholder^="Terminal:"]');await command.fill('@DW-A-001 T7 follow-up remark');await command.press('Enter');
-   await manager.waitForResponse(response=>response.request().method()==='PATCH'&&response.status()===200);
+   {const saved=manager.waitForResponse(response=>response.request().method()==='PATCH'&&response.status()===200);await manager.getByRole('button',{name:'Save Now',exact:true}).click();await saved;}
    assert.ok(hub.db.prepare('SELECT content FROM drawing_remarks WHERE drawing_id=?').all(D).some(row=>String(row.content).includes('T7 follow-up remark')));
    await managerContext.close();
   }

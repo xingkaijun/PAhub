@@ -20,6 +20,7 @@ try{
  await page.route('**/api/projects/'+P,async route=>{if(route.request().method()!=='PATCH'){await route.continue();return;}calls++;sent.push(route.request().postDataJSON());if(mode==='ok'){await route.continue();return;}await route.fulfill({status:mode==='large'?413:503,contentType:'application/json',body:JSON.stringify({error:mode==='large'?'too large':'temporary server failure'})});});
  const input=page.getByPlaceholder('CUSTOM DISPLAY TITLE');await input.fill('Keep pending');const bar=page.getByTestId('save-status-bar');await page.waitForFunction(()=>document.querySelector('[data-testid="save-status-bar"]')?.textContent.includes('Pending sync'));
  await mkdir('hub-server/test/artifacts',{recursive:true});await bar.screenshot({path:'hub-server/test/artifacts/autosave-p0-pending.png'});
+ await page.getByRole('button',{name:'Save Now',exact:true}).click();
  await page.waitForFunction(()=>document.querySelector('[data-testid="save-status-bar"]')?.textContent.includes('Save failed'));
  assert.match(await bar.innerText(),/Retry in/);await bar.screenshot({path:'hub-server/test/artifacts/autosave-p0-failed.png'});
  await page.waitForFunction(()=>JSON.parse(localStorage.getItem('pahub-storage')).state.saveStatuses['proj-test-001'].attempts>=2);
@@ -27,7 +28,7 @@ try{
  mode='ok';await bar.getByRole('button',{name:'Retry now'}).click();await page.waitForFunction(()=>document.querySelector('[data-testid="save-status-bar"]')?.textContent.includes('Saved ·'));
  await bar.screenshot({path:'hub-server/test/artifacts/autosave-p0-saved.png'});
  assert.equal(hub.db.prepare('SELECT setting_value FROM project_settings WHERE project_id=? AND setting_key=?').get(P,'displayName').setting_value,'Keep pending');
- mode='large';await input.fill('Oversize blocked');await page.waitForFunction(()=>document.querySelector('[data-testid="save-status-bar"]')?.textContent.includes('Data is too large'));
+ mode='large';await input.fill('Oversize blocked');await page.getByRole('button',{name:'Save Now',exact:true}).click();await page.waitForFunction(()=>document.querySelector('[data-testid="save-status-bar"]')?.textContent.includes('Data is too large'));
  const before=calls;await page.waitForTimeout(7000);assert.equal(calls,before);assert.equal(await bar.getByRole('button',{name:'Retry now'}).isDisabled(),true);
  await page.locator('header button').filter({hasText:'PG-VLEC-H2684'}).click();await page.getByRole('button',{name:/Other Workspace/}).click();
  await page.waitForTimeout(500);const held=await page.evaluate(()=>JSON.parse(localStorage.getItem('pahub-storage')).state);assert.equal(held.activeProjectId,'proj-test-001');assert.equal(held._dirtyConf,true);assert.equal(held.data.projects.find(project=>project.id==='proj-test-001').conf.displayName,'Oversize blocked');assert.equal(calls,before);

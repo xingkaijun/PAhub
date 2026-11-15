@@ -311,7 +311,9 @@ export const ReviewTracker: React.FC = () => {
 
     const toggleApproved = (drawingId: string) => {
         if (!isEditMode) return;
-        toggleAssigneeDone(drawingId, '__approved__');
+        const key=JSON.stringify([activeProjectId,drawingId,'__approved__']);
+        if(useStore.getState().trackerWrites[key])void useStore.getState().retryTrackerWrite(key);
+        else toggleAssigneeDone(drawingId, '__approved__');
     };
 
     if (!currentProject) {
@@ -335,7 +337,7 @@ export const ReviewTracker: React.FC = () => {
         return (
             <div
                 key={drawing.id}
-                className={`flex items-center gap-3 px-4 py-2.5 rounded-[1.25rem] border transition-all shadow-sm ${isOverdue
+                className={`flex flex-wrap items-center min-w-0 gap-3 px-4 py-2.5 rounded-[1.25rem] border transition-all shadow-sm ${isOverdue
                     ? 'bg-[linear-gradient(135deg,rgba(254,242,242,0.95),rgba(255,255,255,0.98))] border-red-200'
                     : allDone
                         ? 'bg-[linear-gradient(135deg,rgba(236,253,245,0.95),rgba(255,255,255,0.98))] border-emerald-200'
@@ -402,7 +404,7 @@ export const ReviewTracker: React.FC = () => {
                 </div>
 
                 {/* Assignee 按钮 */}
-                <div className="flex items-center gap-1.5 shrink-0 flex-wrap justify-end">
+                <div className="flex items-center gap-1.5 min-w-0 max-w-full flex-wrap justify-end">
                     {assignees.length === 0 ? (
                         <span className="text-[9px] text-slate-300 font-bold uppercase tracking-wider italic">
                             No Assignees
@@ -410,25 +412,28 @@ export const ReviewTracker: React.FC = () => {
                     ) : (
                         assignees.map(assignee => {
                             const isDone = trackerEntry[assignee]?.done;
+                            const writeKey=JSON.stringify([activeProjectId,drawing.id,assignee]);
+                            const intent=useStore.getState().trackerWrites[writeKey];
                             return (
                                 <button
                                     key={assignee}
-                                    onClick={() => toggleAssigneeDone(drawing.id, assignee)}
-                                    disabled={!canMark(assignee) || isSending}
-                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold transition-all active:scale-95 border shadow-sm ${isDone
+                                    onClick={() => intent ? void useStore.getState().retryTrackerWrite(writeKey) : toggleAssigneeDone(drawing.id, assignee)}
+                                    disabled={!canMark(assignee) || isSending || intent?.phase==='saving'}
+                                    className={`flex flex-wrap max-w-full items-center gap-1.5 px-3 py-1.5 rounded-full text-[10px] font-bold transition-all active:scale-95 border shadow-sm ${isDone
                                         ? 'bg-emerald-100/90 text-emerald-700 border-emerald-200 hover:bg-emerald-50'
                                         : isOverdue
                                             ? 'bg-red-50 text-red-700 border-red-200 hover:bg-red-100 shadow-red-500/10'
                                             : 'bg-white/85 text-slate-600 border-white/80 hover:bg-white hover:border-teal-200 hover:text-teal-700'
                                         }`}
-                                    title={!canMark(assignee) ? 'Only this reviewer or a project manager can change this mark' : isDone ? `${assigneeName(assignee)}: Done (click to undo)` : `${assigneeName(assignee)}: Click to mark done`}
+                                    title={intent?.reason || (!canMark(assignee) ? 'Only this reviewer or a project manager can change this mark' : isDone ? `${assigneeName(assignee)}: Done (click to undo)` : `${assigneeName(assignee)}: Click to mark done`)}
                                 >
                                     {isDone ? (
                                         <CheckCircle2 size={12} className="text-emerald-500" />
                                     ) : (
                                         <Circle size={12} className={isOverdue ? 'text-red-400' : 'text-slate-300'} />
                                     )}
-                                    <span className="uppercase tracking-[0.16em]">{assigneeName(assignee)}</span>
+                                    <span className="uppercase tracking-[0.16em]">{assigneeName(assignee)}{intent?.phase==='saving'?' · In progress…':intent?' · Failed — Retry':''}</span>
+
                                 </button>
                             );
                         })
@@ -447,7 +452,7 @@ export const ReviewTracker: React.FC = () => {
                 {isReady && canTracker && (
                     <button
                         onClick={() => toggleApproved(drawing.id)}
-                        disabled={!isEditMode || isSending}
+                        disabled={!isEditMode || isSending || useStore.getState().trackerWrites[JSON.stringify([activeProjectId,drawing.id,'__approved__'])]?.phase==='saving'}
                         className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[9px] font-[1000] uppercase tracking-[0.18em] border transition-all shrink-0 shadow-sm ${isApproved
                             ? 'bg-violet-100/90 text-violet-700 border-violet-200'
                             : 'bg-white/85 text-slate-400 border-white/80 hover:border-violet-200 hover:text-violet-500'
@@ -455,7 +460,7 @@ export const ReviewTracker: React.FC = () => {
                         title={isApproved ? 'Marked Approved (click to undo)' : 'Mark as Approved (applied on Send All)'}
                     >
                         <Award size={11} />
-                        APR
+                        APR {useStore.getState().trackerWrites[JSON.stringify([activeProjectId,drawing.id,'__approved__'])]?.phase==='saving'?' · In progress…':useStore.getState().trackerWrites[JSON.stringify([activeProjectId,drawing.id,'__approved__'])]?' · Failed — Retry':''}
                     </button>
                 )}
             </div>
