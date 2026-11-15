@@ -103,6 +103,7 @@ test('T6 initiator: spoofed creator ignored, resolved manager assignment works, 
 test('PCF close/reopen stores the authenticated user and survives reload and export', async () => {
   const f = await fixture();
   try {
+    for (const id of ['closer', 'second']) f.hub.db.prepare('INSERT OR IGNORE INTO project_team_reviewers VALUES(?,?)').run(P, id);
     await f.ops('reviewer', [{ type: 'comment.add', id: 'C', roundIdNew: 'R' }]);
     const close = await f.ops('manager', [{ type: 'comment.status', commentId: 'C', value: 'closed', baseRev: 0, closedBy: 'Forged', closedById: 'forged' }], { sub: 'closer', name: 'Actual Closer' });
     assert.equal(close.status, 200);
