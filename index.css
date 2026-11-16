@@ -48,3 +48,7 @@
 .primary-nav { white-space: nowrap; }
 .primary-nav[data-compact="true"] .nav-label { display: none; }
 .primary-nav[data-compact="true"] > button { padding-inline: 0.75rem; }
+
+/* Keep native popup options in the same typography as Settings controls. */
+.settings-theme select, .settings-theme option { font-family: inherit; font-size: 10px; font-weight: 900; color: var(--hub-modal-ink, #334155); }
+.settings-theme option { background: var(--hub-modal-surface, white); }
