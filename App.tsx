@@ -574,7 +574,7 @@ const App: React.FC = () => {
 
       {/* Main Container */}
       <main className="flex-1 flex flex-col overflow-auto px-6 py-4">
-        <div className={'max-w-[1800px] mx-auto w-full flex-1 flex flex-col gap-4' + (activeTab === 'comments' || activeTab === 'manual' ? ' min-h-0' : '')}>
+        <div className={'max-w-[1800px] mx-auto w-full flex-1 flex flex-col gap-4' + (activeTab === 'manual' ? ' min-h-0' : '')}>
           {remoteUpdateCount > 0 && ['drawings', 'tracker'].includes(activeTab) && (
             <div className="flex items-center justify-between rounded-xl border border-teal-100 bg-teal-50/80 px-4 py-2 text-xs font-semibold text-teal-800">
               <span>Updated by others · {remoteUpdateCount} drawings</span>
@@ -589,7 +589,7 @@ const App: React.FC = () => {
           )}
           {activeTab === 'drawings' && <CommandBar />}
 
-          <div className={`flex-1 rounded-[2rem] border border-white/70 shadow-[0_24px_80px_-28px_rgba(15,118,110,0.28)] overflow-hidden flex flex-col ${activeTab === 'drawings' || activeTab === 'comments' ? 'inventory-theme' : ''} ${activeTab === 'comments' ? 'comments-surface' : 'bg-white/92 backdrop-blur-xl'}`}>
+          <div className={`flex-1 rounded-[2rem] border border-white/70 shadow-[0_24px_80px_-28px_rgba(15,118,110,0.28)] overflow-hidden flex flex-col ${activeTab === 'drawings' || activeTab === 'comments' ? 'inventory-theme' : ''} ${activeTab === 'comments' ? 'comments-surface shrink-0' : 'bg-white/92 backdrop-blur-xl'}`}>
             {activeTab === 'drawings' && <DrawingList />}
             {activeTab === 'comments' && (
               <Suspense fallback={<LazyTabFallback />}>
