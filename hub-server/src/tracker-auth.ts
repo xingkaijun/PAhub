@@ -17,7 +17,8 @@ export function authorizeTracker(db:DatabaseSync,project:string,data:any,user:Re
   for(const[id,info]of Object.entries(entries) as [string,any][]){
    if(!info||typeof info!=='object'||Array.isArray(info)||Object.keys(info).some(key=>!['done','doneAt'].includes(key))||![true,false,0,1].includes(info.done)||info.doneAt!=null&&typeof info.doneAt!=='string')throw Object.assign(new Error('Invalid tracker value'),{status:400});
    if(id==='__approved__'){if(!elevated)deny();continue;}
-   if(!db.prepare('SELECT 1 FROM drawing_assignees WHERE drawing_id=? AND reviewer_id=?').get(drawing,id))deny();
+   // Managers/admins may clear a stale check left by a removed or legacy (name-keyed) assignee: Send All clears every check on the drawing.
+   if(!db.prepare('SELECT 1 FROM drawing_assignees WHERE drawing_id=? AND reviewer_id=?').get(drawing,id)){if(elevated&&!info.done&&db.prepare('SELECT 1 FROM review_tracker WHERE project_id=? AND drawing_id=? AND reviewer_id=? AND IFNULL(_deleted,0)!=1').get(project,drawing,id))continue;deny();}
    if(!elevated&&(id!==user?.id||id.startsWith('manual-')))deny();
   }
  }

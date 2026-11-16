@@ -738,3 +738,15 @@ test('config: invalid modes/URLs fail closed and discipline mapping follows appr
   assert.equal(kjxDiscipline(' Accommodation '),'OUTFIT');assert.equal(kjxDiscipline('h U l l'),'HULL');
   assert.equal(kjxDiscipline('unknown'),undefined);
 });
+
+test('kjx: managers can clear stale tracker checks of removed assignees but not set them', async () => {
+  const f=await fixture();
+  try {
+    f.hub.db.prepare('INSERT INTO review_tracker(project_id,drawing_id,raw_drawing_ref,reviewer_id,done) VALUES(?,?,?,?,1)').run(PROJECT,DRAWING,DRAWING,'Legacy Name');
+    const patch=(id:string,done:boolean)=>f.request('/api/projects/'+PROJECT,'manager',f.json({reviewTracker:{[DRAWING]:{[id]:{done,doneAt:null}}}},'PATCH'));
+    assert.equal((await patch('Legacy Name',true)).status,403);
+    assert.equal((await patch('Never Tracked',false)).status,403);
+    assert.equal((await patch('Legacy Name',false)).status,200);
+    assert.equal(Number(f.hub.db.prepare('SELECT done FROM review_tracker WHERE project_id=? AND drawing_id=? AND reviewer_id=?').get(PROJECT,DRAWING,'Legacy Name')?.done),0);
+  } finally {await f.cleanup();}
+});
