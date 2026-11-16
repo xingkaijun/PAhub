@@ -10,7 +10,8 @@ import { format } from 'date-fns';
 import { downloadProjectBackup, parseProjectBackup } from '../services/data/localProjectFile';
 import { calculateDeadline, reviewCycleDays } from '../lib/deadline';
 import { projectsApi } from '../services/api/projectsApi';
-import { DirectoryPicker } from './DirectoryPicker';
+import { TeamRosterPicker } from './TeamRosterPicker';
+import { settingsStyles } from './settingsStyles';
 import type { Reviewer } from '../types';
 
 export const Settings: React.FC = () => {
@@ -32,9 +33,11 @@ export const Settings: React.FC = () => {
   const [passwordNotice, setPasswordNotice] = useState('');
   const isAdmin = useStore(state => state.can('settings.write'));
   const kjx = useStore(state => state.session?.mode === 'kjx');
-  const addDirectoryReviewer = (person: Reviewer, discipline?: string) => {
+  const canSetupTeam = useStore(state => state.can('team.setup'));
+  const roster = (activeSettings.reviewers || []).map(person => typeof person === 'string' ? {id:person, name:person} : person);
+  const addDirectoryReviewer = (person: Reviewer) => {
     const reviewers = [...(activeSettings.reviewers || []).filter(r => r.id !== person.id), person];
-    const changes = { reviewers, ...(discipline ? { disciplineDefaults: { ...activeSettings.disciplineDefaults, [discipline]: person.id } } : {}) };
+    const changes = { reviewers };
     if (project) updateProjectConfig(project.id, changes); else updateSettings(changes);
   };
   const passwordRequest = useRef<AbortController | null>(null);
@@ -70,8 +73,8 @@ export const Settings: React.FC = () => {
 
   const activeDisciplines = React.useMemo(() => {
     if (!project) return [];
-    return Array.from(new Set(project.drawings.map(d => d.discipline))).filter(Boolean).sort();
-  }, [project]);
+    return Array.from(new Set([...project.drawings.map(d => d.discipline), ...Object.keys(activeSettings.disciplineDefaults || {}), ...Object.keys(project.conf.defaultAssignees || {})])).filter(Boolean).sort();
+  }, [project, activeSettings.disciplineDefaults]);
 
   const handleExecutePush = async () => {
     const success = await saveActiveProject('');
@@ -128,6 +131,18 @@ export const Settings: React.FC = () => {
       if (project) updateProjectConfig(project.id, { [type]: newList });
       else updateSettings({ [type]: newList });
     }
+  };
+
+  const removeRosterMember = async (person: Reviewer) => {
+    if (!canSetupTeam) return;
+    if (!kjx) { removeItem('reviewers', person.id); return; }
+    if (!project || !window.confirm('Remove ' + person.name + ' from this project and clear their drawing assignments and defaults?')) return;
+    try {
+      const saved = await useStore.getState().saveProject(project.id, {manual:true});
+      if (!saved) { alert('Save failed or awaits confirmation. Use Save Now before removing a member.'); return; }
+      await projectsApi.deleteReviewer(project.id, person.id);
+      await loadProject(project.id);
+    } catch (error) { alert('Unable to remove reviewer: ' + String(error)); }
   };
 
   const updateDisciplineDefault = (discipline: string, reviewer: string) => {
@@ -204,7 +219,7 @@ export const Settings: React.FC = () => {
   }, [activeSettings, globalSettings, activeDisciplines]);
 
   return (
-    <div className="flex-1 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-200 animate-in fade-in slide-in-from-bottom-2 duration-300 p-6">
+    <div data-testid="settings-page" className="settings-theme flex-1 overflow-y-auto pr-2 scrollbar-thin scrollbar-thumb-slate-200 animate-in fade-in slide-in-from-bottom-2 duration-300 p-6">
       <div className="max-w-7xl mx-auto space-y-6 pb-8">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
 
@@ -212,9 +227,10 @@ export const Settings: React.FC = () => {
           <section className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:border-teal-400 transition-colors">
             <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-3 bg-slate-50/50">
               <Database className="text-teal-600" size={16} />
-              <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-800">Data Management</h2>
+              <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-800">Project Settings</h2>
             </div>
-            <div className="p-5 flex-1 space-y-4">
+            <div className="p-5 space-y-4">
+              <h3 className={settingsStyles.label}>Data Management</h3>
               <div className="pt-2 space-y-3">
                 <div className="text-[9px] font-black uppercase text-slate-400 ml-1">Hull: <span className="text-teal-600">{project?.name || 'Unset'}</span></div>
 
@@ -337,35 +353,84 @@ export const Settings: React.FC = () => {
                 </button>}
               </div>
             </div>
+            <div className="border-t border-slate-100 p-5 space-y-5">
+              <h3 className={settingsStyles.label}>Project Configuration</h3>
+              {/* Project Name */}
+              <div className="space-y-2">
+                <label htmlFor="config-report-name" className={settingsStyles.label}>Project Report Name</label>
+                <input
+                  type="text"
+                  value={activeSettings.displayName || ''}
+                  onChange={(e) => project && updateProjectConfig(project.id, { displayName: e.target.value })}
+                  id="config-report-name" placeholder="CUSTOM DISPLAY TITLE"
+                  disabled={!project}
+                  className={settingsStyles.control}
+                />
+              </div>
+
+              {/* Password: write-only local draft, never part of persisted project configuration. */}
+              {!kjx && <div className="space-y-2">
+                <label htmlFor="config-project-password" className={settingsStyles.label}>Project Password (Optional)</label>
+                <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
+                  {project?.conf.passwordSet ? <Lock size={14} /> : <CheckCircle size={14} />}
+                  <span>{project?.conf.passwordSet ? 'Set' : 'Not set'}</span>
+                </div>
+                <input
+                  id="config-project-password"
+                  type="password"
+                  autoComplete="new-password"
+                  value={passwordDraft}
+                  onChange={event => setPasswordDraft(event.target.value)}
+                  onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void savePassword(); } }}
+                  placeholder={project?.conf.passwordSet ? 'Enter a new password to change it' : 'Enter a project password'}
+                  disabled={!project || !isAdmin || passwordBusy}
+                  className={settingsStyles.control}
+                />
+                <div className="flex gap-2">
+                  <button type="button" onClick={() => void savePassword()} disabled={!project || !isAdmin || passwordBusy || !passwordDraft.trim()}
+                    className="rounded-lg bg-teal-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-40">
+                    {passwordBusy ? 'Saving…' : project?.conf.passwordSet ? 'Change Password' : 'Set Password'}
+                  </button>
+                  <button type="button" onClick={() => void savePassword(true)} disabled={!project?.conf.passwordSet || !isAdmin || passwordBusy}
+                    className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 disabled:opacity-40">Clear Password</button>
+                </div>
+                <p role="status" className="text-xs text-slate-600">{passwordNotice}</p>
+                <p className="text-[9px] font-bold text-slate-400 leading-relaxed pl-1 max-w-md">
+                  Administrators only; saved immediately. The password is never shown again and is not included in local backups. Changing or clearing it ends existing unlock sessions right away.
+                </p>
+              </div>}
+
+              {/* Auto Sync - Visual Divider */}
+              <div className="h-px bg-indigo-50" />
+
+              {/* Auto Sync */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className={settingsStyles.label + ' flex items-center gap-1'}>
+                    <Clock size={10} /> Auto-Sync Interval
+                  </span>
+                  <span className="text-[9px] font-[1000] text-teal-600 bg-teal-50 px-2 py-1 rounded-md">
+                    15 min
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500">Fixed 15-minute autosave while editing; only pending changes are sent. Save Now remains available.</p>
+              </div>
+            </div>
           </section>
 
           {/* Review Team */}
-          <section className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:border-teal-400 transition-colors">
-            <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-3 bg-slate-50/50">
+          <section className="bg-white rounded-[2rem] border border-slate-200 shadow-sm relative z-20 flex flex-col hover:border-teal-400 transition-colors">
+            <div className="px-5 py-4 rounded-t-[2rem] border-b border-slate-100 flex items-center gap-3 bg-slate-50/50">
               <Users className="text-teal-600" size={16} />
               <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-800">Team Roster</h2>
             </div>
-            <div className="p-3 flex-1 flex flex-col gap-2 min-h-0">
-              {kjx ? <DirectoryPicker onSelect={person => addDirectoryReviewer(person)} label="Add directory reviewer" /> : <div className="flex gap-1.5 shrink-0">
-                <input
-                  type="text" value={newReviewer} onChange={(e) => setNewReviewer(e.target.value)}
-                  placeholder="New Reviewer Name"
-                  className="flex-1 p-1.5 bg-slate-50 border border-slate-200 rounded-lg text-[10px] font-black outline-none focus:bg-white transition-all uppercase"
-                />
-                <button onClick={() => addItem('reviewers', newReviewer, setNewReviewer)} className="p-2 bg-[linear-gradient(135deg,#005c55_0%,#0f766e_100%)] text-white rounded-full hover:brightness-105 active:scale-95 transition-all shadow-[0_10px_20px_-14px_rgba(13,148,136,0.45)]"><Plus size={14} /></button>
+            <div className="p-5 space-y-3">
+              {!kjx && <div className="flex gap-2">
+                <input type="text" aria-label="New reviewer name" value={newReviewer} onChange={event => setNewReviewer(event.target.value)} placeholder="New Reviewer Name" className={settingsStyles.control} />
+                <button type="button" aria-label="Add reviewer" disabled={!canSetupTeam || !newReviewer.trim()} onClick={() => addItem('reviewers', newReviewer, setNewReviewer)} className="rounded-full bg-teal-700 px-3 text-white disabled:opacity-50"><Plus size={14} /></button>
               </div>}
-              <div className="grid grid-cols-1 gap-1 overflow-y-auto pr-1 scrollbar-thin flex-1">
-                {(activeSettings.reviewers || []).map(r => {
-                  const rName = typeof r === 'string' ? r : r.name;
-                  const rId = typeof r === 'string' ? r : r.id;
-                  return (
-                    <div key={rId} className="flex items-center justify-between p-1.5 bg-white border border-slate-100 rounded-lg group hover:border-teal-400 transition-all shrink-0">
-                      <span className="text-[10px] font-black text-slate-700 uppercase">{rName}</span>
-                      <button onClick={async () => { if(!kjx){removeItem('reviewers',rId);return;} if(!project||!window.confirm('Remove '+rName+' from this project and clear their drawing assignments and defaults?'))return; try{await projectsApi.deleteReviewer(project.id,rId);await loadProject(project.id);}catch(error){alert('Unable to remove reviewer: '+String(error));} }} className="text-slate-200 hover:text-red-500 transition-colors"><Trash2 size={12} /></button>
-                    </div>
-                  );
-                })}
-              </div>
+              <TeamRosterPicker projectId={activeProjectId || undefined} selected={roster} directory={kjx}
+                disabled={!canSetupTeam} onAdd={addDirectoryReviewer} onRemove={removeRosterMember} />
             </div>
           </section>
 
@@ -375,22 +440,26 @@ export const Settings: React.FC = () => {
               <UserCheck className="text-indigo-600" size={16} />
               <h2 className="text-[10px] font-black uppercase tracking-widest text-slate-800">Default Leads</h2>
             </div>
-            <div className="p-3 flex-1 flex flex-col gap-2 min-h-0">
-              <div className={kjx ? "grid grid-cols-1 auto-rows-min content-start gap-1 overflow-y-auto pr-1 scrollbar-thin max-h-80" : "grid grid-cols-1 gap-1 overflow-y-auto pr-1 scrollbar-thin flex-1"}>
-                {activeDisciplines.map(d => (
-                  <div key={d} className="flex items-center justify-between p-1 px-2 rounded-lg bg-slate-50/50 border border-slate-100 hover:border-indigo-200 transition-colors shrink-0">
-                    <span className="text-[9px] font-black uppercase text-slate-500 tracking-widest flex-1 truncate py-1" title={d}>{d}</span>
-                    {kjx ? <DirectoryPicker discipline={d} label={'Select ' + d + ' lead'} value={(activeSettings.disciplineDefaults || {})[d] || ''} currentName={(activeSettings.reviewers || []).find(r=>r.id === activeSettings.disciplineDefaults[d])?.name} onClear={()=>updateDisciplineDefault(d,'')} onSelect={person => addDirectoryReviewer(person, d)} /> : <select
-                      value={(activeSettings.disciplineDefaults || {})[d] || ''}
-                      onChange={(e) => updateDisciplineDefault(d, e.target.value)}
-                      className="w-24 p-1 py-0.5 bg-white border border-slate-200 rounded text-[10px] font-black outline-none uppercase tracking-tight ml-2 h-6"
-                    ><option value="">No Default</option>{(activeSettings.reviewers || []).map(r => { const rName = typeof r === 'string' ? r : r.name; const rId = typeof r === 'string' ? r : r.id; return <option key={rId} value={rName}>{rName}</option>; })}</select>}
-                  </div>
-                ))}
-                {activeDisciplines.length === 0 && (
-                  <div className="text-center py-10 opacity-30 text-[9px] font-black uppercase tracking-widest">No Disciplines</div>
-                )}
-              </div>
+            <div className="p-5 overflow-x-auto">
+              <table className="w-full table-fixed border-collapse text-left" aria-label="Default leads by discipline">
+                <thead><tr className="border-b border-slate-200"><th scope="col" className={settingsStyles.label + ' w-2/5 pb-3 pr-3'}>Discipline</th><th scope="col" className={settingsStyles.label + ' pb-3'}>Lead</th></tr></thead>
+                <tbody className="divide-y divide-slate-100">
+                  {activeDisciplines.map(d => {
+                    const stored = (activeSettings.disciplineDefaults || {})[d] || '';
+                    const selected = roster.find(person => (kjx ? person.id : person.name) === stored || person.id === stored || person.name === stored);
+                    return <tr key={d}>
+                      <th scope="row" className="py-2 pr-3 text-[10px] font-black text-slate-600 break-words">{d}</th>
+                      <td className="py-2"><select aria-label={'Select ' + d + ' lead'} disabled={!canSetupTeam}
+                        value={selected ? (kjx ? selected.id : selected.name) : ''}
+                        onChange={event => updateDisciplineDefault(d, event.target.value)} className={settingsStyles.control}>
+                        <option value="">Unassigned</option>
+                        {roster.map(person => <option key={person.id} value={kjx ? person.id : person.name}>{person.name}</option>)}
+                      </select></td>
+                    </tr>;
+                  })}
+                  {!activeDisciplines.length && <tr><td colSpan={2} className="py-8 text-center text-[10px] text-slate-500">No Disciplines</td></tr>}
+                </tbody>
+              </table>
             </div>
           </section>
 
@@ -403,25 +472,25 @@ export const Settings: React.FC = () => {
             <div className="p-6 flex-1 space-y-6">
               <div className="space-y-4">
                 <div>
-                  <label className="text-[9px] font-black uppercase text-slate-400 mb-2 block tracking-widest">Round A Cycle (Working Days)</label>
+                  <label htmlFor="config-round-a" className={settingsStyles.label}>Round A Cycle (Working Days)</label>
                   <div className="flex items-center gap-4">
                     <input
-                      type="range" min="1" max="30" step="1"
+                      id="config-round-a" type="range" min="1" max="30" step="1"
                       value={activeSettings.roundACycle}
                       onChange={(e) => updatePolicy('roundACycle', parseInt(e.target.value))}
-                      className="flex-1 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                      className={settingsStyles.range}
                     />
                     <span className="text-lg font-[1000] text-amber-600 w-10">{activeSettings.roundACycle}</span>
                   </div>
                 </div>
                 <div>
-                  <label className="text-[9px] font-black uppercase text-slate-400 mb-2 block tracking-widest">Subsequent Rounds Cycle</label>
+                  <label htmlFor="config-other-rounds" className={settingsStyles.label}>Subsequent Rounds Cycle</label>
                   <div className="flex items-center gap-4">
                     <input
-                      type="range" min="1" max="21" step="1"
+                      id="config-other-rounds" type="range" min="1" max="21" step="1"
                       value={activeSettings.otherRoundsCycle}
                       onChange={(e) => updatePolicy('otherRoundsCycle', parseInt(e.target.value))}
-                      className="flex-1 h-1.5 bg-slate-100 rounded-lg appearance-none cursor-pointer accent-amber-500"
+                      className={settingsStyles.range}
                     />
                     <span className="text-lg font-[1000] text-amber-600 w-10">{activeSettings.otherRoundsCycle}</span>
                   </div>
@@ -444,8 +513,8 @@ export const Settings: React.FC = () => {
             <div className="p-5 flex-1 flex flex-col gap-4 min-h-0">
               <div className="flex gap-1.5 shrink-0">
                 <input
-                  type="date" value={newHoliday} onChange={(e) => setNewHoliday(e.target.value)}
-                  className="flex-1 p-2 bg-slate-50 border border-slate-200 rounded-xl text-[10px] font-black outline-none focus:bg-white transition-all uppercase"
+                  aria-label="New public holiday" type="date" value={newHoliday} onChange={(e) => setNewHoliday(e.target.value)}
+                  className={settingsStyles.control}
                 />
                 <button onClick={() => addItem('holidays', newHoliday, setNewHoliday)} className="p-2 bg-[linear-gradient(135deg,#005c55_0%,#0f766e_100%)] text-white rounded-full hover:brightness-105 active:scale-95 transition-all shadow-[0_10px_20px_-14px_rgba(13,148,136,0.45)]"><Plus size={16} /></button>
               </div>
@@ -488,77 +557,6 @@ export const Settings: React.FC = () => {
             </div>
           </section>
 
-          {/* Project Configuration (Merged: Name, Password, Sync) */}
-          <section className="bg-white rounded-[2rem] border border-indigo-100 shadow-sm overflow-hidden flex flex-col hover:border-indigo-400 transition-colors group relative">
-            <div className="px-5 py-4 border-b border-indigo-50 flex items-center gap-3 bg-indigo-50/30">
-              <LayoutDashboard className="text-indigo-400 group-hover:text-indigo-600 transition-colors" size={16} />
-              <h2 className="text-[10px] font-black uppercase tracking-widest text-indigo-900/70 group-hover:text-indigo-900">Project Configuration</h2>
-            </div>
-            <div className="p-5 flex-1 space-y-5 relative z-10">
-
-              {/* Project Name */}
-              <div className="space-y-2">
-                <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider ml-1">Project Report Name</label>
-                <input
-                  type="text"
-                  value={activeSettings.displayName || ''}
-                  onChange={(e) => project && updateProjectConfig(project.id, { displayName: e.target.value })}
-                  placeholder="CUSTOM DISPLAY TITLE"
-                  disabled={!project}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-indigo-500/20 focus:border-indigo-500 transition-all placeholder:text-slate-300 group-hover/input:bg-white"
-                />
-              </div>
-
-              {/* Password: write-only local draft, never part of persisted project configuration. */}
-              {!kjx && <div className="space-y-2">
-                <label htmlFor="config-project-password" className="text-[9px] font-black text-slate-400 uppercase tracking-wider ml-1">Project Password (Optional)</label>
-                <div className="flex items-center gap-2 text-xs font-bold text-slate-600">
-                  {project?.conf.passwordSet ? <Lock size={14} /> : <CheckCircle size={14} />}
-                  <span>{project?.conf.passwordSet ? 'Set' : 'Not set'}</span>
-                </div>
-                <input
-                  id="config-project-password"
-                  type="password"
-                  autoComplete="new-password"
-                  value={passwordDraft}
-                  onChange={event => setPasswordDraft(event.target.value)}
-                  onKeyDown={event => { if (event.key === 'Enter') { event.preventDefault(); void savePassword(); } }}
-                  placeholder={project?.conf.passwordSet ? 'Enter a new password to change it' : 'Enter a project password'}
-                  disabled={!project || !isAdmin || passwordBusy}
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-4 py-3 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-red-500/20 focus:border-red-500 transition-all placeholder:text-slate-300"
-                />
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => void savePassword()} disabled={!project || !isAdmin || passwordBusy || !passwordDraft.trim()}
-                    className="rounded-lg bg-teal-700 px-3 py-2 text-xs font-bold text-white disabled:opacity-40">
-                    {passwordBusy ? 'Saving…' : project?.conf.passwordSet ? 'Change Password' : 'Set Password'}
-                  </button>
-                  <button type="button" onClick={() => void savePassword(true)} disabled={!project?.conf.passwordSet || !isAdmin || passwordBusy}
-                    className="rounded-lg border border-slate-200 px-3 py-2 text-xs font-bold text-slate-600 disabled:opacity-40">Clear Password</button>
-                </div>
-                <p role="status" className="text-xs text-slate-600">{passwordNotice}</p>
-                <p className="text-[9px] font-bold text-slate-400 leading-relaxed pl-1 max-w-md">
-                  Administrators only; saved immediately. The password is never shown again and is not included in local backups. Changing or clearing it ends existing unlock sessions right away.
-                </p>
-              </div>}
-
-              {/* Auto Sync - Visual Divider */}
-              <div className="h-px bg-indigo-50" />
-
-              {/* Auto Sync */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <label className="text-[9px] font-black uppercase text-slate-400 tracking-widest flex items-center gap-1">
-                    <Clock size={10} /> Auto-Sync Interval
-                  </label>
-                  <span className="text-[9px] font-[1000] text-teal-600 bg-teal-50 px-2 py-1 rounded-md">
-                    15 min
-                  </span>
-                </div>
-                <p className="text-xs text-slate-500">Fixed 15-minute autosave while editing; only pending changes are sent. Save Now remains available.</p>
-              </div>
-            </div>
-          </section>
-
           {/* Project Summary (Ship Milestones) */}
           <section className="bg-white rounded-[2rem] border border-slate-200 shadow-sm overflow-hidden flex flex-col hover:border-violet-400 transition-colors col-span-1 md:col-span-2 lg:col-span-3">
             <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-3 bg-slate-50/50">
@@ -569,28 +567,28 @@ export const Settings: React.FC = () => {
               {/* Info Row: Ship Owner & Update Date */}
               <div className="flex flex-col md:flex-row gap-4">
                 <div className="flex items-center gap-4 flex-1">
-                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider w-24 shrink-0">Ship Owner</label>
+                  <label htmlFor="config-ship-owner" className={settingsStyles.label}>Ship Owner</label>
                   <input
                     type="text"
                     value={project?.conf?.projectSummary?.shipOwner || ''}
                     onChange={(e) => project && updateProjectConfig(project.id, {
                       projectSummary: { ...project.conf.projectSummary, ships: project.conf.projectSummary?.ships || [], shipOwner: e.target.value }
                     })}
-                    placeholder="e.g. COSCO SHIPPING"
+                    id="config-ship-owner" placeholder="e.g. COSCO SHIPPING"
                     disabled={!project}
-                    className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all placeholder:text-slate-300 uppercase"
+                    className={settingsStyles.control}
                   />
                 </div>
                 <div className="flex items-center gap-4 flex-1">
-                  <label className="text-[9px] font-black text-slate-400 uppercase tracking-wider w-32 shrink-0">Milestone Update</label>
+                  <label htmlFor="config-milestone-update" className={settingsStyles.label}>Milestone Update</label>
                   <input
                     type="date"
-                    value={project?.conf?.projectSummary?.milestoneUpdateDate || ''}
+                    id="config-milestone-update" value={project?.conf?.projectSummary?.milestoneUpdateDate || ''}
                     onChange={(e) => project && updateProjectConfig(project.id, {
                       projectSummary: { ...project.conf.projectSummary, ships: project.conf.projectSummary?.ships || [], milestoneUpdateDate: e.target.value }
                     })}
                     disabled={!project}
-                    className="flex-1 bg-slate-50 border border-slate-200 rounded-xl px-4 py-2 text-xs font-bold text-slate-700 focus:outline-none focus:ring-2 focus:ring-violet-500/20 focus:border-violet-500 transition-all uppercase"
+                    className={settingsStyles.control}
                   />
                 </div>
               </div>
@@ -613,26 +611,26 @@ export const Settings: React.FC = () => {
                     {(project?.conf?.projectSummary?.ships || []).map((ship, idx) => (
                       <tr key={idx} className="hover:bg-slate-50/50 transition-colors">
                         <td className="px-3 py-1.5">
-                          <input type="text" value={ship.hullNumber} placeholder="H1234"
+                          <input aria-label={'Ship ' + (idx + 1) + ' hull number'} type="text" value={ship.hullNumber} placeholder="H1234"
                             onChange={(e) => {
                               if (!project) return;
                               const ships = [...(project.conf.projectSummary?.ships || [])];
                               ships[idx] = { ...ships[idx], hullNumber: e.target.value };
                               updateProjectConfig(project.id, { projectSummary: { ...project.conf.projectSummary, ships } });
                             }}
-                            className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-[10px] font-bold text-slate-700 uppercase focus:outline-none focus:border-violet-400"
+                            className={settingsStyles.control}
                           />
                         </td>
                         {(['steelCutting', 'keelLaying', 'launching', 'delivery', 'contractDelivery'] as const).map(field => (
                           <td key={field} className="px-3 py-1.5">
-                            <input type="date" value={ship[field] || ''}
+                            <input aria-label={'Ship ' + (idx + 1) + ' ' + field} type="date" value={ship[field] || ''}
                               onChange={(e) => {
                                 if (!project) return;
                                 const ships = [...(project.conf.projectSummary?.ships || [])];
                                 ships[idx] = { ...ships[idx], [field]: e.target.value };
                                 updateProjectConfig(project.id, { projectSummary: { ...project.conf.projectSummary, ships } });
                               }}
-                              className="w-full bg-white border border-slate-200 rounded-lg px-2 py-1.5 text-[10px] font-bold text-slate-600 focus:outline-none focus:border-violet-400"
+                              className={settingsStyles.control}
                             />
                           </td>
                         ))}
