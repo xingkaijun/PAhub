@@ -174,7 +174,7 @@ export const Comments: React.FC<{ projectId: string | null }> = ({ projectId }) 
 
   const stringOptions = (values: string[]) => values.map(value => ({ value, label: value }));
   return (
-    <div className="comments-register-page flex min-h-0 min-w-0 flex-1 flex-col text-slate-700">
+    <div className="comments-register-page flex min-w-0 flex-1 flex-col text-slate-700">
       <header className="flex flex-wrap items-center justify-between gap-4 border-b border-slate-100 px-5 py-5 sm:px-7">
         <div>
           <h2 className="flex items-center gap-2 text-lg font-black tracking-tight text-slate-900"><MessageSquare size={20} className="text-teal-600" />Comments</h2>
@@ -234,7 +234,7 @@ export const Comments: React.FC<{ projectId: string | null }> = ({ projectId }) 
           <h3 className="text-xs font-bold text-slate-700">Comments register <span className="ml-2 font-normal text-slate-400">{numberFormat.format(sortedRows.length)} matching comments</span></h3>
           <span role="status" className="text-[10px] text-slate-400">{loading ? 'Loading register…' : 'Click a row to open its comment in a new PCF tab.'}</span>
         </div>
-        <div className={'min-h-0 flex-1 overflow-auto transition-opacity motion-reduce:transition-none ' + (loading && result ? 'opacity-50' : '')} tabIndex={0} role="region" aria-label="Scrollable comments table">
+        <div className={'max-h-[max(28rem,calc(100dvh-10rem))] flex-none overflow-auto transition-opacity motion-reduce:transition-none ' + (loading && result ? 'opacity-50' : '')} tabIndex={0} role="region" aria-label="Scrollable comments table">
           <table className="w-full border-collapse text-left text-xs">
             <caption className="sr-only">Project comments, latest round per comment. Sort using column headings.</caption>
             <thead className="sticky top-0 z-10 bg-slate-50 text-[10px] font-bold text-slate-500">
@@ -260,8 +260,8 @@ export const Comments: React.FC<{ projectId: string | null }> = ({ projectId }) 
                   <td className="px-3 py-3"><span className={inventoryBadgeClass(row.status)}>{statusLabel(row.status)}</span></td>
                   <td className="px-3 py-3"><div className="flex max-w-[180px] flex-wrap gap-1">{row.tags.length ? row.tags.map(tag => <span key={tag} className={inventoryBadgeClass(tag, 'tag')}>{tag}</span>) : '—'}</div></td>
                   <td className="px-3 py-3 text-[11px] text-slate-600">{row.ownerName || '—'}</td>
-                  <td className="max-w-[360px] px-3 py-3">{row.ownerDate && <p className="mb-1 text-[10px] text-slate-400">{safeFormatDate(row.ownerDate, 'dd MMM yyyy')}</p>}<p className="line-clamp-4 whitespace-pre-wrap break-words text-[11px] leading-relaxed" title={row.ownerComment}>{row.ownerComment || '—'}</p></td>
-                  <td className="max-w-[360px] px-3 py-3">{row.builderReplyDate && <p className="mb-1 text-[10px] text-slate-400">{safeFormatDate(row.builderReplyDate, 'dd MMM yyyy')}</p>}<p className="line-clamp-4 whitespace-pre-wrap break-words text-[11px] leading-relaxed" title={row.builderReply}>{row.builderReply || '—'}</p></td>
+                  <td className="max-w-[360px] px-3 py-3">{row.ownerDate && <p className="mb-1 text-[10px] text-slate-400">{safeFormatDate(row.ownerDate, 'dd MMM yyyy')}</p>}<p className="line-clamp-12 whitespace-pre-wrap break-words text-[11px] leading-relaxed" title={row.ownerComment}>{row.ownerComment || '—'}</p></td>
+                  <td className="max-w-[360px] px-3 py-3">{row.builderReplyDate && <p className="mb-1 text-[10px] text-slate-400">{safeFormatDate(row.builderReplyDate, 'dd MMM yyyy')}</p>}<p className="line-clamp-12 whitespace-pre-wrap break-words text-[11px] leading-relaxed" title={row.builderReply}>{row.builderReply || '—'}</p></td>
                   <td className="whitespace-nowrap px-3 py-3 text-[10px] text-slate-500" title={row.updatedAt}>{safeFormatDate(row.updatedAt, 'dd MMM yyyy')}<p className="mt-1 text-slate-400">{safeFormatDate(row.updatedAt, 'HH:mm')}</p></td>
                 </tr>;
               })}
