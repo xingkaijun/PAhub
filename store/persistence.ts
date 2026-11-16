@@ -3,8 +3,14 @@ import {recoveryStorage} from '../lib/local-storage';
 import type { PersistOptions } from 'zustand/middleware';
 import type { Drawing, Project } from '../types';
 import type { AppState } from './types';
+import type { SaveStatus } from '../lib/save-control';
 import { normalizeProjectDrawingIds, stripProjectPayload, withoutProjectSecrets } from '../lib/project';
 const safeConfKeys = (keys: unknown): string[] => Array.isArray(keys) ? keys.filter((key): key is string => typeof key === 'string' && !/password/i.test(key)) : [];
+// Session/validation failures are runtime gates, not durable recovery state.
+// Apply on both write and read so existing version-2 localStorage is repaired.
+const recoverableStatuses = (statuses: Record<string, SaveStatus> = {}) => Object.fromEntries(
+  Object.entries(statuses).filter(([, status]) => !status.failure || !['forbidden', 'login', 'oversize', 'invalid'].includes(status.failure))
+);
 const generateId = () => Math.random().toString(36).substr(2, 9);
 // Keep version 2 and its serialized Sets compatible with already-open/local pages.
 export const persistenceOptions: PersistOptions<AppState, any> = {
@@ -16,7 +22,7 @@ export const persistenceOptions: PersistOptions<AppState, any> = {
       projects: state.data.projects.map(project => stripProjectPayload(project, project.id === state.activeProjectId)),
     },
     membershipRecovery: state.membershipRecovery,
-    saveStatuses: Object.fromEntries(Object.entries(state.saveStatuses).map(([id,status])=>[id,status.phase==='saving'?{...status,phase:'failed',failure:'network',reason:'Save confirmation interrupted',retryAt:Date.now()+3000}:status])),
+    saveStatuses: Object.fromEntries(Object.entries(recoverableStatuses(state.saveStatuses)).map(([id,status])=>[id,status.phase==='saving'?{...status,phase:'failed',failure:'network',reason:'Save confirmation interrupted',retryAt:Date.now()+3000}:status])),
     pendingSaves: withoutProjectSecrets(state.pendingSaves),
     activeProjectId: state.activeProjectId,
     trackerWrites: Object.fromEntries(Object.entries(state.trackerWrites).map(([key,intent])=>[key,{...intent,phase:'failed',reason:intent.reason || 'Awaiting confirmation after reload'}])),
@@ -60,6 +66,7 @@ export const persistenceOptions: PersistOptions<AppState, any> = {
           : currentState.data.projects,
       }
       : currentState.data,
+    saveStatuses: recoverableStatuses(persistedState?.saveStatuses),
     pendingSaves: Object.fromEntries(Object.entries(persistedState?.pendingSaves || {}).map(([id,pending]:[string,any])=>[id,{...pending,project:normalizeProjectDrawingIds(pending.project,generateId)}])),
     _dirtyDrawingIds: new Set(persistedState?._dirtyDrawingIds || []),
     _deletedDrawingIds: new Set(persistedState?._deletedDrawingIds || []),

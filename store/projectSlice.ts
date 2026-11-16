@@ -49,7 +49,10 @@ export const createProjectSlice: SliceCreator<ProjectSlice> = (set, get) => {
     const intents=Object.entries(get().trackerWrites).filter(([,intent])=>intent.projectId===id);
     for(const [key] of intents) if(!await get().retryTrackerWrite(key))return false;
     const status=get().saveStatuses[id];
-    if(!get().hasUnsavedChanges()&&!get().pendingSaves[id]&&!get().data.projects.find(p=>p.id===id)?.localOnly)return true;
+    if(!get().hasUnsavedChanges()&&!get().pendingSaves[id]&&!get().data.projects.find(p=>p.id===id)?.localOnly){
+      if(status?.phase==='failed'||status?.phase==='unconfirmed')set(current=>({saveStatuses:{...current.saveStatuses,[id]:{phase:'saved',attempts:0,lastSuccess:status.lastSuccess}}}));
+      return true;
+    }
     if(status?.failure==='forbidden' && get().hasUnsavedChanges() && !get().pendingSaves[id]){set(current=>({saveStatuses:{...current.saveStatuses,[id]:{phase:'saved',attempts:0,lastSuccess:status.lastSuccess}}}));return get().saveProjectAttempt(id);}
     if(get().session?.mode!=='kjx' && status?.phase!=='unconfirmed' && (!status?.failure || !retryable(status.failure)))return get().saveProjectAttempt(id);
     if(!options.manual && (status?.phase==='failed'||status?.phase==='unconfirmed') && (!status.retryAt || status.retryAt>Date.now()))return false;
