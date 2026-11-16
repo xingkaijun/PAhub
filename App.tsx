@@ -1,9 +1,10 @@
+import { observeNavCompact } from './lib/nav-compact';
 import { apiClient } from './services/api/apiClient';
 import { isProjectNotFound, projectsApi } from './services/api/projectsApi';
 import { startAutosave } from './lib/auto-save';
 
 
-import React, { Suspense, lazy, useMemo, useState, useEffect } from 'react';
+import React, { Suspense, lazy, useMemo, useState, useEffect, useLayoutEffect, useRef } from 'react';
 import { useStore } from './store';
 import { DrawingList } from './components/DrawingList';
 import { CommandBar } from './components/CommandBar';
@@ -100,6 +101,15 @@ const App: React.FC = () => {
   useEffect(() => {
     if (!canConfigure && activeTab === 'settings') setActiveTab('drawings');
   }, [canConfigure, activeTab]);
+
+  const navSlotRef = useRef<HTMLDivElement>(null);
+  const navRef = useRef<HTMLElement>(null);
+  const [compactNav, setCompactNav] = useState(false);
+  useLayoutEffect(() => {
+    if (navSlotRef.current && navRef.current) {
+      return observeNavCompact(navSlotRef.current, navRef.current, setCompactNav);
+    }
+  }, [canConfigure, session?.mode, isEditMode]);
 
   // 1. Startup Logic: Server First - FETCH LIST ONLY
   useEffect(() => {
@@ -417,7 +427,7 @@ const App: React.FC = () => {
 
         <div className="relative flex items-center min-w-0 z-[1]">
           {/* Logo Section */}
-          <div className="flex items-center gap-4 group cursor-pointer shrink-0" onClick={() => setActiveTab('drawings')}>
+          <div className="flex items-center gap-4 group cursor-pointer min-w-0" onClick={() => setActiveTab('drawings')}>
             <div className="relative">
               <div className="bg-white/95 p-1.5 rounded-2xl shadow-lg border border-white/40 transition-transform group-hover:scale-105 active:scale-95 overflow-hidden">
                 <img
@@ -428,72 +438,87 @@ const App: React.FC = () => {
               </div>
             </div>
             <div className="flex flex-col min-w-0">
-              <h1 className="text-lg font-[1000] text-white tracking-tighter leading-none uppercase whitespace-nowrap">
+              <h1 className="text-lg font-[1000] text-white tracking-tighter leading-none uppercase truncate">
                 PLAN APPROVAL <span className="text-[#9CF2E8]">PLATFORM</span>
               </h1>
-              <span className="text-[8px] font-black text-teal-100/75 uppercase tracking-[0.35em] mt-1">Technical Intelligence System</span>
+              <span className="text-[8px] font-black text-teal-100/75 uppercase tracking-[0.35em] mt-1 truncate">Technical Intelligence System</span>
             </div>
           </div>
         </div>
 
-        <div className="hidden md:flex flex-1 min-w-0 items-center justify-center px-4 z-[1]">
+        <div ref={navSlotRef} className="hidden md:flex flex-1 min-w-[340px] items-center justify-center px-4 z-[1]">
           {/* Main Navigation Tabs */}
-          <nav className="flex items-center gap-1 bg-black/15 backdrop-blur-sm p-1 rounded-full border border-white/10 shadow-inner shadow-black/10 min-w-0 max-w-full overflow-x-auto">
+          <nav ref={navRef} data-primary-nav data-compact={compactNav} aria-label="Main navigation" className="primary-nav flex items-center gap-1 bg-black/15 backdrop-blur-sm p-1 rounded-full border border-white/10 shadow-inner shadow-black/10 shrink-0 overflow-hidden">
             <button
               onClick={() => setActiveTab('drawings')}
-              className={`flex items-center gap-1.5 px-3 xl:px-5 py-2 rounded-full text-[10px] font-[1000] uppercase tracking-[0.15em] transition-all duration-300 shrink-0 ${activeTab === 'drawings' ? 'bg-white text-teal-700 shadow-lg shadow-black/10' : 'text-teal-50/75 hover:text-white hover:bg-white/10'}`}
+              aria-label="Inventory"
+              aria-current={activeTab === 'drawings' ? 'page' : undefined}
+              title="Inventory"
+              className={`flex items-center gap-1.5 px-3 xl:px-5 py-2 rounded-full text-[10px] font-[1000] uppercase tracking-[0.15em] transition-colors duration-300 shrink-0 ${activeTab === 'drawings' ? 'bg-white text-teal-700 shadow-lg shadow-black/10' : 'text-teal-50/75 hover:text-white hover:bg-white/10'}`}
             >
               <FileStack size={14} strokeWidth={2.5} className={`shrink-0 ${activeTab === 'drawings' ? 'text-teal-600' : 'text-teal-50/75'}`} />
-              <span className="hidden xl:inline">Inventory</span>
+              <span className="nav-label">Inventory</span>
             </button>
             <button
               onClick={() => setActiveTab('activity')}
-              className={`flex items-center gap-1.5 px-3 xl:px-5 py-2 rounded-full text-[10px] font-[1000] uppercase tracking-[0.15em] transition-all duration-300 shrink-0 ${activeTab === 'activity' ? 'bg-white text-teal-700 shadow-lg shadow-black/10' : 'text-teal-50/75 hover:text-white hover:bg-white/10'}`}
+              aria-label="Activity"
+              aria-current={activeTab === 'activity' ? 'page' : undefined}
+              className={`flex items-center gap-1.5 px-3 xl:px-5 py-2 rounded-full text-[10px] font-[1000] uppercase tracking-[0.15em] transition-colors duration-300 shrink-0 ${activeTab === 'activity' ? 'bg-white text-teal-700 shadow-lg shadow-black/10' : 'text-teal-50/75 hover:text-white hover:bg-white/10'}`}
               title="Activity Report"
             >
               <TrendingUp size={14} strokeWidth={2.5} className={`shrink-0 ${activeTab === 'activity' ? 'text-teal-600' : 'text-teal-50/75'}`} />
-              <span className="hidden xl:inline">Activity</span>
+              <span className="nav-label">Activity</span>
             </button>
             <button
               onClick={() => setActiveTab('dailylog')}
-              className={`flex items-center gap-1.5 px-3 xl:px-5 py-2 rounded-full text-[10px] font-[1000] uppercase tracking-[0.15em] transition-all duration-300 shrink-0 ${activeTab === 'dailylog' ? 'bg-white text-teal-700 shadow-lg shadow-black/10' : 'text-teal-50/75 hover:text-white hover:bg-white/10'}`}
+              aria-label="Log"
+              aria-current={activeTab === 'dailylog' ? 'page' : undefined}
+              className={`flex items-center gap-1.5 px-3 xl:px-5 py-2 rounded-full text-[10px] font-[1000] uppercase tracking-[0.15em] transition-colors duration-300 shrink-0 ${activeTab === 'dailylog' ? 'bg-white text-teal-700 shadow-lg shadow-black/10' : 'text-teal-50/75 hover:text-white hover:bg-white/10'}`}
               title="Daily Change Log"
             >
               <Calendar size={14} strokeWidth={2.5} className={`shrink-0 ${activeTab === 'dailylog' ? 'text-teal-600' : 'text-teal-50/75'}`} />
-              <span className="hidden xl:inline">Log</span>
+              <span className="nav-label">Log</span>
             </button>
             <button
               onClick={() => setActiveTab('tracker')}
-              className={`flex items-center gap-1.5 px-3 xl:px-5 py-2 rounded-full text-[10px] font-[1000] uppercase tracking-[0.15em] transition-all duration-300 shrink-0 ${activeTab === 'tracker' ? 'bg-white text-teal-700 shadow-lg shadow-black/10' : 'text-teal-50/75 hover:text-white hover:bg-white/10'}`}
+              aria-label="Tracker"
+              aria-current={activeTab === 'tracker' ? 'page' : undefined}
+              title="Review Tracker"
+              className={`flex items-center gap-1.5 px-3 xl:px-5 py-2 rounded-full text-[10px] font-[1000] uppercase tracking-[0.15em] transition-colors duration-300 shrink-0 ${activeTab === 'tracker' ? 'bg-white text-teal-700 shadow-lg shadow-black/10' : 'text-teal-50/75 hover:text-white hover:bg-white/10'}`}
             >
               <ClipboardCheck size={14} strokeWidth={2.5} className={`shrink-0 ${activeTab === 'tracker' ? 'text-teal-600' : 'text-teal-50/75'}`} />
-              <span className="hidden xl:inline">Tracker</span>
+              <span className="nav-label">Tracker</span>
             </button>
             <button
               onClick={() => setActiveTab('comments')}
               aria-label="Comments"
               aria-current={activeTab === 'comments' ? 'page' : undefined}
               title="Comments register"
-              className={`flex items-center gap-1.5 px-3 xl:px-5 py-2 rounded-full text-[10px] font-[1000] uppercase tracking-[0.15em] transition-all duration-300 shrink-0 ${activeTab === 'comments' ? 'bg-white text-teal-700 shadow-lg shadow-black/10' : 'text-teal-50/75 hover:text-white hover:bg-white/10'}`}
+              className={`flex items-center gap-1.5 px-3 xl:px-5 py-2 rounded-full text-[10px] font-[1000] uppercase tracking-[0.15em] transition-colors duration-300 shrink-0 ${activeTab === 'comments' ? 'bg-white text-teal-700 shadow-lg shadow-black/10' : 'text-teal-50/75 hover:text-white hover:bg-white/10'}`}
             >
               <MessageSquare size={14} strokeWidth={2.5} className={`shrink-0 ${activeTab === 'comments' ? 'text-teal-600' : 'text-teal-50/75'}`} />
-              <span className="hidden xl:inline">Comments</span>
+              <span className="nav-label">Comments</span>
             </button>
-            <button
+            {(session?.mode !== 'kjx' || canConfigure) && <button
               onClick={() => canConfigure && setActiveTab('settings')}
+              aria-label="Config"
+              aria-current={activeTab === 'settings' ? 'page' : undefined}
               disabled={!canConfigure}
-              className={`flex items-center gap-1.5 px-3 xl:px-5 py-2 rounded-full text-[10px] font-[1000] uppercase tracking-[0.15em] transition-all duration-300 shrink-0 ${activeTab === 'settings' ? 'bg-white text-teal-700 shadow-lg shadow-black/10' : !isEditMode ? 'text-white/35 cursor-not-allowed opacity-70' : 'text-teal-50/75 hover:text-white hover:bg-white/10'}`}
+              className={`flex items-center gap-1.5 px-3 xl:px-5 py-2 rounded-full text-[10px] font-[1000] uppercase tracking-[0.15em] transition-colors duration-300 shrink-0 ${activeTab === 'settings' ? 'bg-white text-teal-700 shadow-lg shadow-black/10' : !isEditMode ? 'text-white/35 cursor-not-allowed opacity-70' : 'text-teal-50/75 hover:text-white hover:bg-white/10'}`}
               title={!isEditMode ? "Administrator permission required" : "Configuration"}
             >
               {!isEditMode ? <Lock size={14} className="text-white/40 shrink-0" /> : <SettingsIcon size={14} strokeWidth={2.5} className={`shrink-0 ${activeTab === 'settings' ? 'text-teal-600' : 'text-teal-50/75'}`} />}
-              <span className="hidden xl:inline">Config</span>
-            </button>
+              <span className="nav-label">Config</span>
+            </button>}
             <button
               onClick={() => setActiveTab('manual')}
-              className={`flex items-center gap-1.5 px-3 xl:px-5 py-2 rounded-full text-[10px] font-[1000] uppercase tracking-[0.15em] transition-all duration-300 shrink-0 ${activeTab === 'manual' ? 'bg-white text-teal-700 shadow-lg shadow-black/10' : 'text-teal-50/75 hover:text-white hover:bg-white/10'}`}
+              aria-label="Guide"
+              aria-current={activeTab === 'manual' ? 'page' : undefined}
+              title="Guide"
+              className={`flex items-center gap-1.5 px-3 xl:px-5 py-2 rounded-full text-[10px] font-[1000] uppercase tracking-[0.15em] transition-colors duration-300 shrink-0 ${activeTab === 'manual' ? 'bg-white text-teal-700 shadow-lg shadow-black/10' : 'text-teal-50/75 hover:text-white hover:bg-white/10'}`}
             >
               <BookOpen size={14} strokeWidth={2.5} className={`shrink-0 ${activeTab === 'manual' ? 'text-teal-600' : 'text-teal-50/75'}`} />
-              <span className="hidden xl:inline">Guide</span>
+              <span className="nav-label">Guide</span>
             </button>
           </nav>
         </div>
